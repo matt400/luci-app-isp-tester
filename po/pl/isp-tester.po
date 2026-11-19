@@ -556,6 +556,21 @@ msgstr "Próg strumienia (kbit/s)"
 msgid "Below this the stream counts as stopped. An HD channel usually uses 4000–12000 kbit/s."
 msgstr "Poniżej tej wartości strumień uznawany jest za zatrzymany. Kanał HD to zwykle 4000–12000 kbit/s."
 
+msgid "IPTV sampling interval (s)"
+msgstr "Próbkowanie IPTV (s)"
+
+msgid "How often the IPTV bitrate is measured, independent of the main interval. 1 s catches freezes of a few seconds; 0 measures only once per main interval."
+msgstr "Jak często mierzony jest bitrate IPTV, niezależnie od głównego interwału. 1 s wyłapuje zawieszenia trwające kilka sekund; 0 = pomiar tylko raz na główny interwał."
+
+msgid "Freeze after (s)"
+msgstr "Zawieszenie po (s)"
+
+msgid "How long the bitrate must stay below the threshold to log a freeze. 2 s ignores single short gaps the decoder buffer hides."
+msgstr "Jak długo bitrate musi być poniżej progu, żeby zapisać zawieszenie. 2 s pomija pojedyncze krótkie przerwy, które ukrywa bufor dekodera."
+
+msgid "Lowest 1 s bitrate"
+msgstr "Najniższy bitrate (1 s)"
+
 msgid "Decoder off after (s)"
 msgstr "Dekoder wyłączony po (s)"
 

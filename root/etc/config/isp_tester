@@ -39,6 +39,11 @@ config iptv 'iptv'
 	option bridge ''
 	# below this the stream is considered stopped
 	option min_kbps '500'
+	# IPTV bitrate is sampled on its own timer this often (s); 0 = only once per
+	# main interval (short freezes are then averaged away)
+	option sample_interval '1'
+	# bitrate must stay below min_kbps this long (s) to log a freeze
+	option stall_after '2'
 	# a stall longer than this is treated as "stream ended" (decoder off)
 	option idle_after '60'
 	# warn when bitrate falls below this % of its running average, 0 = off

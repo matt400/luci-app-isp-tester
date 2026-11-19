@@ -114,6 +114,16 @@ return view.extend({
 		o.datatype = 'uinteger';
 		o.placeholder = '500';
 
+		o = s.option(form.Value, 'sample_interval', _('IPTV sampling interval (s)'),
+			_('How often the IPTV bitrate is measured, independent of the main interval. 1 s catches freezes of a few seconds; 0 measures only once per main interval.'));
+		o.datatype = 'or(0,range(0.5,10))';
+		o.placeholder = '1';
+
+		o = s.option(form.Value, 'stall_after', _('Freeze after (s)'),
+			_('How long the bitrate must stay below the threshold to log a freeze. 2 s ignores single short gaps the decoder buffer hides.'));
+		o.datatype = 'range(0,60)';
+		o.placeholder = '2';
+
 		o = s.option(form.Value, 'idle_after', _('Decoder off after (s)'),
 			_('If the stream does not come back within this time, it is logged as “ended” instead of an ongoing outage.'));
 		o.datatype = 'range(5,3600)';

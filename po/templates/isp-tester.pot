@@ -605,6 +605,21 @@ msgstr ""
 msgid "Below this the stream counts as stopped. An HD channel usually uses 4000–12000 kbit/s."
 msgstr ""
 
+msgid "IPTV sampling interval (s)"
+msgstr ""
+
+msgid "How often the IPTV bitrate is measured, independent of the main interval. 1 s catches freezes of a few seconds; 0 measures only once per main interval."
+msgstr ""
+
+msgid "Freeze after (s)"
+msgstr ""
+
+msgid "How long the bitrate must stay below the threshold to log a freeze. 2 s ignores single short gaps the decoder buffer hides."
+msgstr ""
+
+msgid "Lowest 1 s bitrate"
+msgstr ""
+
 msgid "Decoder off after (s)"
 msgstr ""
 
