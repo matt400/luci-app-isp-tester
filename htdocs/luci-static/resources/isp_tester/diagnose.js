@@ -44,7 +44,9 @@ function periodicity(list) {
 	var mean = gaps.reduce(function(a, b) { return a + b; }, 0) / gaps.length;
 	if (mean <= 0) return null;
 	var sd = Math.sqrt(gaps.reduce(function(a, g) { return a + (g - mean) * (g - mean); }, 0) / gaps.length);
-	/* allow for the sampling interval jitter */
+	/* IGMP timers are minutes, not seconds: dense random freezes are not periodic.
+	 * The absolute tolerance covers the sampling interval jitter. */
+	if (mean < 60) return null;
 	return (sd / mean < 0.2 || sd <= 12) ? Math.round(mean) : null;
 }
 
@@ -65,12 +67,14 @@ return baseclass.extend({
 		var wanDown     = by(function(e) { return e.type === 'wan_down'; });
 		var gwLoss      = by(function(e) { return isLoss(e) && e.src === 'gateway'; });
 		var farLoss     = by(function(e) { return isLoss(e) && e.src !== 'gateway'; });
-		var anyWan      = gwLoss.concat(farLoss, wanDown, wanLinkDown);
+		/* the WAN L3 device vanishing (e.g. pppoe-wan when the PPP session drops) is a WAN problem */
+		var wanDevGone  = by(function(e) { return e.type === 'dev_missing' && (e.area === 'wan' || e.src === wanDev); });
+		var anyWan      = gwLoss.concat(farLoss, wanDown, wanLinkDown, wanDevGone);
 
 		var portLink    = by(function(e) { return e.area === 'ports' && (e.type === 'link_down' || e.type === 'link_flap'); });
 		var portSpeed   = by(function(e) { return e.area === 'ports' && e.type === 'speed_change' && e.d && e.d.to < e.d.from; });
 		var portErr     = by(function(e) { return e.area === 'ports' && (e.type === 'errors' || e.type === 'drops'); });
-		var portMissing = by(function(e) { return e.type === 'dev_missing'; });
+		var portMissing = by(function(e) { return e.type === 'dev_missing' && e.area !== 'wan' && e.src !== wanDev; });
 		var wanErr      = by(function(e) { return e.area === 'wan' && e.type === 'errors'; });
 		var iptvDevErr  = by(function(e) { return e.area === 'iptv' && (e.type === 'errors' || e.type === 'drops' || e.type === 'link_down'); });
 		var anyPort     = portLink.concat(portSpeed, portErr);

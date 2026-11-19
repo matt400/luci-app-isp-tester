@@ -501,7 +501,6 @@ return view.extend({
 			bridge: st.iptv && st.iptv.bridge
 		});
 
-		var lvlFor = { none: 'ok', minor: 'ok', isp: 'fail', home: 'fail', mixed: 'warn' }[r.verdict];
 		var total = r.isp + r.home;
 		var ispPct = total ? Math.round(r.isp * 100 / total) : 0;
 
@@ -723,13 +722,18 @@ return view.extend({
 			out.push(statusRibbon(t, s.lvl, w.from, w.to));
 
 		var targets = (st.wan && st.wan.targets) || [];
-		var labels = Object.keys(s).filter(function(k) { return k.indexOf('rtt:') === 0; }).map(function(k) { return k.substr(4); });
+		/* a target that never answers has only a loss series (rtt is always null) */
+		var labels = [];
+		Object.keys(s).forEach(function(k) {
+			var m = /^(rtt|loss):(.*)$/.exec(k);
+			if (m && labels.indexOf(m[2]) < 0) labels.push(m[2]);
+		});
 		if (labels.length) {
 			var series = [], lossBands = [];
 			labels.forEach(function(label, i) {
 				var tg = targets.filter(function(x) { return x.label === label; })[0];
 				var loss = s['loss:' + label] || [];
-				series.push({ name: targetName(label, tg && tg.host), color: COLORS[i % COLORS.length], data: s['rtt:' + label], loss: loss,
+				series.push({ name: targetName(label, tg && tg.host), color: COLORS[i % COLORS.length], data: s['rtt:' + label] || t.map(function() { return null; }), loss: loss,
 					fmt: (function(l) { return function(v, k) { return fmtMs(v) + (l[k] > 0 ? ' · ' + _('loss %d%%').format(l[k]) : ''); }; })(loss) });
 				lossBands = lossBands.concat(bandsFor(t, function(k) { return loss[k] > 0; }, lossMax(loss) ? '#d64541' : '#e0a100', _('Packet loss')));
 			});
@@ -877,6 +881,9 @@ return view.extend({
 				E('button', { 'class': 'cbi-button cbi-button-negative', 'click': function() {
 					ui.hideModal();
 					return callClear().then(function() {
+						/* drop the cached full timeline / 24 h history so old entries do not linger */
+						self.allEvents = [];
+						self.minHist = null;
 						ui.addNotification(null, E('p', _('Logs will be cleared within one interval.')), 'info');
 					});
 				} }, _('Clear'))
