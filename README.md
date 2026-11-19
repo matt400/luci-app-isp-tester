@@ -4,6 +4,28 @@ An OpenWrt package with a LuCI web interface that watches your Internet connecti
 
 Target: **OpenWrt 24.10** (ucode + rpcd + LuCI JS). No compiled code, the package is architecture-independent.
 
+![Overview: status banner, probable cause and live cards](docs/screenshots/overview.png)
+
+## Screenshots
+
+*Demo data: evening IPTV freezes every ~260 s, two short packet-loss bursts at the ISP gateway, and a flapping LAN port.*
+
+**Probable cause.** The verdict is ISP vs. router/home, with the findings behind it:
+
+![Probable cause panel](docs/screenshots/probable-cause.png)
+
+**History, last 24 h.** It shows a state strip, ping with packet-loss bands, IPTV bitrate and interface errors:
+
+![24 h history](docs/screenshots/history-24h.png)
+
+**Zoomed to one hour.** Here the freezes are clearly periodic:
+
+![1 h zoom on IPTV freezes](docs/screenshots/history-zoom.png)
+
+**Timeline.** Click an event to zoom the charts to that moment:
+
+![Timeline](docs/screenshots/timeline.png)
+
 ## What it monitors
 
 | Area | How | Logged events |
