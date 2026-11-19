@@ -1,0 +1,96 @@
+name: Build packages
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: OpenWrt ${{ matrix.release }} (${{ matrix.ext }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - release: '24.10'
+            ext: ipk
+          - release: '25.12'
+            ext: apk
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: src
+
+      - name: Set version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          sed -i "s/^PKG_VERSION:=.*/PKG_VERSION:=${ver}/" src/Makefile
+          grep '^PKG_VERSION' src/Makefile
+
+      - name: Build in OpenWrt SDK
+        run: |
+          mkdir -p out && chmod 777 out
+          docker run --rm \
+            -v "$PWD/src:/src:ro" \
+            -v "$PWD/out:/out" \
+            ghcr.io/openwrt/sdk:x86_64-openwrt-${{ matrix.release }} \
+            bash -ec '
+              [ -f setup.sh ] && bash setup.sh
+              cp -r /src package/luci-app-isp-tester
+              rm -rf package/luci-app-isp-tester/.git package/luci-app-isp-tester/docs
+              ./scripts/feeds update base luci packages
+              ./scripts/feeds install -a -p base >/dev/null
+              ./scripts/feeds install -a -p luci >/dev/null
+              make defconfig
+              sed -i "s/^CONFIG_SIGNED_PACKAGES=y/# CONFIG_SIGNED_PACKAGES is not set/" .config
+              make package/luci-app-isp-tester/compile -j"$(nproc)" V=s
+              find bin/packages -name "*isp-tester*.${{ matrix.ext }}" -exec cp -v {} /out/ \;
+            '
+          ls -l out
+          test -n "$(ls out/*.${{ matrix.ext }} 2>/dev/null)"
+
+      - name: Give files stable names
+        # releases/latest/download/<name> then always points at the newest version
+        run: |
+          cd out
+          for f in *.${{ matrix.ext }}; do
+            case "$f" in
+              luci-app-isp-tester*)     mv -v "$f" luci-app-isp-tester.${{ matrix.ext }} ;;
+              luci-i18n-isp-tester-pl*) mv -v "$f" luci-i18n-isp-tester-pl.${{ matrix.ext }} ;;
+            esac
+          done
+          ls -l
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ matrix.ext }}
+          path: out/*.${{ matrix.ext }}
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - run: |
+          cd dist
+          sha256sum * > SHA256SUMS
+          ls -l
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

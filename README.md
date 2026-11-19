@@ -2,7 +2,7 @@
 
 An OpenWrt package with a LuCI web interface that watches your Internet connection, IPTV stream and switch ports, and records every problem with a timestamp. It is built for intermittent faults like IPTV freezing at random times, so you have concrete logs when you talk to your ISP.
 
-Target: **OpenWrt 24.10** (ucode + rpcd + LuCI JS). No compiled code, the package is architecture-independent.
+Target: **OpenWrt 24.10 and 25.12** (ucode + rpcd + LuCI JS). No compiled code, the package is architecture-independent.
 
 ![Overview: status banner, probable cause and live cards](docs/screenshots/overview.png)
 
@@ -101,7 +101,33 @@ Switch the TV on and check that the overview shows a few Mbit/s. Then set *strea
 
 ### Package (recommended)
 
-Build it in the OpenWrt 24.10 SDK:
+Ready-made packages are attached to every [release](https://github.com/matt400/luci-app-isp-tester/releases). They are architecture-independent, so the same file works on every router.
+
+**OpenWrt 24.10 (opkg):**
+
+```sh
+opkg update
+opkg install https://github.com/matt400/luci-app-isp-tester/releases/latest/download/luci-app-isp-tester.ipk
+# Polish translation (optional)
+opkg install https://github.com/matt400/luci-app-isp-tester/releases/latest/download/luci-i18n-isp-tester-pl.ipk
+```
+
+**OpenWrt 25.12 and newer (apk):**
+
+```sh
+apk update
+wget -O /tmp/isp-tester.apk https://github.com/matt400/luci-app-isp-tester/releases/latest/download/luci-app-isp-tester.apk
+apk add --allow-untrusted /tmp/isp-tester.apk
+# Polish translation (optional)
+wget -O /tmp/isp-tester-pl.apk https://github.com/matt400/luci-app-isp-tester/releases/latest/download/luci-i18n-isp-tester-pl.apk
+apk add --allow-untrusted /tmp/isp-tester-pl.apk
+```
+
+`--allow-untrusted` is needed because the package is not signed with an OpenWrt key.
+
+### Build it yourself
+
+In the OpenWrt SDK:
 
 ```sh
 git clone https://github.com/matt400/luci-app-isp-tester package/luci-app-isp-tester
@@ -109,7 +135,11 @@ git clone https://github.com/matt400/luci-app-isp-tester package/luci-app-isp-te
 make package/luci-app-isp-tester/compile V=s
 ```
 
-Copy the `.ipk` files from `bin/packages/*/base/` to the router and run `opkg install` on them.
+The packages end up in `bin/packages/*/base/`.
+
+### Making a release
+
+Push a tag like `v0.2.0`. GitHub Actions builds the `.ipk` (24.10) and `.apk` (25.12) and attaches them to the release. The version is taken from the tag.
 
 ### Quick test (copy files)
 
