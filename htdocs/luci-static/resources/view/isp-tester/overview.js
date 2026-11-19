@@ -754,11 +754,20 @@ return view.extend({
 				if (end >= w.from && e.ts <= w.to)
 					stallBands.push({ from: e.ts, to: end, color: '#d64541', title: _('Stream stopped for %s').format(fmtDur(end - e.ts)) });
 			});
-			out.push(lineChart(t, [ {
+			var ibr = [ {
 				name: cd.fine ? _('IPTV bitrate') : _('IPTV bitrate (1 min average)'), color: '#7a59c0',
 				data: kb.map(function(v) { return v == null ? null : v / 1000; }),
 				fmt: function(v) { return fmtRate(v * 1000); }
-			} ], {
+			} ];
+			/* lowest 1 s value per point: shows freezes shorter than the chart step */
+			if (s['iptv:min'] && s['iptv:min'].some(function(v, k) { return v != null && kb[k] != null && v < kb[k] * 0.8; }))
+				ibr.push({
+					name: _('Lowest 1 s bitrate'), color: '#d64541',
+					data: s['iptv:min'].map(function(v) { return v == null ? null : v / 1000; }),
+					fmt: function(v) { return fmtRate(v * 1000); }
+				});
+			out.push(lineChart(t, ibr, {
+				legend: ibr.length > 1,
 				from: w.from, to: w.to,
 				title: _('IPTV bitrate (Mbit/s) – red = stream stopped while watching'),
 				bands: stallBands,

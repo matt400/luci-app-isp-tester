@@ -5,7 +5,8 @@
  * Periodically samples:
  *   - interface counters / link state of configured devices (ports, WAN, IPTV)
  *   - ping loss / latency to the ISP gateway and configured targets
- *   - IPTV bitrate on the configured device
+ *   - IPTV bitrate on the configured device (on its own fast timer, default
+ *     every second, so freezes of a few seconds are not averaged away)
  *
  * and turns state changes into events. Everything is kept in RAM (/tmp):
  *   state.json   - current health + short history for charts (read by rpcd)
@@ -100,7 +101,8 @@ function default_config() {
 		},
 		iptv: {
 			enabled: true, device: '', direction: 'rx', bridge: '',
-			min_kbps: 500, idle_after: 60, dip_pct: 40
+			min_kbps: 500, idle_after: 60, dip_pct: 40,
+			sample_interval: 1, stall_after: 2
 		},
 		ports: [],
 		err_cooldown: 60,
@@ -154,6 +156,8 @@ function load_config() {
 		c.iptv.min_kbps   = num(t.min_kbps, c.iptv.min_kbps);
 		c.iptv.idle_after = num(t.idle_after, c.iptv.idle_after);
 		c.iptv.dip_pct    = num(t.dip_pct, c.iptv.dip_pct);
+		c.iptv.sample_interval = num(t.sample_interval, c.iptv.sample_interval);
+		c.iptv.stall_after = num(t.stall_after, c.iptv.stall_after);
 
 		cur.foreach('isp_tester', 'port', (s) => {
 			if (bool(s.enabled, true) && s.device)
@@ -172,6 +176,11 @@ function load_config() {
 	if (c.wan.device && !valid_dev(c.wan.device)) c.wan.device = '';
 	if (c.iptv.device && !valid_dev(c.iptv.device)) c.iptv.device = '';
 	if (c.iptv.bridge && !valid_dev(c.iptv.bridge)) c.iptv.bridge = '';
+	/* 0 (or >= interval) = sample IPTV only on the main tick, like before */
+	if (c.iptv.sample_interval < 0) c.iptv.sample_interval = 0;
+	if (c.iptv.sample_interval > 0 && c.iptv.sample_interval < 0.5) c.iptv.sample_interval = 0.5;
+	if (c.iptv.sample_interval >= c.interval) c.iptv.sample_interval = 0;
+	if (c.iptv.stall_after < 0) c.iptv.stall_after = 0;
 
 	return c;
 }
@@ -185,7 +194,13 @@ let history_min = { t: [], s: {} };
 let devstate = {};      /* dev -> { prev, link, since, err_acc, drop_acc, last_err_ev, ... } */
 let targets = {};       /* label -> { host, state, since, loss, rtt, rtt_max, sent, recv, busy } */
 let wan_down_since = null;
-let iptv = { state: 'idle', since: now(), kbps: 0, pps: 0, avg: null, dip: false, prev: null, prev_t: null };
+let iptv = {
+	state: 'idle', since: now(), kbps: 0, pps: 0, avg: null, dip: false,
+	stall_since: null, stall_m: null,       /* wall / monotonic start of the current stall */
+	low_w: null, low_m: null,               /* start of a below-threshold run not yet long enough */
+	prev: null, prev_m: null, prev_w: null, /* last counter reading (fast sampler) */
+	acc: null                               /* per-tick aggregate of the fast samples */
+};
 let csv_rows = 0;
 let csv_header = null;
 let last_mono = null;
@@ -197,8 +212,8 @@ function save_events() {
 	write_atomic(`${RUNDIR}/events.json`, sprintf('%J', events));
 }
 
-function emit(lvl, area, src, typ, data) {
-	push(events, { ts: now(), lvl, area, src, type: typ, d: data ?? {} });
+function emit(lvl, area, src, typ, data, ts) {
+	push(events, { ts: ts ?? now(), lvl, area, src, type: typ, d: data ?? {} });
 	if (length(events) > cfg.max_events)
 		events = slice(events, length(events) - cfg.max_events);
 	save_events();
@@ -574,6 +589,10 @@ function start_pings() {
 
 /* ------------------------------------------------------------------ IPTV */
 
+function iptv_fast() {
+	return cfg.iptv.enabled && cfg.iptv.device && cfg.iptv.sample_interval > 0;
+}
+
 function iptv_out(devres) {
 	let level = 'ok', reasons = [];
 
@@ -598,7 +617,9 @@ function iptv_out(devres) {
 	let o = {
 		level, reasons, state: iptv.state, since: iptv.state == 'stalled' ? iptv.stall_since : iptv.since,
 		kbps: iptv.kbps, pps: iptv.pps, avg: round(iptv.avg, 0), device: cfg.iptv.device,
-		direction: cfg.iptv.direction, min_kbps: cfg.iptv.min_kbps
+		direction: cfg.iptv.direction, min_kbps: cfg.iptv.min_kbps,
+		sample_interval: iptv_fast() ? cfg.iptv.sample_interval : cfg.interval,
+		min: iptv.tick?.min, stall_s: iptv.tick?.stall_s
 	};
 
 	if (cfg.iptv.bridge) {
@@ -612,70 +633,170 @@ function iptv_out(devres) {
 	return o;
 }
 
-function sample_iptv(devres) {
-	if (!cfg.iptv.enabled || !cfg.iptv.device) return null;
-
-	let d = devres?.delta;
-	let bps = 0, pps = 0;
-	if (d) {
-		bps = (cfg.iptv.direction == 'tx') ? d.tx_bps : d.rx_bps;
-		pps = (cfg.iptv.direction == 'tx') ? d.tx_pps : d.rx_pps;
-	}
-	let kbps = round((bps ?? 0) / 1000, 0);
-	iptv.kbps = kbps;
-	iptv.pps = round(pps ?? 0, 0);
-
-	if (!devres?.present || devres.delta == null)
-		return iptv_out(devres);
-
-	let t = now();
+/*
+ * Stream state machine, fed with one bitrate measurement covering the time
+ * from iptv.prev_m/prev_w to m/w. Runs every second with the fast sampler
+ * (or once per tick when it is off). A stall is logged when the bitrate stays
+ * below min_kbps for at least stall_after seconds; its timestamp is the
+ * moment the data stopped, not the moment it was noticed.
+ */
+function iptv_update(kbps, m, w, from_m, from_w) {
+	kbps = round(kbps, 0);
 	let active = kbps >= cfg.iptv.min_kbps;
+
+	/* seconds of data missing in this interval, judged against the usual
+	 * bitrate; summed over a freeze it gives its length more exactly than
+	 * the sample boundaries do (a gap rarely starts on a sample edge) */
+	let def = (iptv.avg > 0) ? (m - from_m) * (1 - kbps / iptv.avg) : (active ? 0 : m - from_m);
+	if (def < 0) def = 0;
+	let prev_def = iptv.last_def ?? 0;
+	iptv.last_def = def;
+	let was_low = iptv.state == 'stalled' || iptv.low_m != null;
 
 	switch (iptv.state) {
 	case 'idle':
 		if (active) {
 			emit('info', 'iptv', 'stream', 'stream_start', { kbps });
 			iptv.state = 'playing';
-			iptv.since = t;
+			iptv.since = w;
 			iptv.avg = kbps;
+			iptv.dip = false;
 		}
 		break;
 
 	case 'playing':
-		if (!active) {
-			emit('err', 'iptv', 'stream', 'stream_stall', { kbps, avg: round(iptv.avg, 0) });
-			iptv.state = 'stalled';
-			iptv.stall_since = t;
+		if (active) {
+			iptv.low_m = iptv.low_w = null;
+			break;
 		}
-		else {
-			/* bitrate dip relative to running average */
-			if (cfg.iptv.dip_pct > 0 && iptv.avg > 0) {
-				let ratio = kbps * 100 / iptv.avg;
-				if (!iptv.dip && ratio < cfg.iptv.dip_pct) {
-					iptv.dip = true;
-					emit('warn', 'iptv', 'stream', 'stream_dip', { kbps, avg: round(iptv.avg, 0) });
-				}
-				else if (iptv.dip && ratio >= cfg.iptv.dip_pct + 10) {
-					iptv.dip = false;
-				}
-			}
-			if (!iptv.dip)
-				iptv.avg = iptv.avg * 0.9 + kbps * 0.1;
+		if (iptv.low_m == null) {
+			iptv.low_m = from_m;
+			iptv.low_w = from_w;
+			/* the freeze probably began inside the previous interval */
+			iptv.missing = prev_def;
+		}
+		iptv.missing += def;
+		if (m - iptv.low_m >= cfg.iptv.stall_after - 0.05) {
+			emit('err', 'iptv', 'stream', 'stream_stall', { kbps, avg: round(iptv.avg, 0) }, iptv.low_w);
+			iptv.state = 'stalled';
+			iptv.stall_since = iptv.low_w;
+			iptv.stall_m = iptv.low_m;
+			iptv.low_m = iptv.low_w = null;
+			if (iptv.acc) iptv.acc.stalls++;
 		}
 		break;
 
 	case 'stalled':
 		if (active) {
-			emit('warn', 'iptv', 'stream', 'stream_resume', { dur: t - iptv.stall_since, kbps });
+			/* data came back somewhere inside the last interval */
+			let dur = round(iptv.missing + def, 0);
+			emit('warn', 'iptv', 'stream', 'stream_resume', { dur: dur < 1 ? 1 : dur, kbps });
 			iptv.state = 'playing';
 			iptv.dip = false;
 		}
-		else if (t - iptv.stall_since >= cfg.iptv.idle_after) {
-			emit('warn', 'iptv', 'stream', 'stream_lost', { dur: t - iptv.stall_since });
+		else {
+			iptv.missing += def;
+		}
+		if (iptv.state == 'stalled' && m - iptv.stall_m >= cfg.iptv.idle_after) {
+			emit('warn', 'iptv', 'stream', 'stream_lost', { dur: round(m - iptv.stall_m, 0) });
 			iptv.state = 'idle';
-			iptv.since = t;
+			iptv.since = w;
 		}
 		break;
+	}
+
+	if (iptv.acc && (was_low || iptv.state == 'stalled' || iptv.low_m != null))
+		iptv.acc.stall_s += def;
+}
+
+function iptv_counters() {
+	let dev = cfg.iptv.device, tx = cfg.iptv.direction == 'tx';
+	if (!fs.stat(`${SYSNET}/${dev}`)) return null;
+	let b = num(rd(dev, `statistics/${tx ? 'tx' : 'rx'}_bytes`), null);
+	let p = num(rd(dev, `statistics/${tx ? 'tx' : 'rx'}_packets`), null);
+	return (b == null || p == null) ? null : { b, p };
+}
+
+/* fast sampler: one counter reading per sample_interval */
+function iptv_fast_sample() {
+	let c = iptv_counters(), m = mono(), w = now();
+	if (!c) {
+		iptv.prev = null;
+		return;
+	}
+
+	let p = iptv.prev, dt = p ? m - iptv.prev_m : 0;
+	if (p && dt > 0.2 && c.b >= p.b && c.p >= p.p) {
+		let kbps = (c.b - p.b) * 8 / dt / 1000;
+		let a = iptv.acc ??= { bytes: 0, pkts: 0, dt: 0, min: null, stall_s: 0, stalls: 0, n: 0 };
+		a.bytes += c.b - p.b;
+		a.pkts += c.p - p.p;
+		a.dt += dt;
+		a.n++;
+		if (a.min == null || kbps < a.min) a.min = kbps;
+		iptv_update(kbps, m, w, iptv.prev_m, iptv.prev_w);
+	}
+
+	iptv.prev = c;
+	iptv.prev_m = m;
+	iptv.prev_w = w;
+}
+
+/* called once per main tick: summary of the fast samples, dip detection */
+function sample_iptv(devres) {
+	if (!cfg.iptv.enabled || !cfg.iptv.device) return null;
+
+	let kbps = 0, pps = 0, ok = false;
+	let fast = iptv_fast();
+
+	if (fast) {
+		let a = iptv.acc;
+		iptv.acc = null;
+		if (a && a.dt > 0) {
+			kbps = a.bytes * 8 / a.dt / 1000;
+			pps = a.pkts / a.dt;
+			ok = true;
+		}
+		iptv.tick = a ? { min: round(a.min, 0), stall_s: round(a.stall_s, 0), stalls: a.stalls } : null;
+	}
+	else {
+		let d = devres?.delta;
+		if (d) {
+			kbps = ((cfg.iptv.direction == 'tx') ? d.tx_bps : d.rx_bps) / 1000;
+			pps = (cfg.iptv.direction == 'tx') ? d.tx_pps : d.rx_pps;
+			ok = devres.present;
+		}
+		iptv.tick = null;
+		if (ok) {
+			let m = mono(), w = now();
+			iptv.acc = { stall_s: 0, stalls: 0 };
+			iptv_update(kbps, m, w, iptv.prev_m ?? m - cfg.interval, iptv.prev_w ?? w - cfg.interval);
+			iptv.tick = { min: round(kbps, 0), stall_s: round(iptv.acc.stall_s, 0), stalls: iptv.acc.stalls };
+			iptv.acc = null;
+			iptv.prev_m = m;
+			iptv.prev_w = w;
+		}
+	}
+
+	kbps = round(kbps ?? 0, 0);
+	iptv.kbps = kbps;
+	iptv.pps = round(pps ?? 0, 0);
+
+	/* bitrate dip relative to the running average; only on whole ticks
+	 * without a stall, so normal VBR jitter and freezes don't count */
+	if (ok && iptv.state == 'playing' && !(iptv.tick?.stall_s > 0) && kbps >= cfg.iptv.min_kbps) {
+		if (cfg.iptv.dip_pct > 0 && iptv.avg > 0) {
+			let ratio = kbps * 100 / iptv.avg;
+			if (!iptv.dip && ratio < cfg.iptv.dip_pct) {
+				iptv.dip = true;
+				emit('warn', 'iptv', 'stream', 'stream_dip', { kbps, avg: round(iptv.avg, 0) });
+			}
+			else if (iptv.dip && ratio >= cfg.iptv.dip_pct + 10) {
+				iptv.dip = false;
+			}
+		}
+		if (!iptv.dip)
+			iptv.avg = (iptv.avg ?? kbps) * 0.9 + kbps * 0.1;
 	}
 
 	return iptv_out(devres);
@@ -686,7 +807,7 @@ function sample_iptv(devres) {
 function csv_columns(devs, tlist) {
 	let cols = [ 'time', 'overall' ];
 	for (let t in tlist) push(cols, `ping_${t.label}_loss`, `ping_${t.label}_rtt`);
-	if (cfg.iptv.enabled && cfg.iptv.device) push(cols, 'iptv_state', 'iptv_kbps', 'iptv_pps');
+	if (cfg.iptv.enabled && cfg.iptv.device) push(cols, 'iptv_state', 'iptv_kbps', 'iptv_min_kbps', 'iptv_stall_s', 'iptv_pps');
 	for (let m in devs) push(cols, `${m.dev}_link`, `${m.dev}_speed`, `${m.dev}_err`, `${m.dev}_crc`, `${m.dev}_drop`, `${m.dev}_rx_kbps`, `${m.dev}_tx_kbps`);
 	return cols;
 }
@@ -860,7 +981,11 @@ function tick() {
 			hv[`rtt:${x.label}`] = x.rtt;
 			hv[`loss:${x.label}`] = x.loss;
 		}
-		if (iptv_res) hv['iptv:kbps'] = iptv_res.kbps;
+		if (iptv_res) {
+			hv['iptv:kbps'] = iptv_res.kbps;
+			/* lowest 1 s bitrate in this interval, so short freezes show on the chart */
+			if (iptv_res.min != null) hv['iptv:min'] = iptv_res.min;
+		}
 		for (let d in devs) {
 			let r = res[d.dev];
 			hv[`err:${d.dev}`] = r.delta ? (r.delta.err + r.delta.crc) : null;
@@ -870,7 +995,7 @@ function tick() {
 
 		let mv = { ...hv };
 		for (let x in (wan?.targets ?? [])) mv[`rttmax:${x.label}`] = x.rtt;
-		if (iptv_res) mv['iptv:min'] = iptv_res.kbps;
+		if (iptv_res) mv['iptv:min'] = iptv_res.min ?? iptv_res.kbps;
 		agg_add(t, mv);
 
 		/* ---- CSV */
@@ -880,7 +1005,7 @@ function tick() {
 
 		let row = [ tstamp(t), overall ];
 		for (let x in tlist) push(row, x.t.res?.loss, x.t.res?.rtt);
-		if (cfg.iptv.enabled && cfg.iptv.device) push(row, iptv_res?.state, iptv_res?.kbps, iptv_res?.pps);
+		if (cfg.iptv.enabled && cfg.iptv.device) push(row, iptv_res?.state, iptv_res?.kbps, iptv_res?.min, iptv_res?.stall_s, iptv_res?.pps);
 		for (let d in devs) {
 			let r = res[d.dev];
 			push(row, r.present ? (r.up ? 'up' : 'down') : 'missing', r.speed,
@@ -934,7 +1059,7 @@ let load_hist = (name, max) => {
 history = load_hist('state.json', cfg.history);
 history_min = load_hist('history.json', cfg.long_history);
 
-emit('info', 'system', 'collector', 'monitor_start', { interval: cfg.interval });
+emit('info', 'system', 'collector', 'monitor_start', { interval: cfg.interval, iptv_interval: iptv_fast() ? cfg.iptv.sample_interval : null });
 
 uloop.init();
 refresh_wan_device();
@@ -950,5 +1075,19 @@ timer = uloop.timer(cfg.wan.enabled ? (cfg.wan.count + 2) * 1000 : 10, () => {
 		warn(`isp-tester: tick failed: ${e}\n${e.stacktrace?.[0]?.context ?? ''}\n`);
 	}
 });
+
+let iptv_timer;
+if (iptv_fast()) {
+	iptv_fast_sample();
+	iptv_timer = uloop.timer(int(cfg.iptv.sample_interval * 1000), () => {
+		iptv_timer.set(int(cfg.iptv.sample_interval * 1000));
+		try {
+			iptv_fast_sample();
+		}
+		catch (e) {
+			warn(`isp-tester: iptv sample failed: ${e}\n`);
+		}
+	});
+}
 
 uloop.run();
