@@ -3,26 +3,30 @@
  * luci-app-isp-tester - collector daemon
  *
  * Periodically samples:
- *   - interface counters / link state of configured devices (ports, WAN, IPTV)
- *   - ping loss / latency to the ISP gateway and configured targets
- *   - IPTV bitrate on the configured device (on its own fast timer, default
- *     every second, so freezes of a few seconds are not averaged away)
- *   - ping jitter, DNS resolution time, WAN session restarts (PPPoE/DHCP)
- *   - IGMP group membership, multicast proxy process, bridge MDB
- *   - router load (CPU per core, softirq, RAM, conntrack table)
- *   - "problem now" marks set by the user from the web UI
+ * Takes its data from what OpenWrt already provides and does not measure
+ * anything itself that the system measures already:
+ *   - ping loss / latency / jitter: collectd ping plugin (luci-app-statistics),
+ *     live through the unixsock plugin or from the RRD files
+ *   - WAN session: netifd (ubus network.interface.<wan> status)
+ *   - interface counters / link state: /sys/class/net
+ *   - IGMP groups: /proc/net/igmp, multicast proxy from /proc, bridge MDB
+ *   - router load: /proc (only to explain problems, no graphs)
+ *   - system log (logread): pppd, udhcpc, igmpproxy, kernel, dnsmasq messages
+ * The IPTV bitrate is the one own measurement: read from the interface
+ * counters every second, which nothing in OpenWrt does.
  *
- * and turns state changes into events. Everything is kept in RAM (/tmp):
- *   state.json   - current health + short history for charts (read by rpcd)
- *   events.json  - event timeline (ring buffer)
- *   samples.csv  - one row per tick (ring buffer, for export)
- * Optionally copied to persistent storage (USB) and forwarded to syslog /
- * push notifications (ntfy, Telegram, webhook).
+ * It turns state changes into events:
+ *   <RUNDIR>/events.json   - event timeline (ring buffer)
+ *   <RUNDIR>/history.json  - 24 h of 1-minute aggregates
+ *   <RUNDIR>/samples.csv   - one row per tick (ring buffer, for export)
+ *   <VARDIR>/state.json    - current health + last hour for the charts (rpcd)
+ * RUNDIR is in RAM unless the init script links it to a folder on USB.
  *
  * Environment overrides (used for testing off-device):
- *   ISP_TESTER_RUNDIR, ISP_TESTER_SYSNET, ISP_TESTER_CONFIG (JSON file instead of UCI),
- *   ISP_TESTER_PING (ping binary), ISP_TESTER_ROUTE (/proc/net/route path),
- *   ISP_TESTER_PROC (/proc), ISP_TESTER_NSLOOKUP, ISP_TESTER_LOGGER, ISP_TESTER_FETCH
+ *   ISP_TESTER_RUNDIR, ISP_TESTER_VARDIR, ISP_TESTER_SYSNET, ISP_TESTER_CONFIG
+ *   (JSON file instead of UCI), ISP_TESTER_ROUTE (/proc/net/route path),
+ *   ISP_TESTER_PROC (/proc), ISP_TESTER_WANSTATUS, ISP_TESTER_LOGREAD,
+ *   ISP_TESTER_FETCH, ISP_TESTER_BRIDGE, ISP_TESTER_RRDTOOL
  */
 'use strict';
 
@@ -30,11 +34,10 @@ import * as fs from 'fs';
 import * as uloop from 'uloop';
 
 const RUNDIR = getenv('ISP_TESTER_RUNDIR') || '/tmp/isp-tester';
+const VARDIR = getenv('ISP_TESTER_VARDIR') || '/var/run/isp-tester';
 const SYSNET = getenv('ISP_TESTER_SYSNET') || '/sys/class/net';
-const PING = getenv('ISP_TESTER_PING') || 'ping';
 const ROUTE = getenv('ISP_TESTER_ROUTE') || '/proc/net/route';
 const PROC = getenv('ISP_TESTER_PROC') || '/proc';
-const NSLOOKUP = getenv('ISP_TESTER_NSLOOKUP') || 'nslookup';
 
 function find_bin(env, names) {
 	let e = getenv(env);
@@ -44,9 +47,9 @@ function find_bin(env, names) {
 	return null;
 }
 
-const LOGGER = find_bin('ISP_TESTER_LOGGER', [ '/usr/bin/logger', '/bin/logger' ]);
 const FETCH = find_bin('ISP_TESTER_FETCH', [ '/bin/uclient-fetch', '/usr/bin/uclient-fetch', '/usr/bin/wget', '/bin/wget' ]);
-const TIMEOUT = fs.stat('/usr/bin/timeout') ? '/usr/bin/timeout' : (fs.stat('/bin/timeout') ? '/bin/timeout' : null);
+const LOGREAD = find_bin('ISP_TESTER_LOGREAD', [ '/sbin/logread', '/usr/sbin/logread' ]);
+const RRDTOOL = find_bin('ISP_TESTER_RRDTOOL', [ '/usr/bin/rrdtool' ]);
 const BRIDGE = find_bin('ISP_TESTER_BRIDGE', [ '/usr/sbin/bridge', '/sbin/bridge' ]);
 const PROXIES = [ 'igmpproxy', 'mcproxy', 'omcproxy', 'improxy' ];
 
@@ -117,14 +120,11 @@ function default_config() {
 		history: 360,
 		long_history: 1440,
 		warn_window: 900,
-		persist_dir: '',
-		persist_interval: 900,
-		syslog: false,
+		logread: true,
 		wan: {
-			enabled: true, interface: 'wan', device: '', ping_gateway: true,
-			targets: [ '1.1.1.1', '8.8.8.8' ], count: 3,
+			enabled: true, interface: 'wan', device: '', gateway: '',
 			loss_warn: 1, loss_fail: 50, rtt_warn: 80, jitter_warn: 0,
-			dns: true, dns_host: 'openwrt.org', dns_server: '', dns_warn: 500
+			collectd_socket: '', rrd_dir: ''
 		},
 		iptv: {
 			enabled: true, device: '', direction: 'rx', bridge: '',
@@ -167,15 +167,19 @@ function load_config() {
 		let y = cur.get_all('isp_tester', 'system') || {};
 		let n = cur.get_all('isp_tester', 'notify') || {};
 
-		c.persist_dir = g.persist_dir ?? '';
-		c.persist_interval = num(g.persist_interval, c.persist_interval);
-		c.syslog      = bool(g.syslog, false);
+		c.logread     = bool(g.logread, true);
 
 		c.wan.jitter_warn = num(w.jitter_warn, c.wan.jitter_warn);
-		c.wan.dns        = bool(w.dns, true);
-		c.wan.dns_host   = w.dns_host ?? c.wan.dns_host;
-		c.wan.dns_server = w.dns_server ?? '';
-		c.wan.dns_warn   = num(w.dns_warn, c.wan.dns_warn);
+		c.wan.gateway     = w.gateway ?? '';
+
+		/* where luci-app-statistics keeps collectd's data */
+		let us = cur.get_all('luci_statistics', 'collectd_unixsock') || {};
+		let rr = cur.get_all('luci_statistics', 'collectd_rrdtool') || {};
+		let pg = cur.get_all('luci_statistics', 'collectd_ping') || {};
+		c.wan.collectd_socket = w.collectd_socket || (bool(us.enable, false) ? (us.SocketFile ?? '') : '');
+		c.wan.rrd_dir = w.rrd_dir || rr.DataDir || '/tmp/rrd';
+		c.wan.ping_plugin = bool(pg.enable, false);
+		c.wan.ping_hosts = aslist(pg.Hosts);
 
 		c.iptv.igmp        = bool(t.igmp, true);
 		c.iptv.igmp_device = t.igmp_device ?? '';
@@ -206,9 +210,6 @@ function load_config() {
 		c.wan.enabled      = bool(w.enabled, true);
 		c.wan.interface    = w.interface ?? c.wan.interface;
 		c.wan.device       = w.device ?? '';
-		c.wan.ping_gateway = bool(w.ping_gateway, true);
-		if (w.target != null) c.wan.targets = aslist(w.target);
-		c.wan.count     = num(w.count, c.wan.count);
 		c.wan.loss_warn = num(w.loss_warn, c.wan.loss_warn);
 		c.wan.loss_fail = num(w.loss_fail, c.wan.loss_fail);
 		c.wan.rtt_warn  = num(w.rtt_warn, c.wan.rtt_warn);
@@ -233,9 +234,9 @@ function load_config() {
 	}
 
 	if (c.interval < 2) c.interval = 2;
-	if (c.wan.count < 1) c.wan.count = 1;
-	if (c.wan.count > 10) c.wan.count = 10;
-	c.wan.targets = filter(c.wan.targets, valid_host);
+	if (c.wan.gateway && !valid_host(c.wan.gateway)) c.wan.gateway = '';
+	if (!match(c.wan.collectd_socket ?? '', /^\/[A-Za-z0-9._\/-]+$/)) c.wan.collectd_socket = '';
+	if (!match(c.wan.rrd_dir ?? '', /^\/[A-Za-z0-9._\/-]+$/)) c.wan.rrd_dir = '/tmp/rrd';
 	c.ports = filter(c.ports, (p) => valid_dev(p.device));
 	if (c.wan.device && !valid_dev(c.wan.device)) c.wan.device = '';
 	if (c.iptv.device && !valid_dev(c.iptv.device)) c.iptv.device = '';
@@ -249,12 +250,7 @@ function load_config() {
 	/* IGMP memberships are joined by the multicast proxy on its upstream, which
 	 * is the IPTV VLAN when the bitrate is measured there */
 	c.iptv.igmp_dev = c.iptv.igmp_device || (c.iptv.direction == 'rx' ? c.iptv.device : '');
-	if (!valid_host(c.wan.dns_host)) c.wan.dns = false;
-	if (c.wan.dns_server && !valid_host(c.wan.dns_server)) c.wan.dns_server = '';
-	if (c.persist_interval < 60) c.persist_interval = 60;
 	if (c.notify.cooldown < 30) c.notify.cooldown = 30;
-	if (type(c.persist_dir) != 'string' || !match(c.persist_dir, /^\/[A-Za-z0-9._\/-]+$/) || match(c.persist_dir, /^\/(tmp|var)(\/|$)/) || index(c.persist_dir, '..') >= 0)
-		c.persist_dir = '';
 
 	return c;
 }
@@ -266,7 +262,8 @@ let events = [];
 let history = { t: [], s: {} };
 let history_min = { t: [], s: {} };
 let devstate = {};      /* dev -> { prev, link, since, err_acc, drop_acc, last_err_ev, ... } */
-let targets = {};       /* label -> { host, state, since, loss, rtt, rtt_max, sent, recv, busy } */
+let targets = {};       /* collectd ping host -> { host, label, state, since, res, last_ts, active } */
+let source = { type: null, error: null };
 let wan_down_since = null;
 let iptv = {
 	state: 'idle', since: now(), kbps: 0, pps: 0, avg: null, dip: false,
@@ -279,12 +276,11 @@ let csv_rows = 0;
 let csv_header = null;
 let last_mono = null;
 let started = now();
-let dns = { busy: false, state: 'ok', since: now(), res: null, t0: null };
 let wansess = { up: null, uptime: null, seen: null, ip: null, since: now(), reconnects: 0 };
 let igmp = { groups: null, hist: [], proxy: null, proxy_seen: false, proxy_since: now() };
 let sys = { prev: null, cpu_n: 0, cpu: false, mem: false, ct: false, cpu_since: 0, mem_since: 0, ct_since: 0 };
 let notif = { pending: [], last: 0, busy: false, last_ok: null, last_fail: null, last_err: null };
-let persist_last = now();
+let logst = { last_ts: null, last_lines: {}, kinds: {} };
 const HOSTNAME = trim(fs.readfile(`${PROC}/sys/kernel/hostname`) ?? '') || 'OpenWrt';
 
 function tstamp(t) {
@@ -305,7 +301,7 @@ const MSG = {
 		wan_down: 'INTERNET DOWN - no target responds', wan_up: 'Internet back after %s',
 		wan_if_down: 'WAN interface %s went down', wan_if_up: 'WAN interface %s up again after %s', wan_reconnect: 'WAN session restarted (was up %s)',
 		wan_ip_change: 'WAN address changed %s -> %s',
-		dns_fail: 'DNS lookup of %s failed', dns_slow: 'DNS lookup slow: %d ms', dns_ok: 'DNS OK again after %s',
+		log: '%s: %s',
 		stream_stall: 'IPTV STREAM STOPPED', stream_resume: 'IPTV stream resumed after %s', stream_lost: 'IPTV stream did not come back within %s',
 		stream_dip: 'IPTV bitrate dropped to %d kbit/s',
 		proxy_down: 'Multicast proxy %s is not running', proxy_up: 'Multicast proxy %s running again',
@@ -320,7 +316,7 @@ const MSG = {
 		wan_down: 'BRAK INTERNETU - żaden cel nie odpowiada', wan_up: 'Internet wrócił po %s',
 		wan_if_down: 'Interfejs WAN %s rozłączony', wan_if_up: 'Interfejs WAN %s znów działa po %s', wan_reconnect: 'Sesja WAN zestawiona od nowa (trwała %s)',
 		wan_ip_change: 'Zmiana adresu WAN %s -> %s',
-		dns_fail: 'Błąd DNS dla %s', dns_slow: 'Wolny DNS: %d ms', dns_ok: 'DNS znów OK po %s',
+		log: '%s: %s',
 		stream_stall: 'STRUMIEŃ IPTV ZATRZYMANY', stream_resume: 'Strumień IPTV wrócił po %s', stream_lost: 'Strumień IPTV nie wrócił w ciągu %s',
 		stream_dip: 'Bitrate IPTV spadł do %d kbit/s',
 		proxy_down: 'Proxy multicast %s nie działa', proxy_up: 'Proxy multicast %s znów działa',
@@ -349,13 +345,12 @@ function event_msg(e, lang) {
 	case 'target_degraded': return sprintf(f, e.src, d.loss, d.rtt ?? '-', d.jitter ?? '-');
 	case 'target_fail': return sprintf(f, e.src);
 	case 'target_ok': return sprintf(f, e.src, dur_txt(d.dur));
-	case 'wan_up': case 'stream_resume': case 'stream_lost': case 'dns_ok': return sprintf(f, dur_txt(d.dur));
+	case 'wan_up': case 'stream_resume': case 'stream_lost': return sprintf(f, dur_txt(d.dur));
 	case 'wan_if_down': return sprintf(f, d.iface);
 	case 'wan_if_up': return sprintf(f, d.iface, dur_txt(d.dur));
 	case 'wan_reconnect': return sprintf(f, dur_txt(d.prev));
 	case 'wan_ip_change': return sprintf(f, d.from, d.to);
-	case 'dns_fail': return sprintf(f, d.host);
-	case 'dns_slow': return sprintf(f, d.ms);
+	case 'log': return sprintf(f, d.prog, d.msg) + ((d.n > 1) ? ` (${d.n}x)` : '');
 	case 'stream_dip': return sprintf(f, d.kbps);
 	case 'proxy_down': case 'proxy_up': return sprintf(f, d.name);
 	case 'cpu_high': return sprintf(f, d.cpu, d.sirq);
@@ -366,15 +361,10 @@ function event_msg(e, lang) {
 	}
 }
 
-/* ------------------------------------------------------- syslog / notify */
+/* ------------------------------------------------------------------ notify */
 
 /* recoveries are sent too, so a "down" message is always followed by "back" */
-const RECOVERY = { wan_up: true, stream_resume: true, link_up: true, wan_if_up: true, proxy_up: true, dns_ok: true };
-
-function to_syslog(e) {
-	if (!cfg.syslog || !LOGGER || e.lvl == 'info') return;
-	uloop.process(LOGGER, [ '-t', 'isp-tester', '-p', e.lvl == 'err' ? 'daemon.err' : 'daemon.warn', event_msg(e, 'en') ], null, () => {});
-}
+const RECOVERY = { wan_up: true, stream_resume: true, link_up: true, wan_if_up: true, proxy_up: true };
 
 function urlenc(s) {
 	let out = '';
@@ -452,7 +442,6 @@ function emit(lvl, area, src, typ, data, ts) {
 	if (length(events) > cfg.max_events)
 		events = slice(events, length(events) - cfg.max_events);
 	save_events();
-	to_syslog(e);
 	notify_queue(e);
 }
 
@@ -506,7 +495,7 @@ function hist_add(h, t, vals, max) {
 }
 
 /* 1-minute aggregates for the long (24 h) history */
-const AGG_MODE = { rtt: 'avg', rttmax: 'max', loss: 'max', jit: 'max', dns: 'max', cpu: 'max', sirq: 'max',
+const AGG_MODE = { rtt: 'avg', rttmax: 'max', loss: 'max', jit: 'max',
 	'iptv:kbps': 'avg', 'iptv:min': 'min', err: 'sum', drop: 'sum', lvl: 'max' };
 
 let agg = null;
@@ -720,47 +709,6 @@ function default_gateway(dev) {
 	return null;
 }
 
-function wan_targets() {
-	let list = [];
-	if (cfg.wan.ping_gateway) {
-		/* netifd knows the gateway (and the PPPoE peer, which is not in the routing
-		 * table); /proc/net/route is the fallback when ubus is not available */
-		let gw = cfg.wan.gw ?? default_gateway(cfg.wan.device) ?? default_gateway(null);
-		if (gw) push(list, { label: 'gateway', host: gw });
-	}
-	for (let t in cfg.wan.targets)
-		push(list, { label: t, host: t });
-	return list;
-}
-
-function parse_ping(out) {
-	let r = { sent: 0, recv: 0, loss: 100, rtt: null, rtt_min: null, rtt_max: null };
-	if (!out) return r;
-	let m = match(out, /(\d+) packets transmitted, (\d+) (packets )?received/);
-	if (m) {
-		r.sent = +m[1];
-		r.recv = +m[2];
-		r.loss = r.sent > 0 ? round((r.sent - r.recv) * 100 / r.sent, 0) : 100;
-	}
-	let rt = match(out, /= ([0-9.]+)\/([0-9.]+)\/([0-9.]+)/);
-	if (rt) {
-		r.rtt_min = +rt[1];
-		r.rtt = +rt[2];
-		r.rtt_max = +rt[3];
-	}
-	/* jitter: mean difference between consecutive replies (RFC 3550 style) */
-	let times = match(out, /time=([0-9.]+)/g);
-	if (times && length(times) >= 2) {
-		let sum = 0;
-		for (let i = 1; i < length(times); i++) {
-			let d = +times[i][1] - +times[i - 1][1];
-			sum += (d < 0) ? -d : d;
-		}
-		r.jitter = round(sum / (length(times) - 1), 1);
-	}
-	return r;
-}
-
 /* why a target is not ok: 'loss', 'rtt', 'jitter' or null */
 function target_why(r) {
 	if (r.loss >= cfg.wan.loss_warn) return 'loss';
@@ -793,91 +741,172 @@ function check_wan_down() {
 	}
 }
 
-function on_ping_done(label) {
-	let t = targets[label];
-	t.busy = false;
-	let r = parse_ping(fs.readfile(t.file));
-	fs.unlink(t.file);
-	t.res = r;
+/* ------------------------------------------------- ping data from collectd */
 
-	let lvl = target_level(r);
-	if (lvl != t.state) {
-		if (lvl == 'ok')
-			emit('info', 'wan', label, 'target_ok', { host: t.host, dur: now() - t.since, loss: r.loss, rtt: r.rtt });
-		else
-			emit(lvl == 'fail' ? 'err' : 'warn', 'wan', label, lvl == 'fail' ? 'target_fail' : 'target_degraded',
-				{ host: t.host, loss: r.loss, rtt: r.rtt, rtt_max: r.rtt_max, jitter: r.jitter, why: target_why(r) });
-		t.state = lvl;
-		t.since = now();
+/*
+ * The collectd ping plugin (luci-app-statistics) pings the configured hosts
+ * once a second and reports per collectd interval: average RTT (ping),
+ * lost fraction (ping_droprate) and RTT standard deviation (ping_stddev).
+ * Live values come from the unixsock plugin; without it the RRD files are
+ * read, which lag behind by the rrdtool cache time.
+ */
+
+function cd_parse_val(v) {
+	v = trim(v ?? '');
+	if (v == '' || match(v, /^-?nan$/i) || v == 'U') return null;
+	let n = +v;
+	return (n != n) ? null : n;
+}
+
+function cd_unixsock(path) {
+	let socket;
+	try { socket = require('socket'); } catch (e) { return { error: 'no_socket_module' }; }
+
+	let sk = socket.create(socket.AF_UNIX, socket.SOCK_STREAM);
+	if (!sk) return { error: 'socket' };
+	try { sk.setopt(socket.SOL_SOCKET, socket.SO_RCVTIMEO, { tv_sec: 2, tv_usec: 0 }); } catch (e) {}
+	if (!sk.connect({ family: socket.AF_UNIX, path })) {
+		sk.close();
+		return { error: 'connect' };
 	}
+
+	let buf = '';
+	/* one command, answer: "<n> <text>\n" followed by n lines */
+	let query = (cmd) => {
+		sk.send(cmd + '\n');
+		let lines = null, need = null;
+		for (let tries = 0; tries < 200; tries++) {
+			let nl = index(buf, '\n');
+			while (nl >= 0) {
+				let line = substr(buf, 0, nl);
+				buf = substr(buf, nl + 1);
+				if (lines == null) {
+					need = +split(line, ' ')[0];
+					lines = [];
+					if (!(need > 0)) return [];
+				}
+				else push(lines, line);
+				if (length(lines) >= need) return lines;
+				nl = index(buf, '\n');
+			}
+			let chunk = sk.recv(4096);
+			if (chunk == null || chunk == '') return lines ?? [];
+			buf += chunk;
+		}
+		return lines ?? [];
+	};
+
+	let out = {};
+	for (let line in query('LISTVAL')) {
+		/* "<time> <host>/ping/ping_droprate-1.1.1.1" */
+		let m = match(line, /^([0-9.]+) [^\/]+\/ping\/(ping|ping_droprate|ping_stddev)-(.+)$/);
+		if (!m) continue;
+		let ident = substr(line, index(line, ' ') + 1);
+		let val = null;
+		for (let r in query(`GETVAL "${ident}"`)) {
+			let v = match(r, /^value=(.*)$/);
+			if (v) val = cd_parse_val(v[1]);
+		}
+		let h = out[m[3]] ??= { ts: 0 };
+		h[m[2]] = val;
+		if (+m[1] > h.ts) h.ts = int(+m[1]);
+	}
+	sk.close();
+	return { hosts: out };
+}
+
+function rrd_last(file) {
+	let f = fs.popen(`${RRDTOOL} lastupdate '${file}' 2>/dev/null`, 'r');
+	if (!f) return null;
+	let out = f.read('all');
+	f.close();
+	let m = match(out ?? '', /([0-9]+): *([^ \n]+)[ \n]*$/);
+	return m ? { ts: +m[1], v: cd_parse_val(m[2]) } : null;
+}
+
+function cd_rrd(dir) {
+	if (!RRDTOOL) return { error: 'no_rrdtool' };
+	let out = {};
+	for (let host in (fs.lsdir(dir) ?? [])) {
+		let pdir = `${dir}/${host}/ping`;
+		for (let f in (fs.lsdir(pdir) ?? [])) {
+			let m = match(f, /^(ping|ping_droprate|ping_stddev)-(.+)\.rrd$/);
+			if (!m || !match(m[2], /^[A-Za-z0-9.:_-]+$/)) continue;
+			let r = rrd_last(`${pdir}/${f}`);
+			if (!r) continue;
+			let h = out[m[2]] ??= { ts: 0 };
+			h[m[1]] = r.v;
+			if (r.ts > h.ts) h.ts = r.ts;
+		}
+	}
+	return { hosts: out };
+}
+
+function collectd_ping() {
+	let w = cfg.wan;
+	if (w.collectd_socket && fs.stat(w.collectd_socket)) {
+		let r = cd_unixsock(w.collectd_socket);
+		if (!r.error) return { type: 'unixsock', hosts: r.hosts };
+		source.sock_error = r.error;
+	}
+	if (fs.stat(w.rrd_dir)?.type == 'directory') {
+		let r = cd_rrd(w.rrd_dir);
+		return r.error ? { type: null, error: r.error } : { type: 'rrd', hosts: r.hosts };
+	}
+	return { type: null, error: 'no_collectd' };
+}
+
+function gateway_ip() {
+	return cfg.wan.gateway || cfg.wan.gw || default_gateway(cfg.wan.device) || default_gateway(null);
+}
+
+function sample_pings() {
+	if (!cfg.wan.enabled) return;
+	let r = collectd_ping();
+	source.type = r.type;
+	source.error = r.error;
+	source.ping_plugin = cfg.wan.ping_plugin;
+	if (!r.hosts) {
+		for (let k, t in targets) t.active = false;
+		return;
+	}
+
+	let gw = gateway_ip(), t_now = now();
+	let seen = {};
+	for (let host, v in r.hosts) {
+		if (!valid_host(host)) continue;
+		seen[host] = true;
+		let t = targets[host] ??= { host, state: 'ok', since: t_now, res: null, last_ts: null };
+		t.active = true;
+		t.label = (host == gw) ? 'gateway' : host;
+
+		/* collectd reports once per its interval: only new values count */
+		if (v.ts == t.last_ts) {
+			/* no new value for a long time: collectd stopped or the host vanished */
+			if (t.res && t_now - v.ts > 300) t.res = null;
+			continue;
+		}
+		t.last_ts = v.ts;
+		let loss = (v.ping_droprate != null) ? round(v.ping_droprate * 100, 0) : null;
+		if (loss == null && v.ping == null) continue;
+		let res = { loss: loss ?? 0, rtt: round(v.ping, 1), jitter: round(v.ping_stddev, 1), ts: v.ts };
+		t.res = res;
+
+		let lvl = target_level(res);
+		if (lvl != t.state) {
+			if (lvl == 'ok')
+				emit('info', 'wan', t.label, 'target_ok', { host, dur: t_now - t.since, loss: res.loss, rtt: res.rtt });
+			else
+				emit(lvl == 'fail' ? 'err' : 'warn', 'wan', t.label, lvl == 'fail' ? 'target_fail' : 'target_degraded',
+					{ host, loss: res.loss, rtt: res.rtt, jitter: res.jitter, why: target_why(res) }, v.ts);
+			t.state = lvl;
+			t.since = t_now;
+		}
+	}
+	for (let k, t in targets)
+		if (!seen[k]) t.active = false;
 
 	check_wan_down();
-}
-
-function start_pings() {
-	if (!cfg.wan.enabled) return;
-
-	let list = wan_targets();
-	let active = {};
-
-	for (let i, tg in list) {
-		active[tg.label] = true;
-		let t = targets[tg.label] ??= { state: 'ok', since: now(), res: null, busy: false };
-		t.active = true;
-		/* a running ping keeps its host and output file; the list order may change
-		 * (gateway appearing/disappearing), so never derive the file from the index */
-		if (t.busy) continue;
-		t.host = tg.host;
-		t.file = `${RUNDIR}/ping.${replace(tg.label, /[^A-Za-z0-9._-]/g, '_')}`;
-
-		let n = cfg.wan.count;
-		/* not -q: the per-reply times are needed for the jitter */
-		let cmd = sprintf('exec %s -c %d -W 1 -w %d %s > %s 2>&1', PING, n, n + 1, tg.host, t.file);
-		t.busy = true;
-		let label = tg.label;
-		let proc = uloop.process('/bin/sh', [ '-c', cmd ], null, () => on_ping_done(label));
-		if (!proc) t.busy = false;
-	}
-
-	for (let k, t in targets)
-		if (!active[k]) t.active = false;
-}
-
-/* ------------------------------------------------------------------- DNS */
-
-function on_dns_done() {
-	dns.busy = false;
-	let ms = round((mono() - dns.t0) * 1000, 0);
-	let out = fs.readfile(dns.file) ?? '';
-	fs.unlink(dns.file);
-
-	/* busybox and bind nslookup both print "Name: x" followed by "Address: y" */
-	let ok = match(out, /Name:[^\n]*\n[ \t]*Address[^\n]*[0-9]/) != null;
-	dns.res = { ok, ms: ok ? ms : null };
-
-	let lvl = !ok ? 'fail' : (cfg.wan.dns_warn > 0 && ms >= cfg.wan.dns_warn) ? 'slow' : 'ok';
-	if (lvl != dns.state) {
-		if (lvl == 'ok')
-			emit('info', 'wan', 'dns', 'dns_ok', { dur: now() - dns.since, ms });
-		else if (lvl == 'fail')
-			emit('warn', 'wan', 'dns', 'dns_fail', { host: cfg.wan.dns_host, server: cfg.wan.dns_server });
-		else
-			emit('warn', 'wan', 'dns', 'dns_slow', { host: cfg.wan.dns_host, ms });
-		dns.state = lvl;
-		dns.since = now();
-	}
-}
-
-function start_dns() {
-	if (!cfg.wan.enabled || !cfg.wan.dns || dns.busy) return;
-	dns.file = `${RUNDIR}/dns.out`;
-	/* host and server are validated (valid_host), so they are safe in a shell line */
-	let cmd = sprintf('exec %s%s %s %s > %s 2>&1', TIMEOUT ? TIMEOUT + ' 5 ' : '', NSLOOKUP,
-		cfg.wan.dns_host, cfg.wan.dns_server, dns.file);
-	dns.busy = true;
-	dns.t0 = mono();
-	if (!uloop.process('/bin/sh', [ '-c', cmd ], null, () => on_dns_done()))
-		dns.busy = false;
 }
 
 /* ----------------------------------------------------------- WAN session */
@@ -1140,11 +1169,11 @@ function sample_system() {
 	return o;
 }
 
-/* ------------------------------------------------- user marks, persistence */
+/* ------------------------------------------------------------ user marks */
 
 /* "problem now" reports from the web UI (appended by rpcd) */
 function handle_marks() {
-	let f = `${RUNDIR}/marks.pending`, work = `${RUNDIR}/marks.work`;
+	let f = `${VARDIR}/marks.pending`, work = `${VARDIR}/marks.work`;
 	if (!fs.stat(f) || !fs.rename(f, work)) return;
 	let data = fs.readfile(work) ?? '';
 	fs.unlink(work);
@@ -1162,43 +1191,97 @@ function handle_marks() {
 }
 
 function handle_notify_test() {
-	let f = `${RUNDIR}/notify_test`;
+	let f = `${VARDIR}/notify_test`;
 	if (!fs.stat(f)) return;
 	fs.unlink(f);
 	push(notif.pending, (MSG[cfg.notify.lang] ?? MSG.en).test);
 	notify_flush(true);
 }
 
-const PERSIST_FILES = [ 'events.json', 'history.json', 'samples.csv' ];
+/* ------------------------------------------------------------ system log */
 
-function persist_path() {
-	if (!cfg.persist_dir || fs.stat(cfg.persist_dir)?.type != 'directory') return null;
-	let p = `${cfg.persist_dir}/isp-tester`;
-	fs.mkdir(p);
-	return (fs.stat(p)?.type == 'directory') ? p : null;
+/*
+ * Messages from other OpenWrt services that explain a fault. Each entry:
+ * program regex, message regex, kind, level, area.
+ */
+const LOG_RULES = [
+	[ /^pppd$/, /No response to [0-9]+ echo-requests|Serial link appears to be disconnected/, 'ppp_echo', 'warn', 'wan' ],
+	[ /^pppd$/, /authentication failed/i, 'ppp_auth', 'err', 'wan' ],
+	[ /^pppd$/, /Timeout waiting for PAD[OS]|Unable to complete PPPoE Discovery/, 'ppp_discovery', 'err', 'wan' ],
+	[ /^pppd$/, /LCP terminated by peer|Modem hangup|Connection terminated/, 'ppp_down', 'warn', 'wan' ],
+	[ /^udhcpc$/, /no lease, failing|lease lost/, 'dhcp_fail', 'warn', 'wan' ],
+	[ /^odhcp6c$/, /Failed to send|timed out/, 'dhcp_fail', 'warn', 'wan' ],
+	[ /^(igmpproxy|mcproxy|omcproxy|improxy)$/, /(error|fail|cannot|unable|invalid)/i, 'proxy_log', 'warn', 'iptv' ],
+	[ /^kernel$/, /NETDEV WATCHDOG|transmit queue [0-9]+ timed out|[Tt][Xx] timeout/, 'nic_timeout', 'err', 'system' ],
+	[ /^kernel$/, /nf_conntrack: table full/, 'conntrack_drop', 'warn', 'system' ],
+	[ /^kernel$/, /Out of memory|oom-kill|invoked oom-killer/, 'oom', 'err', 'system' ],
+	[ /^dnsmasq$/, /Maximum number of concurrent DNS queries reached/, 'dns_limit', 'warn', 'system' ]
+];
+
+const MONTHS = { Jan: 1, Feb: 2, Mar: 3, Apr: 4, May: 5, Jun: 6, Jul: 7, Aug: 8, Sep: 9, Oct: 10, Nov: 11, Dec: 12 };
+
+/* "Thu Nov 19 16:41:01 2026 daemon.notice pppd[1234]: message" */
+function parse_log_line(line) {
+	let m = match(line, /^[A-Z][a-z][a-z] ([A-Z][a-z][a-z]) +([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([0-9]+) ([a-z0-9]+)\.([a-z]+) ([^ :]+): (.*)$/);
+	if (!m || !MONTHS[m[1]]) return null;
+	let prog = replace(m[9], /\[[0-9]+\]$/, '');
+	let ts = timelocal({ year: +m[6], mon: MONTHS[m[1]], mday: +m[2], hour: +m[3], min: +m[4], sec: +m[5] });
+	/* kernel lines start with the uptime stamp: "[12345.678901] " */
+	return { ts, prio: m[8], prog, msg: replace(m[10], /^\[ *[0-9.]+\] /, '') };
 }
 
-function persist_save() {
-	persist_last = now();
-	let p = persist_path();
-	if (!p) return false;
-	for (let f in PERSIST_FILES) {
-		let data = fs.readfile(`${RUNDIR}/${f}`);
-		if (data != null) write_atomic(`${p}/${f}`, data);
-	}
-	return true;
+function log_emit(k) {
+	let st = logst.kinds[k];
+	emit(st.lvl, st.area, k, 'log', { kind: k, prog: st.prog, msg: substr(st.msg, 0, 160), n: st.n }, st.ts);
+	st.n = 0;
+	st.last = now();
 }
 
-/* after a reboot /tmp is empty: bring back the copy from persistent storage */
-function persist_restore() {
-	let p = persist_path();
-	if (!p || fs.stat(`${RUNDIR}/events.json`)) return false;
-	let n = 0;
-	for (let f in PERSIST_FILES) {
-		let data = fs.readfile(`${p}/${f}`);
-		if (data != null && fs.writefile(`${RUNDIR}/${f}`, data) != null) n++;
+function read_log() {
+	if (!cfg.logread || !LOGREAD) return;
+	let f = fs.popen(`${LOGREAD} -l 300 2>/dev/null`, 'r');
+	if (!f) return;
+	let data = f.read('all') ?? '';
+	f.close();
+
+	let first = (logst.last_ts == null);
+	let prev_ts = logst.last_ts ?? 0, prev_lines = logst.last_lines;
+	let max_ts = prev_ts, last_lines = {};
+	if (first) last_lines = {};
+	else for (let k in keys(prev_lines)) last_lines[k] = true;
+
+	for (let line in split(data, '\n')) {
+		let l = parse_log_line(line);
+		if (!l) continue;
+		/* skip lines already seen: older seconds, or the same text in the last second */
+		if (!first && (l.ts < prev_ts || (l.ts == prev_ts && prev_lines[line]))) continue;
+		if (l.ts > max_ts) { max_ts = l.ts; last_lines = {}; }
+		if (l.ts == max_ts) last_lines[line] = true;
+		/* on start only remember where the log ends; old lines are history */
+		if (first) continue;
+
+		for (let r in LOG_RULES) {
+			if (!match(l.prog, r[0]) || !match(l.msg, r[1])) continue;
+			let k = r[2];
+			let st = logst.kinds[k] ??= { n: 0, last: 0 };
+			if (st.n == 0) {
+				st.ts = l.ts;
+				st.msg = l.msg;
+				st.prog = l.prog;
+				st.lvl = r[3];
+				st.area = r[4];
+			}
+			st.n++;
+			/* repeated messages: at most one event per cooldown, with a count */
+			if (now() - st.last >= cfg.err_cooldown) log_emit(k);
+			break;
+		}
 	}
-	return n > 0;
+	logst.last_ts = max_ts;
+	logst.last_lines = last_lines;
+
+	for (let k, st in logst.kinds)
+		if (st.n > 0 && now() - st.last >= cfg.err_cooldown) log_emit(k);
 }
 
 /* ------------------------------------------------------------------ IPTV */
@@ -1444,8 +1527,6 @@ function sample_iptv(devres) {
 function csv_columns(devs, tlist) {
 	let cols = [ 'time', 'overall' ];
 	for (let t in tlist) push(cols, `ping_${t.label}_loss`, `ping_${t.label}_rtt`, `ping_${t.label}_jitter`);
-	if (cfg.wan.enabled && cfg.wan.dns) push(cols, 'dns_ms');
-	if (cfg.system.enabled) push(cols, 'cpu', 'cpu_busiest_core', 'softirq_busiest_core', 'mem_free_pct', 'conntrack');
 	if (cfg.iptv.enabled && cfg.iptv.device) push(cols, 'iptv_state', 'iptv_kbps', 'iptv_min_kbps', 'iptv_stall_s', 'iptv_pps');
 	for (let m in devs) push(cols, `${m.dev}_link`, `${m.dev}_speed`, `${m.dev}_err`, `${m.dev}_crc`, `${m.dev}_drop`, `${m.dev}_rx_kbps`, `${m.dev}_tx_kbps`);
 	return cols;
@@ -1529,12 +1610,9 @@ function refresh_wan_device() {
 }
 
 function handle_clear_request() {
-	let flag = `${RUNDIR}/clear`;
+	let flag = `${VARDIR}/clear`;
 	if (!fs.stat(flag)) return;
 	fs.unlink(flag);
-	let p = persist_path();
-	if (p)
-		for (let f in PERSIST_FILES) fs.unlink(`${p}/${f}`);
 	events = [];
 	history = { t: [], s: {} };
 	history_min = { t: [], s: {} };
@@ -1556,7 +1634,9 @@ function tick() {
 	refresh_wan_device();
 	sample_proxy();
 	if (!iptv_fast()) igmp_poll();
-	let sysres = sample_system();
+	sample_system();
+	read_log();
+	sample_pings();
 
 	let m = mono();
 	let dt = (last_mono != null) ? m - last_mono : 0;
@@ -1577,14 +1657,14 @@ function tick() {
 			if (!t.active) continue;
 			let r = t.res;
 			push(tl, {
-				label: k, host: t.host, level: r ? target_level(r) : 'unknown',
+				label: t.label, host: t.host, level: r ? target_level(r) : 'unknown',
 				loss: r?.loss, rtt: r?.rtt, rtt_max: r?.rtt_max, jitter: r?.jitter, since: t.since
 			});
 			if (!r) continue;
 			n_active++;
 			let lv = target_level(r);
 			if (lv == 'fail') n_fail++;
-			if (lv != 'ok') push(reasons, { c: lv == 'fail' ? 'target_fail' : 'target_degraded', t: k, loss: r.loss, rtt: r.rtt, jitter: r.jitter, why: target_why(r) });
+			if (lv != 'ok') push(reasons, { c: lv == 'fail' ? 'target_fail' : 'target_degraded', t: t.label, loss: r.loss, rtt: r.rtt, jitter: r.jitter, why: target_why(r) });
 			level = worst(level, lv == 'fail' ? 'warn' : lv);
 		}
 		if (n_active > 0 && n_fail == n_active) level = 'fail';
@@ -1593,11 +1673,8 @@ function tick() {
 			level = 'fail';
 			push(reasons, { c: 'wan_if_down', iface: cfg.wan.interface, since: wansess.since });
 		}
-		/* a DNS failure while pings work is worth a warning, during an outage it is noise */
-		if (cfg.wan.dns && dns.state != 'ok' && wan_down_since == null) {
-			level = worst(level, 'warn');
-			push(reasons, { c: dns.state == 'fail' ? 'dns_fail' : 'dns_slow', ms: dns.res?.ms, since: dns.since });
-		}
+		if (!source.type)
+			push(reasons, { c: 'no_ping_source', error: source.error, plugin: source.ping_plugin });
 
 		let wd = cfg.wan.device ? res[cfg.wan.device] : null;
 		if (wd && wd.level != 'ok') {
@@ -1612,7 +1689,7 @@ function tick() {
 		wan = { level, reasons, targets: tl, device: cfg.wan.device, interface: cfg.wan.interface,
 			rx_kbps: wd?.delta ? round(wd.delta.rx_bps / 1000, 0) : null,
 			tx_kbps: wd?.delta ? round(wd.delta.tx_bps / 1000, 0) : null,
-			dns: cfg.wan.dns ? { host: cfg.wan.dns_host, server: cfg.wan.dns_server, state: dns.state, ok: dns.res?.ok, ms: dns.res?.ms } : null,
+			source: { type: source.type, error: source.error, sock_error: source.sock_error, ping_plugin: source.ping_plugin, gateway: gateway_ip() },
 			session: (wansess.up != null) ? { up: wansess.up, uptime: wansess.uptime, ip: wansess.ip, proto: wansess.proto, reconnects: wansess.reconnects, since: wansess.since } : null };
 	}
 
@@ -1640,8 +1717,6 @@ function tick() {
 	if (wan) overall = worst(overall, wan.level);
 	if (iptv_res) overall = worst(overall, iptv_res.level);
 	overall = worst(overall, ports_level);
-	/* router load is a cause, not a fault of the connection: never red */
-	if (sysres && sysres.level != 'ok') overall = worst(overall, 'warn');
 
 	/* ---- history (skip the baseline tick without deltas) */
 	let t = now();
@@ -1651,11 +1726,6 @@ function tick() {
 			hv[`rtt:${x.label}`] = x.rtt;
 			hv[`loss:${x.label}`] = x.loss;
 			hv[`jit:${x.label}`] = x.jitter;
-		}
-		if (wan?.dns) hv.dns = wan.dns.ms;
-		if (sysres) {
-			hv.cpu = sysres.cpu_max;
-			hv.sirq = sysres.sirq_max;
 		}
 		if (iptv_res) {
 			hv['iptv:kbps'] = iptv_res.kbps;
@@ -1675,14 +1745,14 @@ function tick() {
 		agg_add(t, mv);
 
 		/* ---- CSV */
-		let tlist = cfg.wan.enabled ? map(wan_targets(), (x) => ({ label: x.label, t: targets[x.label] ?? {} })) : [];
+		let tlist = [];
+		for (let k, x in targets)
+			if (x.active) push(tlist, { label: x.label, t: x });
 		let cols = csv_columns(devs, tlist);
 		if (join(',', cols) != csv_header) csv_open(cols);
 
 		let row = [ tstamp(t), overall ];
 		for (let x in tlist) push(row, x.t.res?.loss, x.t.res?.rtt, x.t.res?.jitter);
-		if (cfg.wan.enabled && cfg.wan.dns) push(row, dns.res?.ms);
-		if (sysres) push(row, sysres.cpu, sysres.cpu_max, sysres.sirq_max, sysres.mem_pct, sysres.ct);
 		if (cfg.iptv.enabled && cfg.iptv.device) push(row, iptv_res?.state, iptv_res?.kbps, iptv_res?.min, iptv_res?.stall_s, iptv_res?.pps);
 		for (let d in devs) {
 			let r = res[d.dev];
@@ -1702,39 +1772,31 @@ function tick() {
 		wan,
 		iptv: iptv_res,
 		ports: { level: ports_level, list: ports },
-		system: sysres,
 		counts: { h1: count_events(t - 3600), h24: count_events(t - 86400) },
 		history,
 		csv_rows,
-		persist: cfg.persist_dir ? { dir: cfg.persist_dir, ok: persist_path() != null, last: persist_last } : null,
+		data: { dir: RUNDIR, link: (fs.lstat(RUNDIR)?.type == 'link') ? fs.readlink(RUNDIR) : null },
 		notify: cfg.notify.enabled ? { service: cfg.notify.service, pending: length(notif.pending),
 			last_ok: notif.last_ok, last_fail: notif.last_fail, last_err: notif.last_err, fetch: FETCH != null } : null
 	};
-	write_atomic(`${RUNDIR}/state.json`, sprintf('%J', state));
+	write_atomic(`${VARDIR}/state.json`, sprintf('%J', state));
 
-	if (cfg.persist_dir && t - persist_last >= cfg.persist_interval)
-		persist_save();
 	notify_flush(false);
-
-	/* kick off pings for the next tick (results are used asynchronously) */
-	start_pings();
-	start_dns();
 }
 
 /* ------------------------------------------------------------------ main */
 
 fs.mkdir(RUNDIR);
-let restored = persist_restore();
+fs.mkdir(VARDIR);
 
 let old;
 try { old = json(fs.readfile(`${RUNDIR}/events.json`) || '[]'); } catch (e) { old = null; }
 if (type(old) == 'array') events = old;
-if (restored) emit('info', 'system', 'collector', 'restored', { dir: cfg.persist_dir, n: length(events) });
 
 /* keep chart history across collector restarts (e.g. after saving settings) */
 let load_hist = (name, max) => {
 	let h;
-	try { h = json(fs.readfile(`${RUNDIR}/${name}`) || 'null'); } catch (e) { h = null; }
+	try { h = json(fs.readfile(`${name == 'state.json' ? VARDIR : RUNDIR}/${name}`) || 'null'); } catch (e) { h = null; }
 	if (name == 'state.json') h = h?.history;
 	if (type(h?.t) != 'array' || type(h?.s) != 'object') return { t: [], s: {} };
 	let n = length(h.t);
@@ -1753,11 +1815,11 @@ emit('info', 'system', 'collector', 'monitor_start', { interval: cfg.interval, i
 
 uloop.init();
 refresh_wan_device();
-start_pings();
-start_dns();
+/* the log so far is history: only remember where it ends */
+read_log();
 
 let timer;
-timer = uloop.timer(cfg.wan.enabled ? (cfg.wan.count + 2) * 1000 : 10, () => {
+timer = uloop.timer(1000, () => {
 	timer.set(cfg.interval * 1000);
 	try {
 		tick();

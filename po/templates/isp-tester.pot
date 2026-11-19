@@ -80,10 +80,7 @@ msgstr ""
 msgid "WAN interface %s is down (no PPPoE/DHCP session) for %s"
 msgstr ""
 
-msgid "DNS does not answer (for %s)"
-msgstr ""
-
-msgid "DNS is slow (%s)"
+msgid "No ping data: enable the Ping plugin of luci-app-statistics (collectd) and add the ISP gateway and far hosts there."
 msgstr ""
 
 msgid "Multicast proxy %s is not running"
@@ -185,18 +182,6 @@ msgstr ""
 msgid "WAN address changed %s → %s"
 msgstr ""
 
-msgid "DNS: %s could not be resolved via %s"
-msgstr ""
-
-msgid "DNS: %s could not be resolved"
-msgstr ""
-
-msgid "DNS: slow answer %s"
-msgstr ""
-
-msgid "DNS OK again after %s (%s)"
-msgstr ""
-
 msgid "Multicast proxy %s STOPPED"
 msgstr ""
 
@@ -224,9 +209,6 @@ msgstr ""
 msgid "You reported: %s"
 msgstr ""
 
-msgid "Logs restored from %s after a restart"
-msgstr ""
-
 msgid "TV froze"
 msgstr ""
 
@@ -240,6 +222,39 @@ msgid "Internet does not work"
 msgstr ""
 
 msgid "Something else"
+msgstr ""
+
+msgid "PPPoE: the ISP stopped answering LCP echo"
+msgstr ""
+
+msgid "PPPoE: authentication failed"
+msgstr ""
+
+msgid "PPPoE: no answer from the ISP access server"
+msgstr ""
+
+msgid "PPPoE: connection terminated"
+msgstr ""
+
+msgid "DHCP: no lease from the ISP"
+msgstr ""
+
+msgid "Multicast proxy error"
+msgstr ""
+
+msgid "Network driver / switch chip hang"
+msgstr ""
+
+msgid "Connection table full, packets dropped"
+msgstr ""
+
+msgid "Router ran out of memory"
+msgstr ""
+
+msgid "DNS server overloaded (query limit)"
+msgstr ""
+
+msgid "System log"
 msgstr ""
 
 msgid "channel change"
@@ -383,10 +398,16 @@ msgstr ""
 msgid "Traffic ↓ / ↑"
 msgstr ""
 
-msgid "DNS"
+msgid "Ping data"
 msgstr ""
 
-msgid "no answer"
+msgid "collectd (live)"
+msgstr ""
+
+msgid "collectd RRD files (delayed; enable the UnixSock plugin for live values)"
+msgstr ""
+
+msgid "none"
 msgstr ""
 
 msgid "Session"
@@ -413,7 +434,7 @@ msgstr ""
 msgid "Ping"
 msgstr ""
 
-msgid "Mean difference between consecutive replies"
+msgid "Standard deviation of the ping time (collectd)"
 msgstr ""
 
 msgid "Jitter"
@@ -473,9 +494,6 @@ msgstr ""
 msgid "Bridge groups"
 msgstr ""
 
-msgid "none"
-msgstr ""
-
 msgid "Multicast proxy"
 msgstr ""
 
@@ -524,51 +542,6 @@ msgstr ""
 msgid "Flaps"
 msgstr ""
 
-msgid "CPU"
-msgstr ""
-
-msgid "%d%% overall, busiest core %d%% (softirq %d%%)"
-msgstr ""
-
-msgid "Load"
-msgstr ""
-
-msgid "%d cores"
-msgstr ""
-
-msgid "Free RAM"
-msgstr ""
-
-msgid "of %d MB"
-msgstr ""
-
-msgid "Connections"
-msgstr ""
-
-msgid "Logs kept on"
-msgstr ""
-
-msgid "%s (copied %s ago)"
-msgstr ""
-
-msgid "%s – not mounted!"
-msgstr ""
-
-msgid "Notifications"
-msgstr ""
-
-msgid "uclient-fetch / wget missing"
-msgstr ""
-
-msgid "last attempt failed %s ago (%d waiting)"
-msgstr ""
-
-msgid "last sent %s ago"
-msgstr ""
-
-msgid "nothing sent yet"
-msgstr ""
-
 msgid "Disabled in Settings."
 msgstr ""
 
@@ -597,21 +570,6 @@ msgid "Lowest 1 s bitrate"
 msgstr ""
 
 msgid "IPTV bitrate (Mbit/s) – red = stream stopped while watching"
-msgstr ""
-
-msgid "DNS lookup time (ms)"
-msgstr ""
-
-msgid "DNS lookup time (ms, worst per minute)"
-msgstr ""
-
-msgid "Busiest CPU core"
-msgstr ""
-
-msgid "of it softirq (packet processing)"
-msgstr ""
-
-msgid "Router CPU (%)"
 msgstr ""
 
 msgid "Interface errors per interval"
@@ -680,7 +638,7 @@ msgstr ""
 msgid "WAN port link drops"
 msgstr ""
 
-msgid "DNS failures"
+msgid "Related messages in the system log"
 msgstr ""
 
 msgid "IPTV freezes"
@@ -741,6 +699,24 @@ msgid "Clear logs"
 msgstr ""
 
 msgid "Turn monitoring off"
+msgstr ""
+
+msgid "Data kept in %s (survives a reboot)"
+msgstr ""
+
+msgid "Data kept in RAM (lost on reboot)"
+msgstr ""
+
+msgid "notifications: uclient-fetch / wget missing"
+msgstr ""
+
+msgid "notifications: last attempt failed %s ago (%d waiting)"
+msgstr ""
+
+msgid "notifications: last sent %s ago"
+msgstr ""
+
+msgid "notifications: nothing sent yet"
 msgstr ""
 
 msgid "Unable to read measurements: %s"
@@ -812,22 +788,22 @@ msgstr ""
 msgid "Dropped packets per interval needed to log an entry. Some drops are normal (unknown protocols)."
 msgstr ""
 
-msgid "Keep logs on"
+msgid "Keep data on"
 msgstr ""
 
-msgid "Optional folder on persistent storage, e.g. a USB stick (<code>/mnt/sda1</code>). The timeline, history and CSV are copied there regularly and on reboot, and restored after a reboot. Do not use the internal flash: frequent writes wear it out. Empty = RAM only."
+msgid "Optional folder on a USB stick (e.g. <code>/mnt/sda1</code>, mounted via System → Mount Points). <code>/tmp/isp-tester</code> becomes a link to it, so the timeline, history and CSV survive a reboot. Written: every event, the history once a minute, one CSV line per interval. Do not use the internal flash. Empty = RAM."
 msgstr ""
 
-msgid "Copy every (s)"
+msgid "Read the system log"
 msgstr ""
 
-msgid "Write problems to the system log"
-msgstr ""
-
-msgid "Warnings and faults also go to the system log (logread) and to a remote syslog server, if one is set in System → System → Logging."
+msgid "Turns messages of other services into timeline events: pppd (LCP echo timeouts, authentication, PPPoE discovery), udhcpc (lease lost), igmpproxy/mcproxy errors, kernel (network driver hang, connection table full, out of memory), dnsmasq (query limit)."
 msgstr ""
 
 msgid "Internet (WAN)"
+msgstr ""
+
+msgid "Ping is not measured here but taken from collectd: install <code>luci-app-statistics</code> and <code>collectd-mod-ping</code>, enable the Ping plugin and add the ISP gateway and one or two far hosts (e.g. 1.1.1.1, 8.8.8.8). Enable the UnixSock plugin (<code>collectd-mod-unixsock</code>) for live values; without it the values are read from the RRD files and lag behind by the cache time."
 msgstr ""
 
 msgid "Monitor Internet"
@@ -845,13 +821,10 @@ msgstr ""
 msgid "Leave empty to detect it from the interface."
 msgstr ""
 
-msgid "Ping ISP gateway"
+msgid "ISP gateway host"
 msgstr ""
 
-msgid "Loss to the gateway points at the line / ISP access network; loss only to far targets points at the ISP backbone."
-msgstr ""
-
-msgid "Pings per round"
+msgid "Which of the collectd ping hosts is the ISP gateway. Empty = the gateway netifd reports for the WAN interface. Loss to the gateway points at the line / ISP access network; loss only to far hosts points at the ISP backbone."
 msgstr ""
 
 msgid "Loss for warning (%)"
@@ -869,28 +842,7 @@ msgstr ""
 msgid "High jitter (ms)"
 msgstr ""
 
-msgid "Mean difference between consecutive ping replies. Matters for calls, games and IPTV over unicast. 0 = only measure, no warning."
-msgstr ""
-
-msgid "Check DNS"
-msgstr ""
-
-msgid "Resolves a name every interval and logs failures and slow answers. \"Internet does not work\" is often DNS only."
-msgstr ""
-
-msgid "Name to resolve"
-msgstr ""
-
-msgid "DNS server"
-msgstr ""
-
-msgid "Empty = the router's own resolver (answers are often cached). Enter the ISP's DNS server to test it directly."
-msgstr ""
-
-msgid "Slow DNS (ms)"
-msgstr ""
-
-msgid "0 disables the warning."
+msgid "Standard deviation of the ping time as reported by collectd. Matters for calls, games and IPTV over unicast. 0 = no warning."
 msgstr ""
 
 msgid "Monitor IPTV"
@@ -962,7 +914,7 @@ msgstr ""
 msgid "Router load"
 msgstr ""
 
-msgid "An overloaded router drops packets too. Logged so it is not blamed on the ISP."
+msgid "An overloaded router drops packets too. Only read from /proc to explain problems in the timeline; for graphs use Status → Realtime Graphs or luci-app-statistics."
 msgstr ""
 
 msgid "Watch router load"
@@ -984,6 +936,9 @@ msgid "Connection table full (%)"
 msgstr ""
 
 msgid "When the table is full, new connections fail. 0 disables."
+msgstr ""
+
+msgid "Notifications"
 msgstr ""
 
 msgid "Push a message to your phone when something breaks. Messages that cannot be sent during an outage are sent when the Internet is back."
@@ -1169,10 +1124,19 @@ msgstr ""
 msgid "WAN session dropped/restarted %d× (PPPoE/DHCP) while the cable link stayed up – ISP side (authentication, BRAS, DHCP server)."
 msgstr ""
 
-msgid "DNS server %s failed or was slow %d× while ping worked – the ISP's DNS; consider another DNS server."
+msgid "pppd: the ISP stopped answering LCP echo requests (%d×) – line or ISP access network."
 msgstr ""
 
-msgid "DNS failed or was slow %d× while ping worked – the router's resolver or its upstream DNS servers; \"no Internet\" may be DNS only."
+msgid "pppd/udhcpc: no PPPoE access server, failed authentication or no DHCP lease (%d×) – ISP side."
+msgstr ""
+
+msgid "pppd: connection terminated %d× (see the timeline for the reason)."
+msgstr ""
+
+msgid "The multicast proxy logged errors (%d×) – check its configuration (upstream / downstream interfaces)."
+msgstr ""
+
+msgid "Network driver / switch chip hung (%d×, kernel \"transmit timed out\") – router hardware or driver."
 msgstr ""
 
 msgid "%d problems happened while the router was overloaded (CPU / RAM / connection table) – the router itself may be dropping packets."
@@ -1211,14 +1175,8 @@ msgstr ""
 msgid "Network device %s disappeared (%d×) – driver, configuration or reboot."
 msgstr ""
 
-msgid "System"
-msgstr ""
-
 msgid "Overview"
 msgstr ""
 
 msgid "Settings"
-msgstr ""
-
-msgid "Grant access to ISP Tester"
 msgstr ""

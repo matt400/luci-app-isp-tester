@@ -30,16 +30,26 @@ Target: **OpenWrt 24.10 and 25.12** (ucode + rpcd + LuCI JS). No compiled code, 
 
 | Area | How | Logged events |
 |------|-----|---------------|
-| **Internet** | Ping to the ISP gateway (auto-detected) and to configured targets (default `1.1.1.1`, `8.8.8.8`) in every interval, with jitter | packet loss, high latency, high jitter (optional), target not responding, *Internet down* (no target responds), recovery with duration |
-| **DNS** | Name lookup every interval, via the router's resolver or a chosen server (e.g. the ISP's) | lookup failed, slow answer, OK again |
+| **Internet** | Ping results of **collectd** (luci-app-statistics, Ping plugin): loss, latency and jitter per host. The host netifd reports as gateway is marked as the ISP gateway | packet loss, high latency, high jitter (optional), host not responding, *Internet down* (no host responds), recovery with duration |
 | **WAN session** | netifd status of the WAN interface | interface down/up (PPPoE/DHCP session lost), session restarted between two checks, WAN address changed |
+| **System log** | `logread`: pppd, udhcpc, igmpproxy/mcproxy, kernel, dnsmasq | LCP echo timeouts, PPPoE discovery/authentication failures, DHCP lease lost, proxy errors, network driver hang, connection table full, out of memory, DNS query limit |
 | **IPTV** | Bitrate on a device that carries only IPTV traffic (e.g. the IPTV VLAN `eth1.236`, or the decoder's port measured outgoing) | stream started, **stream stopped**, stream resumed after *N s* (with what IGMP did meanwhile), stream lost (decoder off or long outage), bitrate dip |
 | **IGMP** | Joined groups on the proxy's upstream (`/proc/net/igmp`), multicast proxy process (igmpproxy, mcproxy, omcproxy), bridge MDB and IGMP timers | proxy stopped / restarted; every freeze is tagged as *channel change*, *membership dropped* or *still subscribed* |
 | **Ports** | `/sys/class/net/<dev>` counters and link state | link down/up, link flapping between samples, speed change (e.g. 1 Gbit → 100 Mbit), RX/TX/CRC errors, drops |
-| **Router** | CPU per core (incl. softirq), RAM, connection tracking table | router overloaded, low RAM, connection table full |
+| **Router** | `/proc`: CPU per core (incl. softirq), RAM, connection tracking table. Only read to explain problems; for graphs use *Status → Realtime Graphs* or luci-app-statistics | router overloaded, low RAM, connection table full |
 | **You** | **⚑ Problem now** button | your report with the time of the click and an optional note |
 
 Optionally it shows whether **IGMP snooping** and the **querier** are active on a bridge, and which group goes to which bridge port (needs `ip-bridge`).
+
+The package does not duplicate what OpenWrt already does: ping comes from collectd, the session from netifd, messages from the system log, persistence from a mounted USB folder. The only own measurement is the IPTV bitrate, read from the interface counters every second (collectd's 30 s average would hide freezes).
+
+### Ping via collectd
+
+```sh
+opkg install luci-app-statistics collectd-mod-ping collectd-mod-unixsock
+```
+
+In *Statistics → Setup → Network plugins → Ping* add the ISP gateway (the WAN gateway or PPPoE peer) and one or two far hosts (e.g. `1.1.1.1`, `8.8.8.8`). Enable *UnixSock* in *General plugins* so the tester gets live values; without it, it reads the RRD files, which lag behind by the rrdtool cache time (minutes).
 
 Gateway vs. far-target loss helps pinpoint the cause. Loss to the gateway points at the line or the ISP access network. Loss only to the far targets points further into the ISP's network.
 
@@ -57,7 +67,7 @@ Gateway vs. far-target loss helps pinpoint the cause. Loss to the gateway points
 - **Report for the ISP**: a printable summary of the selected period (outages, freezes with total/longest duration, session drops, verdict, problems by hour, event log). Print it or save it as PDF and attach it to your complaint.
 - Export buttons: measurements CSV (one row per interval) and timeline CSV.
 
-**Status → ISP Tester → Settings** holds all thresholds, ping targets, the IPTV device and the list of ports.
+**Status → ISP Tester → Settings** holds all thresholds, the IPTV device and the list of ports. The ping hosts are set in collectd (luci-app-statistics).
 
 The UI is in English and Polish.
 
@@ -95,17 +105,15 @@ Each finding is weighted (repeated occurrences count up to 5×). The verdict is 
 
 Everything is kept in RAM in `/tmp/isp-tester/`, so flash is never written. The data survives a collector restart (e.g. after saving settings) but is lost on reboot, so download the CSVs before restarting the router.
 
-To keep it across reboots, set **Settings → General → Keep logs on** to a folder on a USB stick (e.g. `/mnt/sda1`). The timeline, 24 h history and CSV are copied there every 15 min and when the service stops (reboot), and restored at start when `/tmp` is empty. Do not point it at the internal flash.
+To keep it across reboots, mount a USB stick (*System → Mount Points*) and set **Settings → General → Keep data on** to it (e.g. `/mnt/sda1`). `/tmp/isp-tester` then becomes a link to `<folder>/isp-tester`. If the stick is not mounted at start, the data stays in RAM. Do not point it at the internal flash. The current state (`state.json`) always stays in RAM in `/var/run/isp-tester/`.
 
-## Notifications and syslog
+## Notifications
 
 **Settings → Notifications** sends a push message when something breaks and when it is fixed: [ntfy](https://ntfy.sh) (topic URL), a Telegram bot (token + chat id) or any webhook (JSON POST `{"text": …}`). Events are batched (default at most one message per 5 min). Messages that cannot be sent during an outage are sent when the Internet is back. Messages are in English or Polish. It uses `uclient-fetch` (part of OpenWrt) with HTTPS support.
 
-**Write problems to the system log** sends warnings and faults to `logread` and, if configured in *System → Logging*, to a remote syslog server.
-
 | File | Content |
 |------|---------|
-| `state.json` | current health + last hour of 10 s samples |
+| `/var/run/isp-tester/state.json` | current health + last hour of 10 s samples (always RAM) |
 | `history.json` | 24 h of 1-minute aggregates for the history view |
 | `events.json` | timeline (ring buffer, default 1000 entries) |
 | `samples.csv` | one row per interval (ring buffer, default 8640 rows = 24 h at 10 s) |
@@ -193,11 +201,11 @@ The collector can run on any Linux machine with ucode (and the uloop module) aga
 
 ```sh
 ISP_TESTER_RUNDIR=/tmp/t/run ISP_TESTER_SYSNET=/tmp/t/sys \
-ISP_TESTER_CONFIG=/tmp/t/cfg.json ISP_TESTER_PING=/tmp/t/ping.sh \
+ISP_TESTER_CONFIG=/tmp/t/cfg.json ISP_TESTER_VARDIR=/tmp/t/var \
 ISP_TESTER_ROUTE=/tmp/t/route ucode root/usr/share/isp-tester/collector.uc
 ```
 
-Further overrides: `ISP_TESTER_PROC` (fake `/proc` with `stat`, `meminfo`, `net/igmp`, `<pid>/comm` …), `ISP_TESTER_WANSTATUS` (JSON file instead of `ubus call network.interface.wan status`), `ISP_TESTER_NSLOOKUP`, `ISP_TESTER_LOGGER`, `ISP_TESTER_FETCH`, `ISP_TESTER_BRIDGE`.
+Further overrides: `ISP_TESTER_VARDIR`, `ISP_TESTER_PROC` (fake `/proc` with `stat`, `meminfo`, `net/igmp`, `<pid>/comm` …), `ISP_TESTER_WANSTATUS` (JSON file instead of `ubus call network.interface.wan status`), `ISP_TESTER_LOGREAD`, `ISP_TESTER_RRDTOOL`, `ISP_TESTER_FETCH`, `ISP_TESTER_BRIDGE`. Ping data comes from `wan.collectd_socket` (a collectd unixsock, e.g. a small test server) or `wan.rrd_dir` in the JSON config.
 
 `ISP_TESTER_CONFIG` is a JSON file with the same keys as the UCI config (see `default_config()` in the collector).
 

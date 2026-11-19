@@ -14,36 +14,28 @@ config general 'general'
 	option err_cooldown '60'
 	# drops per interval needed to log a "drops" event
 	option drop_warn '50'
-	# copy the logs here (e.g. a USB stick, /mnt/sda1) so they survive a reboot;
-	# empty = RAM only. Avoid the internal flash, it wears out.
-	option persist_dir ''
-	# how often the copy is refreshed (s); it is also written on stop/reboot
-	option persist_interval '900'
-	# also write warnings/errors to the system log (and a remote syslog server, if set)
-	option syslog '0'
+	# keep timeline, history and CSV in this folder (e.g. a USB stick, /mnt/sda1)
+	# instead of RAM, so they survive a reboot. Avoid the internal flash.
+	option data_dir ''
+	# turn messages of other services in the system log (pppd, udhcpc,
+	# igmpproxy, kernel, dnsmasq) into timeline events
+	option logread '1'
 
 config wan 'wan'
 	option enabled '1'
+	# Ping is measured by collectd: luci-app-statistics with the Ping plugin
+	# (add the ISP gateway and 1-2 far hosts) and, for live values, UnixSock.
 	# logical interface used to find the WAN device and gateway
 	option interface 'wan'
-	option ping_gateway '1'
-	list target '1.1.1.1'
-	list target '8.8.8.8'
-	option count '3'
-	# packet loss % (per round of pings) for yellow / red
+	# which collectd ping host is the ISP gateway; empty = gateway from netifd
+	option gateway ''
+	# packet loss % (per collectd interval) for yellow / red
 	option loss_warn '1'
 	option loss_fail '50'
 	# average RTT (ms) for yellow, 0 = off
 	option rtt_warn '80'
-	# jitter (ms, mean difference between consecutive replies) for yellow, 0 = off
+	# jitter (ms, collectd ping_stddev) for yellow, 0 = off
 	option jitter_warn '0'
-	# check name resolution every interval
-	option dns '1'
-	option dns_host 'openwrt.org'
-	# DNS server to ask; empty = the router's own resolver
-	option dns_server ''
-	# lookup slower than this (ms) is logged, 0 = off
-	option dns_warn '500'
 
 config iptv 'iptv'
 	option enabled '1'
@@ -70,6 +62,8 @@ config iptv 'iptv'
 	# device when measuring incoming traffic
 	option igmp_device ''
 
+# router load, read from /proc only to explain problems (for graphs use
+# Status -> Realtime Graphs or luci-app-statistics)
 config system 'system'
 	option enabled '1'
 	# busiest CPU core (%) for two intervals in a row = router overloaded, 0 = off

@@ -200,8 +200,7 @@ function reasonText(r) {
 		: _('%s: high latency %s').format(targetName(r.t), fmtMs(r.rtt));
 	case 'wan_down':        return _('Internet unreachable for %s').format(fmtDur(Date.now() / 1000 - r.since));
 	case 'wan_if_down':     return _('WAN interface %s is down (no PPPoE/DHCP session) for %s').format(r.iface, fmtDur(Date.now() / 1000 - r.since));
-	case 'dns_fail':        return _('DNS does not answer (for %s)').format(fmtDur(Date.now() / 1000 - r.since));
-	case 'dns_slow':        return _('DNS is slow (%s)').format(fmtMs(r.ms));
+	case 'no_ping_source':  return _('No ping data: enable the Ping plugin of luci-app-statistics (collectd) and add the ISP gateway and far hosts there.');
 	case 'proxy_down':      return _('Multicast proxy %s is not running').format(r.name || '');
 	case 'cpu_high':        return (r.cpu == null) ? _('Router CPU busy') : _('Router CPU busy: %d%% (%s)').format(r.cpu, r.core || 'cpu');
 	case 'mem_low':         return _('Router is low on RAM: %d%% free').format(r.pct);
@@ -243,9 +242,6 @@ function eventText(e) {
 	case 'wan_if_up':       return _('WAN interface %s up again after %s').format(d.iface, fmtDur(d.dur)) + (d.ip ? ' · ' + d.ip : '');
 	case 'wan_reconnect':   return _('WAN session restarted (previous one lasted %s)').format(fmtDur(d.prev));
 	case 'wan_ip_change':   return _('WAN address changed %s → %s').format(d.from, d.to);
-	case 'dns_fail':        return d.server ? _('DNS: %s could not be resolved via %s').format(d.host, d.server) : _('DNS: %s could not be resolved').format(d.host);
-	case 'dns_slow':        return _('DNS: slow answer %s').format(fmtMs(d.ms));
-	case 'dns_ok':          return _('DNS OK again after %s (%s)').format(fmtDur(d.dur), fmtMs(d.ms));
 	case 'proxy_down':      return _('Multicast proxy %s STOPPED').format(d.name);
 	case 'proxy_up':        return _('Multicast proxy %s running again after %s').format(d.name, fmtDur(d.dur));
 	case 'proxy_restart':   return _('Multicast proxy %s restarted').format(d.name);
@@ -256,7 +252,7 @@ function eventText(e) {
 	case 'conntrack_full':  return _('Connection table %d%% full (%d of %d)').format(d.pct, d.n, d.max);
 	case 'conntrack_full_ok': return _('Connection table OK again after %s').format(fmtDur(d.dur));
 	case 'user_mark':       return _('You reported: %s').format(markText(d.what)) + (d.note ? ' – „' + d.note + '”' : '');
-	case 'restored':        return _('Logs restored from %s after a restart').format(d.dir);
+	case 'log':             return logText(d.kind) + ' – ' + d.prog + ': „' + d.msg + '”' + (d.n > 1 ? ' (%d×)'.format(d.n) : '');
 	default:                return e.type;
 	}
 }
@@ -275,6 +271,22 @@ function markText(w) {
 	return _('Something else');
 }
 
+function logText(k) {
+	switch (k) {
+	case 'ppp_echo':       return _('PPPoE: the ISP stopped answering LCP echo');
+	case 'ppp_auth':       return _('PPPoE: authentication failed');
+	case 'ppp_discovery':  return _('PPPoE: no answer from the ISP access server');
+	case 'ppp_down':       return _('PPPoE: connection terminated');
+	case 'dhcp_fail':      return _('DHCP: no lease from the ISP');
+	case 'proxy_log':      return _('Multicast proxy error');
+	case 'nic_timeout':    return _('Network driver / switch chip hang');
+	case 'conntrack_drop': return _('Connection table full, packets dropped');
+	case 'oom':            return _('Router ran out of memory');
+	case 'dns_limit':      return _('DNS server overloaded (query limit)');
+	default:               return _('System log');
+	}
+}
+
 function igmpNote(ig) {
 	switch (ig) {
 	case 'zap':    return ' · ' + _('channel change');
@@ -289,7 +301,7 @@ function hourHistogram(events, from, to) {
 	var h = [];
 	for (var i = 0; i < 24; i++) h.push(0);
 	events.forEach(function(e) {
-		if (e.ts < from || e.ts > to || e.lvl === 'info' || e.area === 'system' && e.type !== 'cpu_high') return;
+		if (e.ts < from || e.ts > to || e.lvl === 'info') return;
 		if (e.type === 'stream_resume' || e.type === 'wan_up' || e.type === 'link_up' || e.type === 'wan_if_up' || e.type === 'proxy_up') return;
 		h[new Date(e.ts * 1000).getHours()]++;
 	});
@@ -622,8 +634,7 @@ return view.extend({
 			bridge: br,
 			membership_interval: br && br.membership_interval,
 			query_interval: br && br.query_interval,
-			igmp: st.iptv && st.iptv.igmp,
-			dns_server: st.wan && st.wan.dns && st.wan.dns.server
+			igmp: st.iptv && st.iptv.igmp
 		});
 	},
 
@@ -668,7 +679,7 @@ return view.extend({
 
 		var o = lvl(st.overall);
 		var problems = [];
-		[ [ 'wan', st.wan ], [ 'iptv', st.iptv ], [ 'ports', st.ports ], [ 'system', st.system ] ].forEach(function(a) {
+		[ [ 'wan', st.wan ], [ 'iptv', st.iptv ], [ 'ports', st.ports ] ].forEach(function(a) {
 			if (a[1] && a[1].level && a[1].level !== 'ok')
 				problems.push(areaName(a[0]) + ': ' + levelText(a[1].level).toLowerCase());
 		});
@@ -742,12 +753,11 @@ return view.extend({
 			E('span', { 'class': 'k' }, _('WAN device')), E('span', {}, w.device || '–'),
 			E('span', { 'class': 'k' }, _('Traffic ↓ / ↑')), E('span', {}, fmtRate(w.rx_kbps) + ' / ' + fmtRate(w.tx_kbps))
 		];
-		if (w.dns)
-			kv.push(E('span', { 'class': 'k' }, _('DNS')), E('span', {}, [
-				dot(w.dns.state === 'ok' ? 'ok' : w.dns.state === 'slow' ? 'warn' : (w.dns.ok == null ? 'unknown' : 'fail')),
-				w.dns.ok === false ? _('no answer') : fmtMs(w.dns.ms),
-				E('span', { 'class': 'ispt-muted' }, ' · ' + w.dns.host + (w.dns.server ? ' @ ' + w.dns.server : ''))
-			]));
+		if (w.source)
+			kv.push(E('span', { 'class': 'k' }, _('Ping data')), E('span', { 'class': w.source.type ? '' : 'ispt-warn-text' },
+				w.source.type === 'unixsock' ? _('collectd (live)')
+				: w.source.type === 'rrd' ? _('collectd RRD files (delayed; enable the UnixSock plugin for live values)')
+				: _('none')));
 		if (w.session) {
 			var ss = w.session;
 			kv.push(E('span', { 'class': 'k' }, _('Session')), E('span', {},
@@ -760,7 +770,7 @@ return view.extend({
 			E('h3', {}, [ _('Internet'), chip(w.level) ]),
 			E('table', { 'class': 'ispt-mini' }, [
 				E('tr', {}, [ E('th', {}, _('Target')), E('th', {}, _('Loss')), E('th', {}, _('Ping')),
-					E('th', { 'title': _('Mean difference between consecutive replies') }, _('Jitter')) ])
+					E('th', { 'title': _('Standard deviation of the ping time (collectd)') }, _('Jitter')) ])
 			].concat(rows.length ? rows : [ E('tr', {}, E('td', { colspan: 4, 'class': 'ispt-muted' }, _('Waiting for ping results…'))) ])),
 			E('div', { 'class': 'ispt-kv', 'style': 'margin-top:.5em' }, kv),
 			this.reasons(w.reasons)
@@ -848,35 +858,6 @@ return view.extend({
 		]);
 	},
 
-	renderSystem: function(st) {
-		var y = st.system;
-		if (!y) return '';
-		var pct = function(v) { return (v == null) ? '–' : v + '%'; };
-		var kv = [
-			E('span', { 'class': 'k' }, _('CPU')), E('span', {}, y.cpu == null ? '–' :
-				_('%d%% overall, busiest core %d%% (softirq %d%%)').format(y.cpu, y.cpu_max, y.sirq_max)),
-			E('span', { 'class': 'k' }, _('Load')), E('span', {}, y.load == null ? '–' : String(y.load) + (y.cores ? ' / ' + _('%d cores').format(y.cores) : '')),
-			E('span', { 'class': 'k' }, _('Free RAM')), E('span', {}, pct(y.mem_pct) + (y.mem_total ? ' ' + _('of %d MB').format(Math.round(y.mem_total / 1024)) : '')),
-			E('span', { 'class': 'k' }, _('Connections')), E('span', {}, y.ct == null ? '–' : '%d / %d (%d%%)'.format(y.ct, y.ct_max, y.ct_pct))
-		];
-		if (st.persist)
-			kv.push(E('span', { 'class': 'k' }, _('Logs kept on')), E('span', { 'class': st.persist.ok ? '' : 'ispt-warn-text' },
-				st.persist.ok ? _('%s (copied %s ago)').format(st.persist.dir, fmtDur(Date.now() / 1000 - st.persist.last)) : _('%s – not mounted!').format(st.persist.dir)));
-		if (st.notify) {
-			var n = st.notify;
-			kv.push(E('span', { 'class': 'k' }, _('Notifications')), E('span', { 'class': (n.last_fail > (n.last_ok || 0)) || !n.fetch ? 'ispt-warn-text' : '' },
-				!n.fetch ? _('uclient-fetch / wget missing') :
-				(n.last_fail > (n.last_ok || 0)) ? _('last attempt failed %s ago (%d waiting)').format(fmtDur(Date.now() / 1000 - n.last_fail), n.pending) :
-				n.last_ok ? _('last sent %s ago').format(fmtDur(Date.now() / 1000 - n.last_ok)) : _('nothing sent yet')));
-		}
-
-		return E('div', { 'class': 'ispt-card l-' + lvl(y.level) }, [
-			E('h3', {}, [ _('Router'), chip(y.level) ]),
-			E('div', { 'class': 'ispt-kv' }, kv),
-			this.reasons(y.reasons)
-		]);
-	},
-
 	disabledCard: function(title, hint) {
 		return E('div', { 'class': 'ispt-card l-unknown' }, [
 			E('h3', {}, [ title, chip('unknown') ]),
@@ -957,21 +938,6 @@ return view.extend({
 				fmt: function(v) { return v.toFixed(1); },
 				min_max: 1
 			}));
-		}
-
-		if (s.dns && s.dns.some(function(v, i) { return v != null && t[i] >= w.from && t[i] <= w.to; })) {
-			out.push(lineChart(t, [ { name: _('DNS'), color: '#2e9d8f', data: s.dns, fmt: fmtMs } ], {
-				from: w.from, to: w.to, title: cd.fine ? _('DNS lookup time (ms)') : _('DNS lookup time (ms, worst per minute)'),
-				min_max: 20, height: 100
-			}));
-		}
-
-		if (s.cpu && s.cpu.some(function(v, i) { return v != null && t[i] >= w.from && t[i] <= w.to; })) {
-			out.push(lineChart(t, [
-				{ name: _('Busiest CPU core'), color: '#c44b8a', data: s.cpu, fmt: function(v) { return Math.round(v) + '%'; } },
-				{ name: _('of it softirq (packet processing)'), color: '#8a9a2e', data: s.sirq || [], fmt: function(v) { return Math.round(v) + '%'; } }
-			], { from: w.from, to: w.to, title: _('Router CPU (%)'), min_max: 100, height: 100, legend: true,
-				fmt: function(v) { return Math.round(v) + '%'; } }));
 		}
 
 		var errSeries = [], ci = 0;
@@ -1070,7 +1036,7 @@ return view.extend({
 			row(_('Packet loss to far targets'), _('%d×').format(count(function(e) { return e.area === 'wan' && e.src !== 'gateway' && e.src !== 'dns' && e.src !== 'netifd' && (e.type === 'target_degraded' || e.type === 'target_fail') && e.d && e.d.loss > 0; }))) +
 			row(_('WAN session drops (PPPoE/DHCP)'), _('%d×').format(count(function(e) { return e.type === 'wan_reconnect' || e.type === 'wan_if_down'; }))) +
 			row(_('WAN port link drops'), _('%d×').format(count(function(e) { return e.type === 'link_down' && e.area === 'wan'; }))) +
-			row(_('DNS failures'), _('%d×').format(count(function(e) { return e.type === 'dns_fail'; }))) +
+			row(_('Related messages in the system log'), _('%d×').format(count(function(e) { return e.type === 'log'; }))) +
 			row(_('IPTV freezes'), _('%d, total %s, longest %s').format(tv.n, fmtDur(tv.total), fmtDur(tv.longest)) + (r.zaps ? ' · ' + _('%d channel changes not counted').format(r.zaps) : '')) +
 			row(_('Router overloaded'), _('%d×').format(count(function(e) { return e.type === 'cpu_high' || e.type === 'mem_low' || e.type === 'conntrack_full'; }))) +
 			row(_('Problems reported by the user'), _('%d×').format(count(function(e) { return e.type === 'user_mark'; }))) +
@@ -1152,6 +1118,19 @@ return view.extend({
 		]);
 	},
 
+	renderFooter: function(st) {
+		var bits = [];
+		bits.push(st.data && st.data.link ? _('Data kept in %s (survives a reboot)').format(st.data.link) : _('Data kept in RAM (lost on reboot)'));
+		if (st.notify) {
+			var n = st.notify, failed = n.last_fail > (n.last_ok || 0);
+			bits.push(!n.fetch ? _('notifications: uclient-fetch / wget missing')
+				: failed ? _('notifications: last attempt failed %s ago (%d waiting)').format(fmtDur(Date.now() / 1000 - n.last_fail), n.pending)
+				: n.last_ok ? _('notifications: last sent %s ago').format(fmtDur(Date.now() / 1000 - n.last_ok))
+				: _('notifications: nothing sent yet'));
+		}
+		return E('div', { 'class': 'ispt-muted', 'style': 'font-size:.85em' }, bits.join(' · '));
+	},
+
 	exportSamples: function() {
 		return fs.read_direct('/tmp/isp-tester/samples.csv').then(function(data) {
 			download('isp-tester-samples-' + stamp() + '.csv', data);
@@ -1211,12 +1190,13 @@ return view.extend({
 		var parts = [ this.renderBanner(res) ];
 		if (st) {
 			parts.push(this.renderDiagnosis(st, w));
-			parts.push(E('div', { 'class': 'ispt-cards' }, [ this.renderWan(st), this.renderIptv(st), this.renderPorts(st), this.renderSystem(st) ]));
+			parts.push(E('div', { 'class': 'ispt-cards' }, [ this.renderWan(st), this.renderIptv(st), this.renderPorts(st) ]));
 			parts.push(this.renderCharts(st, w));
 			parts.push(this.renderHours(w));
 		}
 		parts.push(this.renderTimeline(w));
 		parts.push(this.renderActions());
+		if (st) parts.push(this.renderFooter(st));
 
 		dom.content(this.root, parts);
 	},

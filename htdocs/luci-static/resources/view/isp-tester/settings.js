@@ -53,22 +53,19 @@ return view.extend({
 		o.datatype = 'uinteger';
 		o.placeholder = '50';
 
-		o = s.option(form.Value, 'persist_dir', _('Keep logs on'),
-			_('Optional folder on persistent storage, e.g. a USB stick (<code>/mnt/sda1</code>). The timeline, history and CSV are copied there regularly and on reboot, and restored after a reboot. Do not use the internal flash: frequent writes wear it out. Empty = RAM only.'));
+		o = s.option(form.Value, 'data_dir', _('Keep data on'),
+			_('Optional folder on a USB stick (e.g. <code>/mnt/sda1</code>, mounted via System → Mount Points). <code>/tmp/isp-tester</code> becomes a link to it, so the timeline, history and CSV survive a reboot. Written: every event, the history once a minute, one CSV line per interval. Do not use the internal flash. Empty = RAM.'));
 		o.placeholder = '/mnt/sda1';
 		o.optional = true;
 
-		o = s.option(form.Value, 'persist_interval', _('Copy every (s)'));
-		o.datatype = 'range(60,86400)';
-		o.placeholder = '900';
-		o.depends({ persist_dir: '', '!reverse': true });
-
-		o = s.option(form.Flag, 'syslog', _('Write problems to the system log'),
-			_('Warnings and faults also go to the system log (logread) and to a remote syslog server, if one is set in System → System → Logging.'));
-		o.default = '0';
+		o = s.option(form.Flag, 'logread', _('Read the system log'),
+			_('Turns messages of other services into timeline events: pppd (LCP echo timeouts, authentication, PPPoE discovery), udhcpc (lease lost), igmpproxy/mcproxy errors, kernel (network driver hang, connection table full, out of memory), dnsmasq (query limit).'));
+		o.default = '1';
+		o.rmempty = false;
 
 		/* ---- WAN */
-		s = m.section(form.NamedSection, 'wan', 'wan', _('Internet (WAN)'));
+		s = m.section(form.NamedSection, 'wan', 'wan', _('Internet (WAN)'),
+			_('Ping is not measured here but taken from collectd: install <code>luci-app-statistics</code> and <code>collectd-mod-ping</code>, enable the Ping plugin and add the ISP gateway and one or two far hosts (e.g. 1.1.1.1, 8.8.8.8). Enable the UnixSock plugin (<code>collectd-mod-unixsock</code>) for live values; without it the values are read from the RRD files and lag behind by the cache time.'));
 
 		o = s.option(form.Flag, 'enabled', _('Monitor Internet'));
 		o.default = '1';
@@ -84,18 +81,10 @@ return view.extend({
 		o.noaliases = true;
 		o.optional = true;
 
-		o = s.option(form.Flag, 'ping_gateway', _('Ping ISP gateway'),
-			_('Loss to the gateway points at the line / ISP access network; loss only to far targets points at the ISP backbone.'));
-		o.default = '1';
-		o.rmempty = false;
-
-		o = s.option(form.DynamicList, 'target', _('Ping targets'));
+		o = s.option(form.Value, 'gateway', _('ISP gateway host'),
+			_('Which of the collectd ping hosts is the ISP gateway. Empty = the gateway netifd reports for the WAN interface. Loss to the gateway points at the line / ISP access network; loss only to far hosts points at the ISP backbone.'));
 		o.datatype = 'host';
-		o.placeholder = '1.1.1.1';
-
-		o = s.option(form.Value, 'count', _('Pings per round'));
-		o.datatype = 'range(1,10)';
-		o.placeholder = '3';
+		o.optional = true;
 
 		o = s.option(form.Value, 'loss_warn', _('Loss for warning (%)'));
 		o.datatype = 'range(1,100)';
@@ -110,30 +99,9 @@ return view.extend({
 		o.placeholder = '80';
 
 		o = s.option(form.Value, 'jitter_warn', _('High jitter (ms)'),
-			_('Mean difference between consecutive ping replies. Matters for calls, games and IPTV over unicast. 0 = only measure, no warning.'));
+			_('Standard deviation of the ping time as reported by collectd. Matters for calls, games and IPTV over unicast. 0 = no warning.'));
 		o.datatype = 'uinteger';
 		o.placeholder = '0';
-
-		o = s.option(form.Flag, 'dns', _('Check DNS'),
-			_('Resolves a name every interval and logs failures and slow answers. "Internet does not work" is often DNS only.'));
-		o.default = '1';
-		o.rmempty = false;
-
-		o = s.option(form.Value, 'dns_host', _('Name to resolve'));
-		o.datatype = 'hostname';
-		o.placeholder = 'openwrt.org';
-		o.depends('dns', '1');
-
-		o = s.option(form.Value, 'dns_server', _('DNS server'),
-			_('Empty = the router\'s own resolver (answers are often cached). Enter the ISP\'s DNS server to test it directly.'));
-		o.datatype = 'host';
-		o.optional = true;
-		o.depends('dns', '1');
-
-		o = s.option(form.Value, 'dns_warn', _('Slow DNS (ms)'), _('0 disables the warning.'));
-		o.datatype = 'uinteger';
-		o.placeholder = '500';
-		o.depends('dns', '1');
 
 		/* ---- IPTV */
 		s = m.section(form.NamedSection, 'iptv', 'iptv', _('IPTV'));
@@ -195,7 +163,7 @@ return view.extend({
 
 		/* ---- router load */
 		s = m.section(form.NamedSection, 'system', 'system', _('Router load'),
-			_('An overloaded router drops packets too. Logged so it is not blamed on the ISP.'));
+			_('An overloaded router drops packets too. Only read from /proc to explain problems in the timeline; for graphs use Status → Realtime Graphs or luci-app-statistics.'));
 
 		o = s.option(form.Flag, 'enabled', _('Watch router load'));
 		o.default = '1';

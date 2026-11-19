@@ -107,8 +107,11 @@ return baseclass.extend({
 		/* the WAN L3 device vanishing (e.g. pppoe-wan when the PPP session drops) is a WAN problem */
 		var wanDevGone  = by(function(e) { return e.type === 'dev_missing' && (e.area === 'wan' || e.src === wanDev); });
 		var wanSess     = by(function(e) { return e.type === 'wan_reconnect' || e.type === 'wan_if_down'; });
-		var dnsBad      = by(function(e) { return e.type === 'dns_fail' || e.type === 'dns_slow'; });
-		var anyWan      = gwLoss.concat(farLoss, wanDown, wanLinkDown, wanDevGone, wanSess);
+		var logOf       = function(kinds) { return by(function(e) { return e.type === 'log' && e.d && kinds.indexOf(e.d.kind) >= 0; }); };
+		var pppEcho     = logOf([ 'ppp_echo' ]);
+		var pppIsp      = logOf([ 'ppp_auth', 'ppp_discovery', 'dhcp_fail' ]);
+		var pppDown     = logOf([ 'ppp_down' ]);
+		var anyWan      = gwLoss.concat(farLoss, wanDown, wanLinkDown, wanDevGone, wanSess, pppEcho, pppIsp, pppDown);
 
 		var portLink    = by(function(e) { return e.area === 'ports' && (e.type === 'link_down' || e.type === 'link_flap'); });
 		var portSpeed   = by(function(e) { return e.area === 'ports' && e.type === 'speed_change' && e.d && e.d.to < e.d.from; });
@@ -120,9 +123,13 @@ return baseclass.extend({
 
 		var allStalls   = by(function(e) { return e.type === 'stream_stall'; });
 		var dips        = by(function(e) { return e.type === 'stream_dip'; });
-		var proxyBad    = by(function(e) { return e.type === 'proxy_down' || e.type === 'proxy_restart'; });
+		var proxyBad    = by(function(e) { return e.type === 'proxy_down' || e.type === 'proxy_restart' ||
+			(e.type === 'log' && e.d && e.d.kind === 'proxy_log'); });
 		var marks       = by(function(e) { return e.type === 'user_mark'; });
 		var busy        = periods(sorted, [ 'cpu_high', 'mem_low', 'conntrack_full' ], to);
+		/* single moments from the system log count as short overload periods */
+		logOf([ 'conntrack_drop', 'oom', 'dns_limit' ]).forEach(function(e) { busy.push({ from: e.ts, to: e.ts }); });
+		var nicHang     = logOf([ 'nic_timeout' ]);
 
 		/* what IGMP did during each freeze is stored on the matching resume event */
 		var igmpOf = function(s) {
@@ -170,16 +177,21 @@ return baseclass.extend({
 		/* PPPoE/DHCP session dropped while the cable link stayed up */
 		add('isp', 2, 'wan_session', wanSess.filter(function(e) { return !near(wanLinkDown, e.ts, 60); }));
 
-		var dnsOnly = dnsBad.filter(function(e) { return !near(anyWan, e.ts, 60); });
-		add(ctx.dns_server ? 'isp' : 'info', 0.5, 'dns_only', dnsOnly, { server: ctx.dns_server });
+		/* what pppd / udhcpc wrote to the system log */
+		add('isp', 2, 'log_ppp_echo', pppEcho.filter(function(e) { return !near(wanLinkDown, e.ts, 60); }));
+		add('isp', 3, 'log_isp_auth', pppIsp.filter(function(e) { return !near(wanLinkDown, e.ts, 60); }));
+		add('info', 0, 'log_ppp_down', pppDown);
+		add('home', 3, 'log_nic', nicHang);
 
 		/* ---- router overloaded at the time of the problems */
-		var problemsAll = anyWan.concat(allStalls, by(function(e) { return e.area === 'ports' && e.lvl !== 'info'; }));
+		var problemsAll = anyWan.concat(allStalls, by(function(e) { return e.area === 'ports' && e.lvl !== 'info'; }))
+			.filter(function(e) { return e.type !== 'log'; });
 		var duringBusy = problemsAll.filter(function(e) { return inPeriods(busy, e.ts, 20); });
 		if (duringBusy.length)
 			add('home', 2, 'router_busy', duringBusy);
 		else
-			add('info', 0, 'router_load', by(function(e) { return e.type === 'cpu_high' || e.type === 'mem_low' || e.type === 'conntrack_full'; }));
+			add('info', 0, 'router_load', by(function(e) { return e.type === 'cpu_high' || e.type === 'mem_low' || e.type === 'conntrack_full' ||
+				(e.type === 'log' && e.d && [ 'conntrack_drop', 'oom', 'dns_limit' ].indexOf(e.d.kind) >= 0); }));
 
 		/* ---- IPTV: classify every stall by what happened at the same time */
 		var withWan = [], withPort = [], withDev = [], withProxy = [], lonely = [];
@@ -195,7 +207,9 @@ return baseclass.extend({
 		lonely = lonely.filter(function(s) { return igmpLeft.indexOf(s) < 0; });
 
 		add('info', 0, 'stall_zap', zaps, { total: allStalls.length });
-		add('home', 3, 'proxy_down', proxyBad, { name: proxyBad[0] && proxyBad[0].d && proxyBad[0].d.name });
+		var proxyStop = proxyBad.filter(function(e) { return e.type !== 'log'; });
+		add('home', 3, 'proxy_down', proxyStop, { name: proxyStop[0] && proxyStop[0].d && proxyStop[0].d.name });
+		add('home', 1, 'log_proxy', proxyBad.filter(function(e) { return e.type === 'log'; }));
 		add('home', 2, 'stall_with_proxy', withProxy, { total: stalls.length });
 		add('isp', 2, 'stall_with_wan', withWan, { total: stalls.length });
 		add('home', 2, 'stall_with_port', withPort, { total: stalls.length, devs: uniq(anyPort, 'src').join(', ') });
@@ -327,9 +341,11 @@ return baseclass.extend({
 		case 'proxy_down':      return _('Multicast proxy %s stopped or restarted (%d×) – router: check its configuration and the system log.').format(a.name || '', f.n);
 		case 'no_proxy':        return _('No multicast proxy (igmpproxy / mcproxy) is running – fine if the IPTV VLAN is bridged, otherwise IPTV cannot work reliably.');
 		case 'wan_session':     return _('WAN session dropped/restarted %d× (PPPoE/DHCP) while the cable link stayed up – ISP side (authentication, BRAS, DHCP server).').format(f.n);
-		case 'dns_only':        return a.server
-			? _('DNS server %s failed or was slow %d× while ping worked – the ISP\'s DNS; consider another DNS server.').format(a.server, f.n)
-			: _('DNS failed or was slow %d× while ping worked – the router\'s resolver or its upstream DNS servers; "no Internet" may be DNS only.').format(f.n);
+		case 'log_ppp_echo':    return _('pppd: the ISP stopped answering LCP echo requests (%d×) – line or ISP access network.').format(f.n);
+		case 'log_isp_auth':    return _('pppd/udhcpc: no PPPoE access server, failed authentication or no DHCP lease (%d×) – ISP side.').format(f.n);
+		case 'log_ppp_down':    return _('pppd: connection terminated %d× (see the timeline for the reason).').format(f.n);
+		case 'log_proxy':       return _('The multicast proxy logged errors (%d×) – check its configuration (upstream / downstream interfaces).').format(f.n);
+		case 'log_nic':         return _('Network driver / switch chip hung (%d×, kernel "transmit timed out") – router hardware or driver.').format(f.n);
 		case 'router_busy':     return _('%d problems happened while the router was overloaded (CPU / RAM / connection table) – the router itself may be dropping packets.').format(f.n);
 		case 'router_load':     return _('The router was overloaded %d× (no problems at those moments).').format(f.n);
 		case 'marks_seen':      return _('%d of %d of your reports match a measured problem.').format(f.n, a.total);
