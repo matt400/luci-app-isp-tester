@@ -131,7 +131,7 @@ function default_config() {
 		},
 		iptv: {
 			enabled: true, vlan: 0, upstream: '', device: '', direction: 'rx', bridge: '',
-			min_kbps: 500, idle_after: 60, dip_pct: 40,
+			min_kbps: 500, idle_after: 60, off_after: 15, dip_pct: 40,
 			sample_interval: 1, stall_after: 2,
 			igmp: true, igmp_device: ''
 		},
@@ -225,6 +225,7 @@ function load_config() {
 		c.iptv.bridge     = t.bridge ?? '';
 		c.iptv.min_kbps   = num(t.min_kbps, c.iptv.min_kbps);
 		c.iptv.idle_after = num(t.idle_after, c.iptv.idle_after);
+		c.iptv.off_after  = num(t.off_after, c.iptv.off_after);
 		c.iptv.dip_pct    = num(t.dip_pct, c.iptv.dip_pct);
 		c.iptv.sample_interval = num(t.sample_interval, c.iptv.sample_interval);
 		c.iptv.stall_after = num(t.stall_after, c.iptv.stall_after);
@@ -285,6 +286,7 @@ let iptv = {
 	state: 'idle', since: now(), kbps: 0, pps: 0, avg: null, dip: false,
 	stall_since: null, stall_m: null,       /* wall / monotonic start of the current stall */
 	low_w: null, low_m: null,               /* start of a below-threshold run not yet long enough */
+	held: false, hold_def: 0,               /* stop while nobody is subscribed: decoder off or freeze? */
 	prev: null, prev_m: null, prev_w: null, /* last counter reading (fast sampler) */
 	acc: null                               /* per-tick aggregate of the fast samples */
 };
@@ -320,7 +322,7 @@ const MSG = {
 		wan_if_down: 'WAN interface %s went down', wan_if_up: 'WAN interface %s up again after %s', wan_reconnect: 'WAN session restarted (was up %s)',
 		wan_ip_change: 'WAN address changed %s -> %s',
 		log: '%s: %s',
-		stream_stall: 'IPTV STREAM STOPPED', stream_resume: 'IPTV stream resumed after %s', stream_lost: 'IPTV stream did not come back within %s',
+		stream_stall: 'IPTV STREAM STOPPED', stream_resume: 'IPTV stream resumed after %s', stream_lost: 'IPTV stream did not come back within %s', stream_off: 'IPTV stream ended: decoder switched off (no channel subscribed)',
 		stream_dip: 'IPTV bitrate dropped to %d kbit/s',
 		proxy_down: 'Multicast proxy %s is not running', proxy_up: 'Multicast proxy %s running again',
 		cpu_high: 'Router CPU busy: %d%% (softirq %d%%)', mem_low: 'Router RAM low: %d%% free', conntrack_full: 'Connection table %d%% full',
@@ -335,7 +337,7 @@ const MSG = {
 		wan_if_down: 'Interfejs WAN %s rozłączony', wan_if_up: 'Interfejs WAN %s znów działa po %s', wan_reconnect: 'Sesja WAN zestawiona od nowa (trwała %s)',
 		wan_ip_change: 'Zmiana adresu WAN %s -> %s',
 		log: '%s: %s',
-		stream_stall: 'STRUMIEŃ IPTV ZATRZYMANY', stream_resume: 'Strumień IPTV wrócił po %s', stream_lost: 'Strumień IPTV nie wrócił w ciągu %s',
+		stream_stall: 'STRUMIEŃ IPTV ZATRZYMANY', stream_resume: 'Strumień IPTV wrócił po %s', stream_lost: 'Strumień IPTV nie wrócił w ciągu %s', stream_off: 'Strumień IPTV zakończony: dekoder wyłączony (brak subskrybowanego kanału)',
 		stream_dip: 'Bitrate IPTV spadł do %d kbit/s',
 		proxy_down: 'Proxy multicast %s nie działa', proxy_up: 'Proxy multicast %s znów działa',
 		cpu_high: 'Router przeciążony: CPU %d%% (softirq %d%%)', mem_low: 'Mało RAM: wolne %d%%', conntrack_full: 'Tablica połączeń zajęta w %d%%',
@@ -1026,6 +1028,7 @@ function igmp_poll() {
 		push(igmp.hist, { ts: now(), before: igmp.groups, after: cur });
 		if (length(igmp.hist) > 20) igmp.hist = slice(igmp.hist, -20);
 	}
+	if (length(cur)) igmp.seen = true;
 	igmp.groups = cur;
 }
 
@@ -1497,9 +1500,32 @@ function iptv_out(devres) {
  * below min_kbps for at least stall_after seconds; its timestamp is the
  * moment the data stopped, not the moment it was noticed.
  */
+/* true when the membership data works (groups were seen before) and
+ * nobody is subscribed to any channel right now: a decoder that is switched
+ * off leaves its groups, a freeze with the decoder on does not (or the
+ * decoder joins again within seconds) */
+function nobody_subscribed() {
+	return cfg.iptv.igmp && cfg.iptv.off_after > 0 && igmp.seen && igmp.groups != null && length(igmp.groups) == 0;
+}
+
+/* log the start of a stall (ts = moment the data stopped) */
+function iptv_flag_stall(kbps) {
+	emit('err', 'iptv', 'stream', 'stream_stall', { kbps, avg: round(iptv.avg, 0),
+		groups: igmp.groups != null ? length(igmp.groups) : null }, iptv.low_w);
+	iptv.state = 'stalled';
+	iptv.stall_since = iptv.low_w;
+	iptv.stall_m = iptv.low_m;
+	iptv.low_m = iptv.low_w = null;
+	iptv.held = false;
+	if (iptv.acc) iptv.acc.stalls++;
+	if (iptv.acc) iptv.acc.stall_s += iptv.hold_def;
+	iptv.hold_def = 0;
+}
+
 function iptv_update(kbps, m, w, from_m, from_w) {
 	kbps = round(kbps, 0);
 	let active = kbps >= cfg.iptv.min_kbps;
+	let off = false;
 
 	/* seconds of data missing in this interval, judged against the usual
 	 * bitrate; summed over a freeze it gives its length more exactly than
@@ -1509,6 +1535,26 @@ function iptv_update(kbps, m, w, from_m, from_w) {
 	let prev_def = iptv.last_def ?? 0;
 	iptv.last_def = def;
 	let was_low = iptv.state == 'stalled' || iptv.low_m != null;
+
+	/* a stop with nobody subscribed was not reported yet (see below): decide */
+	if (iptv.state == 'playing' && iptv.held) {
+		if (!active && nobody_subscribed()) {
+			if (m - iptv.low_m >= cfg.iptv.off_after) {
+				/* still no channel after the grace time: the decoder was switched off */
+				emit('info', 'iptv', 'stream', 'stream_off', { avg: round(iptv.avg, 0) }, iptv.low_w);
+				iptv.state = 'idle';
+				iptv.since = w;
+				iptv.low_m = iptv.low_w = null;
+				iptv.held = false;
+				iptv.hold_def = 0;
+				off = true;
+			}
+		}
+		else {
+			/* data is back or the decoder subscribed again: it was a freeze */
+			iptv_flag_stall(kbps);
+		}
+	}
 
 	switch (iptv.state) {
 	case 'idle':
@@ -1534,13 +1580,10 @@ function iptv_update(kbps, m, w, from_m, from_w) {
 		}
 		iptv.missing += def;
 		if (m - iptv.low_m >= cfg.iptv.stall_after - 0.05) {
-			emit('err', 'iptv', 'stream', 'stream_stall', { kbps, avg: round(iptv.avg, 0),
-				groups: igmp.groups != null ? length(igmp.groups) : null }, iptv.low_w);
-			iptv.state = 'stalled';
-			iptv.stall_since = iptv.low_w;
-			iptv.stall_m = iptv.low_m;
-			iptv.low_m = iptv.low_w = null;
-			if (iptv.acc) iptv.acc.stalls++;
+			/* nobody subscribed: wait before calling it a fault, it may be
+			 * the decoder being switched off */
+			if (!iptv.held && nobody_subscribed()) iptv.held = true;
+			if (!iptv.held) iptv_flag_stall(kbps);
 		}
 		break;
 
@@ -1557,15 +1600,18 @@ function iptv_update(kbps, m, w, from_m, from_w) {
 			iptv.missing += def;
 		}
 		if (iptv.state == 'stalled' && m - iptv.stall_m >= cfg.iptv.idle_after) {
-			emit('warn', 'iptv', 'stream', 'stream_lost', { dur: round(m - iptv.stall_m, 0) });
+			emit('warn', 'iptv', 'stream', 'stream_lost', { dur: round(m - iptv.stall_m, 0),
+				groups: igmp.groups != null ? length(igmp.groups) : null });
 			iptv.state = 'idle';
 			iptv.since = w;
 		}
 		break;
 	}
 
-	if (iptv.acc && (was_low || iptv.state == 'stalled' || iptv.low_m != null))
-		iptv.acc.stall_s += def;
+	if (iptv.acc && !off && (was_low || iptv.state == 'stalled' || iptv.low_m != null)) {
+		if (iptv.held) iptv.hold_def += def;
+		else iptv.acc.stall_s += def;
+	}
 }
 
 function iptv_counters() {

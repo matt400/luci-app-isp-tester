@@ -1288,3 +1288,15 @@ msgstr ""
 
 msgid "An update is running…"
 msgstr ""
+
+msgid "IPTV stream ended: decoder switched off (no channel subscribed)"
+msgstr ""
+
+msgid "IPTV stream did not come back within %s (channel still subscribed: outage)"
+msgstr ""
+
+msgid "Decoder switched off after (s)"
+msgstr ""
+
+msgid "If the stream stops and no channel is subscribed any more (IGMP), for this long, it is logged as the decoder being switched off, not as a fault. 0 disables. Needs IGMP watching."
+msgstr ""

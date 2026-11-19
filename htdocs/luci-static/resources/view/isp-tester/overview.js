@@ -242,7 +242,10 @@ function eventText(e) {
 	case 'stream_start':    return _('IPTV stream started (%s)').format(fmtRate(d.kbps));
 	case 'stream_stall':    return _('IPTV STREAM STOPPED (was %s)').format(fmtRate(d.avg));
 	case 'stream_resume':   return _('IPTV stream resumed after %s').format(fmtDur(d.dur)) + igmpNote(d.igmp);
-	case 'stream_lost':     return _('IPTV stream did not come back within %s (decoder off or outage)').format(fmtDur(d.dur));
+	case 'stream_off':      return _('IPTV stream ended: decoder switched off (no channel subscribed)');
+	case 'stream_lost':     return (d.groups > 0)
+		? _('IPTV stream did not come back within %s (channel still subscribed: outage)').format(fmtDur(d.dur))
+		: _('IPTV stream did not come back within %s (decoder off or outage)').format(fmtDur(d.dur));
 	case 'stream_dip':      return _('IPTV bitrate dropped to %s (usual %s)').format(fmtRate(d.kbps), fmtRate(d.avg));
 	case 'wan_if_down':     return _('WAN interface %s DOWN (PPPoE/DHCP session lost)').format(d.iface);
 	case 'wan_if_up':       return _('WAN interface %s up again after %s').format(d.iface, fmtDur(d.dur)) + (d.ip ? ' · ' + d.ip : '');
