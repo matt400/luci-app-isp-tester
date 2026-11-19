@@ -143,6 +143,57 @@ msgstr ""
 msgid "Collecting data…"
 msgstr ""
 
+msgid "no response"
+msgstr ""
+
+msgid "State"
+msgstr ""
+
+msgid "1 h"
+msgstr ""
+
+msgid "6 h"
+msgstr ""
+
+msgid "24 h"
+msgstr ""
+
+msgid "last %s (live)"
+msgstr ""
+
+msgid "Earlier"
+msgstr ""
+
+msgid "Later"
+msgstr ""
+
+msgid "Now"
+msgstr ""
+
+msgid "Probable cause (%s)"
+msgstr ""
+
+msgid "last %s"
+msgstr ""
+
+msgid "selected period"
+msgstr ""
+
+msgid "ISP %d%%"
+msgstr ""
+
+msgid "Router / home %d%%"
+msgstr ""
+
+msgid "%d problems, %d IPTV freezes"
+msgstr ""
+
+msgid "Nothing was logged that points at a fault."
+msgstr ""
+
+msgid "Heuristic based on what happened at the same time; treat it as a hint, not proof. The timeline below is the evidence."
+msgstr ""
+
 msgid "Monitoring is not running"
 msgstr ""
 
@@ -215,9 +266,6 @@ msgstr ""
 msgid "incoming"
 msgstr ""
 
-msgid "State"
-msgstr ""
-
 msgid "for %s"
 msgstr ""
 
@@ -272,25 +320,37 @@ msgstr ""
 msgid "Disabled in Settings."
 msgstr ""
 
+msgid "loss %d%%"
+msgstr ""
+
 msgid "Packet loss"
 msgstr ""
 
 msgid "Ping (ms) – red/yellow background = packet loss"
 msgstr ""
 
+msgid "Stream stopped for %s"
+msgstr ""
+
 msgid "IPTV bitrate"
 msgstr ""
 
-msgid "IPTV bitrate (Mbit/s) – red background = stream below threshold"
+msgid "IPTV bitrate (1 min average)"
 msgstr ""
 
-msgid "Stream stopped"
+msgid "IPTV bitrate (Mbit/s) – red = stream stopped while watching"
 msgstr ""
 
 msgid "Interface errors per interval"
 msgstr ""
 
-msgid "Last %s"
+msgid "Interface errors per minute"
+msgstr ""
+
+msgid "History"
+msgstr ""
+
+msgid "No data for this period (data is kept in RAM for up to 24 h and is lost on reboot)."
 msgstr ""
 
 msgid "All"
@@ -299,7 +359,13 @@ msgstr ""
 msgid "Only problems"
 msgstr ""
 
+msgid "Show this moment in the charts"
+msgstr ""
+
 msgid "Timeline"
+msgstr ""
+
+msgid "Timeline – selected period"
 msgstr ""
 
 msgid "No events yet."
@@ -333,6 +399,99 @@ msgid "ISP Tester"
 msgstr ""
 
 msgid "Watches the Internet connection, IPTV stream and switch ports, and records every problem with a timestamp – so you have proof when you call your ISP."
+msgstr ""
+
+msgid "ISP"
+msgstr ""
+
+msgid "Router / home"
+msgstr ""
+
+msgid "Line / ONT"
+msgstr ""
+
+msgid "Note"
+msgstr ""
+
+msgid "Most likely an ISP problem"
+msgstr ""
+
+msgid "Most likely on your side (router / home network)"
+msgstr ""
+
+msgid "Mixed – problems on both sides"
+msgstr ""
+
+msgid "Nothing serious found"
+msgstr ""
+
+msgid "No problems in this period"
+msgstr ""
+
+msgid "high confidence"
+msgstr ""
+
+msgid "medium confidence"
+msgstr ""
+
+msgid "low confidence – little data"
+msgstr ""
+
+msgid "WAN port lost link %d× – cable to the ONT/modem, or the ONT itself (power, fault)."
+msgstr ""
+
+msgid "Internet completely down %d× while the WAN link stayed up – outage in the ISP network."
+msgstr ""
+
+msgid "Packet loss already at the ISP gateway (%d×) – problem on the line / ISP access network."
+msgstr ""
+
+msgid "High latency to the ISP gateway (%d×) – congestion at the ISP (or a busy router)."
+msgstr ""
+
+msgid "Loss only beyond the gateway (%d×) – ISP backbone / peering."
+msgstr ""
+
+msgid "Only %s had loss (%d×) – most likely that server, not your connection."
+msgstr ""
+
+msgid "Errors on the WAN port (%d×) – cable to the ONT/modem or its port."
+msgstr ""
+
+msgid "%d of %d IPTV freezes happened together with Internet problems – shared cause on the ISP line."
+msgstr ""
+
+msgid "%d of %d IPTV freezes coincided with port problems (%s) – cable or switch at home."
+msgstr ""
+
+msgid "%d of %d IPTV freezes came with errors on the IPTV device – cable/port on the IPTV path."
+msgstr ""
+
+msgid "IPTV freezes repeat every ~%d s – typical IGMP membership timeout: check the IGMP querier / snooping / proxy on the router."
+msgstr ""
+
+msgid "%d of %d IPTV freezes: the router stopped sending to the decoder while everything else was fine – IGMP snooping/querier on the router."
+msgstr ""
+
+msgid "%d of %d IPTV freezes: multicast stopped arriving from the ISP while Internet and ports were fine – ISP IPTV/multicast side (less often an IGMP issue on the router)."
+msgstr ""
+
+msgid "IGMP snooping is on but the querier is off on %s – streams can time out on the switch."
+msgstr ""
+
+msgid "IPTV bitrate dropped sharply %d× – unstable stream from the ISP."
+msgstr ""
+
+msgid "Link renegotiated to a lower speed (%s, %d×) – damaged cable or connector (e.g. only 2 pairs working)."
+msgstr ""
+
+msgid "Link drops on %s (%d×) – cable, connector, power of the connected device, or switch."
+msgstr ""
+
+msgid "Errors/drops on %s (%d×) – cable or connector."
+msgstr ""
+
+msgid "Network device %s disappeared (%d×) – driver, configuration or reboot."
 msgstr ""
 
 msgid "ISP Tester – Settings"

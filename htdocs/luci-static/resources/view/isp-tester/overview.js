@@ -5,6 +5,7 @@
 'require fs';
 'require ui';
 'require dom';
+'require isp_tester.diagnose as diagnose';
 
 var callStatus = rpc.declare({
 	object: 'luci.isp_tester',
@@ -61,6 +62,22 @@ var CSS = [
 	'.ispt-mini th{opacity:.7;font-weight:normal}',
 	'.ispt-chart{margin:.3em 0 1em 0}',
 	'.ispt-chart svg{width:100%;height:auto;display:block}',
+	'.ispt-svgwrap{position:relative}',
+	'.ispt-tip{position:absolute;top:4px;z-index:5;pointer-events:none;background:rgba(30,30,30,.92);color:#fff;padding:.35em .6em;border-radius:5px;font-size:.82em;white-space:nowrap;line-height:1.4}',
+	'.ispt-nav{display:flex;flex-wrap:wrap;align-items:center;gap:.4em;margin-bottom:.6em}',
+	'.ispt-nav .cbi-button.active{font-weight:bold;outline:2px solid currentColor}',
+	'.ispt-nav .win{margin-left:.6em;font-weight:bold}',
+	'.ispt-diag{display:flex;flex-wrap:wrap;gap:1em;border:1px solid rgba(128,128,128,.25);border-radius:8px;padding:.8em 1em;margin-bottom:1em}',
+	'.ispt-diag .head{flex:0 0 260px}',
+	'.ispt-diag .verdict{font-size:1.2em;font-weight:bold;margin:.2em 0}',
+	'.ispt-diag .list{flex:1 1 380px;margin:0;padding:0;list-style:none}',
+	'.ispt-diag .list li{display:flex;gap:.5em;align-items:baseline;padding:.25em 0;border-bottom:1px solid rgba(128,128,128,.12)}',
+	'.ispt-side{flex:none;font-size:.75em;padding:.1em .5em;border-radius:1em;color:#fff;white-space:nowrap}',
+	'.ispt-side.isp{background:#c0563b}.ispt-side.home{background:#3b6fc0}.ispt-side.edge{background:#8a6d3b}.ispt-side.info{background:#888}',
+	'.ispt-scale{display:flex;height:.6em;border-radius:.3em;overflow:hidden;margin:.5em 0 .2em 0;background:rgba(128,128,128,.15)}',
+	'.ispt-scale-lbl{display:flex;justify-content:space-between;font-size:.8em;opacity:.8}',
+	'.ispt-tl tr.click{cursor:pointer}',
+	'.ispt-tl tr.click:hover td{background:rgba(128,128,128,.08)}',
 	'.ispt-chart .title{font-size:.9em;opacity:.8;margin-bottom:.2em}',
 	'.ispt-legend{font-size:.85em;opacity:.85}',
 	'.ispt-legend span{margin-right:1em;white-space:nowrap}',
@@ -205,7 +222,56 @@ function esc(s) {
 	return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 }
 
-/* series: [{ name, color, data: [v|null] }], t: [ts] */
+/* typical spacing of samples, used to detect gaps (collector stopped, reboot) */
+function medianStep(t) {
+	if (t.length < 3) return 60;
+	var d = [];
+	for (var i = 1; i < t.length; i++) d.push(t[i] - t[i - 1]);
+	d.sort(function(a, b) { return a - b; });
+	return d[Math.floor(d.length / 2)] || 60;
+}
+
+function hhmm(ts, secs) {
+	var d = new Date(ts * 1000);
+	return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2) +
+		(secs ? ':' + ('0' + d.getSeconds()).slice(-2) : '');
+}
+
+/* attach a crosshair + tooltip to an svg chart */
+function attachTooltip(wrap, svgEl, geo, t, lines) {
+	var tip = E('div', { 'class': 'ispt-tip', 'style': 'display:none' });
+	var cross = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+	cross.setAttribute('y1', geo.T); cross.setAttribute('y2', geo.H - geo.B);
+	cross.setAttribute('stroke', 'currentColor'); cross.setAttribute('opacity', '0.5');
+	cross.setAttribute('stroke-dasharray', '3 3'); cross.style.display = 'none';
+	svgEl.appendChild(cross);
+	wrap.appendChild(tip);
+
+	svgEl.addEventListener('mousemove', function(ev) {
+		var r = svgEl.getBoundingClientRect();
+		var px = (ev.clientX - r.left) / r.width * geo.W;
+		if (px < geo.L || px > geo.W - geo.R) { tip.style.display = 'none'; cross.style.display = 'none'; return; }
+		var ts = geo.t0 + (px - geo.L) / (geo.W - geo.L - geo.R) * geo.span;
+
+		var lo = 0, hi = t.length - 1;
+		while (hi - lo > 1) { var mid = (lo + hi) >> 1; if (t[mid] < ts) lo = mid; else hi = mid; }
+		var k = (Math.abs(t[lo] - ts) <= Math.abs(t[hi] - ts)) ? lo : hi;
+		if (Math.abs(t[k] - ts) > geo.step * 2) { tip.style.display = 'none'; cross.style.display = 'none'; return; }
+
+		var xx = geo.x(t[k]);
+		cross.setAttribute('x1', xx); cross.setAttribute('x2', xx); cross.style.display = '';
+		dom.content(tip, [ E('strong', {}, fmtTime(t[k])) ].concat(lines(k).map(function(l) { return E('div', {}, l); })));
+		tip.style.display = '';
+		var left = (xx / geo.W) * r.width;
+		tip.style.left = (left > r.width * 0.6 ? left - tip.offsetWidth - 12 : left + 12) + 'px';
+	});
+	svgEl.addEventListener('mouseleave', function() { tip.style.display = 'none'; cross.style.display = 'none'; });
+}
+
+/*
+ * series: [{ name, color, data: [v|null], fmt }], t: [ts]
+ * opts: { from, to, title, bands, fmt (axis), min_max, legend, height }
+ */
 function lineChart(t, series, opts) {
 	opts = opts || {};
 	var W = 800, H = opts.height || 140, L = 46, R = 8, T = 8, B = 20;
@@ -220,9 +286,12 @@ function lineChart(t, series, opts) {
 	max = niceMax(max);
 	var divs = (Math.round(max / Math.pow(10, Math.floor(Math.log10(max)))) === 5 || lead > 5) ? 5 : 4;
 
-	var t0 = t[0], t1 = t[n - 1], span = Math.max(1, t1 - t0);
+	var t0 = (opts.from != null) ? opts.from : t[0];
+	var t1 = (opts.to != null) ? opts.to : t[n - 1];
+	var span = Math.max(1, t1 - t0);
+	var step = medianStep(t);
 	var x = function(ts) { return L + (ts - t0) / span * (W - L - R); };
-	var y = function(v) { return T + (1 - v / max) * (H - T - B); };
+	var y = function(v) { return T + (1 - Math.min(v, max) / max) * (H - T - B); };
 
 	var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg" font-size="11" fill="currentColor">';
 
@@ -240,18 +309,17 @@ function lineChart(t, series, opts) {
 
 	var ticks = 4;
 	for (var j = 0; j <= ticks; j++) {
-		var ts = t0 + span * j / ticks, d = new Date(ts * 1000);
-		var lbl = ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2) +
-			(span < 600 ? ':' + ('0' + d.getSeconds()).slice(-2) : '');
+		var ts = t0 + span * j / ticks;
 		svg += '<text x="' + x(ts) + '" y="' + (H - 5) + '" text-anchor="' + (j === 0 ? 'start' : j === ticks ? 'end' : 'middle') + '" opacity="0.7">' +
-			lbl + '</text>';
+			hhmm(ts, span < 600) + '</text>';
 	}
 
 	series.forEach(function(s) {
 		var path = '', pen = false;
 		for (var k = 0; k < n; k++) {
 			var val = s.data[k];
-			if (val == null) { pen = false; continue; }
+			if (val == null || (k > 0 && t[k] - t[k - 1] > step * 3)) pen = false;
+			if (val == null || t[k] < t0 || t[k] > t1) { pen = false; continue; }
 			path += (pen ? 'L' : 'M') + x(t[k]).toFixed(1) + ' ' + y(val).toFixed(1);
 			pen = true;
 		}
@@ -261,8 +329,15 @@ function lineChart(t, series, opts) {
 
 	svg += '</svg>';
 
-	var div = E('div');
+	var div = E('div', { 'class': 'ispt-svgwrap' });
 	div.innerHTML = svg;
+
+	attachTooltip(div, div.firstChild, { W: W, H: H, L: L, R: R, T: T, B: B, t0: t0, span: span, step: step, x: x }, t, function(k) {
+		return series.map(function(s) {
+			var v = s.data[k];
+			return s.name + ': ' + (v == null ? (s.loss && s.loss[k] >= 100 ? _('no response') : '–') : (s.fmt ? s.fmt(v, k) : String(v)));
+		});
+	});
 
 	var legend = E('div', { 'class': 'ispt-legend' }, series.map(function(s) {
 		return E('span', {}, [ E('i', { 'style': 'background:' + s.color }), s.name ]);
@@ -273,6 +348,32 @@ function lineChart(t, series, opts) {
 		div,
 		series.length > 1 || opts.legend ? legend : ''
 	]);
+}
+
+/* thin green/yellow/red strip showing overall health over time */
+function statusRibbon(t, lvls, from, to) {
+	var W = 800, H = 22, L = 46, R = 8;
+	var span = Math.max(1, to - from), step = medianStep(t);
+	var x = function(ts) { return L + (ts - from) / span * (W - L - R); };
+	var col = [ '#2e9d4f', '#e0a100', '#d64541' ];
+
+	var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg" font-size="11" fill="currentColor">' +
+		'<rect x="' + L + '" y="4" width="' + (W - L - R) + '" height="14" fill="currentColor" opacity="0.08"/>';
+
+	for (var k = 0; k < t.length; k++) {
+		var v = lvls[k];
+		if (v == null || t[k] < from - step || t[k] > to) continue;
+		var x0 = Math.max(L, x(t[k] - step)), x1 = Math.min(W - R, x(t[k]));
+		svg += '<rect x="' + x0.toFixed(1) + '" y="4" width="' + Math.max(0.8, x1 - x0).toFixed(1) + '" height="14" fill="' + (col[v] || '#999') + '"/>';
+	}
+	svg += '<text x="' + (L - 4) + '" y="15" text-anchor="end" opacity="0.7">' + esc(_('State')) + '</text></svg>';
+
+	var div = E('div', { 'class': 'ispt-svgwrap' });
+	div.innerHTML = svg;
+	attachTooltip(div, div.firstChild, { W: W, H: H, L: L, R: R, T: 4, B: 4, t0: from, span: span, step: step, x: x }, t, function(k) {
+		return [ levelText([ 'ok', 'warn', 'fail' ][lvls[k]]) ];
+	});
+	return E('div', { 'class': 'ispt-chart' }, div);
 }
 
 function niceMax(v) {
@@ -313,11 +414,128 @@ function csvCell(v) {
 
 /* ------------------------------------------------------------------ view */
 
+var RANGES = [ [ 3600, _('1 h') ], [ 6 * 3600, _('6 h') ], [ 24 * 3600, _('24 h') ] ];
+
+function readJson(path) {
+	return fs.read_direct(path).then(function(t) {
+		try { return JSON.parse(t); } catch (e) { return null; }
+	}).catch(function() { return null; });
+}
+
+function mergeEvents(a, b) {
+	var seen = {}, out = [];
+	a.concat(b).forEach(function(e) {
+		var k = e.ts + '|' + e.type + '|' + e.src;
+		if (!seen[k]) { seen[k] = true; out.push(e); }
+	});
+	return out.sort(function(x, y) { return y.ts - x.ts; });
+}
+
 return view.extend({
 	filter: '',
+	range: 24 * 3600,     /* visible window length */
+	end: null,            /* window end (null = live / now) */
+	allEvents: [],
+	minHist: null,
 
 	load: function() {
-		return Promise.all([ callStatus(), callEvents(200, '') ]);
+		return Promise.all([ callStatus(), callEvents(200, ''), readJson('/tmp/isp-tester/events.json'), readJson('/tmp/isp-tester/history.json') ]);
+	},
+
+	/* ---- time window */
+	now: function() {
+		var st = this.last && this.last[0] && this.last[0].state;
+		return Math.max(Date.now() / 1000, st ? st.ts : 0);
+	},
+
+	win: function() {
+		var to = (this.end == null) ? this.now() : this.end;
+		return { from: to - this.range, to: to, live: this.end == null };
+	},
+
+	setWindow: function(range, end) {
+		this.range = range;
+		this.end = (end == null || end >= this.now() - 5) ? null : end;
+		this.redraw();
+	},
+
+	events: function() {
+		var recent = (this.last && this.last[1] && this.last[1].events) || [];
+		return mergeEvents(recent, this.allEvents || []);
+	},
+
+	/* chart data for the window: fine 10 s data when live and it covers the window, 1-minute aggregates otherwise */
+	chartData: function(st, w) {
+		var fine = st.history || { t: [], s: {} };
+		if (w.live && fine.t.length && fine.t[0] <= w.from + (st.interval || 10) * 2)
+			return { h: fine, fine: true };
+		if (w.live && this.range <= 3600 && !(this.minHist && this.minHist.t.length))
+			return { h: fine, fine: true };
+		return { h: this.minHist || { t: [], s: {} }, fine: false };
+	},
+
+	renderNav: function() {
+		var self = this, w = this.win();
+		var btn = function(label, active, fn, title) {
+			return E('button', { 'class': 'cbi-button' + (active ? ' active' : ''), 'title': title || '', 'click': fn }, label);
+		};
+		var winText = w.live
+			? _('last %s (live)').format(RANGES.filter(function(r) { return r[0] === self.range; })[0][1])
+			: fmtTime(w.from).substr(5, 11) + ' – ' + fmtTime(w.to).substr(5, 11);
+
+		return E('div', { 'class': 'ispt-nav' }, RANGES.map(function(r) {
+			return btn(r[1], self.range === r[0], function() { self.setWindow(r[0], self.end); });
+		}).concat([
+			btn('◀', false, function() { var x = self.win(); self.setWindow(self.range, x.to - self.range / 2); }, _('Earlier')),
+			btn('▶', false, function() { var x = self.win(); if (!x.live) self.setWindow(self.range, x.to + self.range / 2); }, _('Later')),
+			btn(_('Now'), w.live, function() { self.setWindow(self.range, null); }),
+			E('span', { 'class': 'win' }, winText)
+		]));
+	},
+
+	/* ---- probable cause */
+	renderDiagnosis: function(st, w) {
+		var r = diagnose.analyze(this.events(), w.from, w.to, {
+			wan_device: st.wan && st.wan.device,
+			iptv_direction: st.iptv && st.iptv.direction,
+			bridge: st.iptv && st.iptv.bridge
+		});
+
+		var lvlFor = { none: 'ok', minor: 'ok', isp: 'fail', home: 'fail', mixed: 'warn' }[r.verdict];
+		var total = r.isp + r.home;
+		var ispPct = total ? Math.round(r.isp * 100 / total) : 0;
+
+		var head = E('div', { 'class': 'head' }, [
+			E('div', { 'class': 'ispt-muted' }, _('Probable cause (%s)').format(w.live ? _('last %s').format(RANGES.filter(function(x) { return x[0] === this.range; }, this)[0][1]) : _('selected period'))),
+			E('div', { 'class': 'verdict' }, [ dot(r.verdict === 'none' || r.verdict === 'minor' ? 'ok' : r.verdict === 'mixed' ? 'warn' : 'fail'), diagnose.verdictText(r.verdict) ]),
+			total ? E('div', {}, [
+				E('div', { 'class': 'ispt-scale' }, [
+					E('div', { 'style': 'width:' + ispPct + '%;background:#c0563b' }),
+					E('div', { 'style': 'width:' + (100 - ispPct) + '%;background:#3b6fc0' })
+				]),
+				E('div', { 'class': 'ispt-scale-lbl' }, [
+					E('span', {}, _('ISP %d%%').format(ispPct)),
+					E('span', {}, _('Router / home %d%%').format(100 - ispPct))
+				]),
+				E('div', { 'class': 'ispt-muted', 'style': 'font-size:.85em;margin-top:.3em' },
+					diagnose.confidenceText(r.confidence) + ' · ' + _('%d problems, %d IPTV freezes').format(r.problems, r.stalls))
+			]) : E('div', { 'class': 'ispt-muted', 'style': 'font-size:.9em' }, _('Nothing was logged that points at a fault.'))
+		]);
+
+		var items = r.findings.slice(0, 6).map(function(f) {
+			return E('li', {}, [
+				E('span', { 'class': 'ispt-side ' + f.side }, diagnose.sideText(f.side)),
+				E('span', {}, diagnose.findingText(f)),
+				f.last ? E('span', { 'class': 'ispt-muted', 'style': 'margin-left:auto;white-space:nowrap;font-size:.85em' }, _('last %s').format(hhmm(f.last))) : ''
+			]);
+		});
+
+		return E('div', { 'class': 'ispt-diag' }, [
+			head,
+			items.length ? E('ul', { 'class': 'list' }, items) : '',
+			E('div', { 'class': 'ispt-muted', 'style': 'flex-basis:100%;font-size:.8em' },
+				_('Heuristic based on what happened at the same time; treat it as a hint, not proof. The timeline below is the evidence.'))
+		]);
 	},
 
 	/* ---- banner */
@@ -485,30 +703,51 @@ return view.extend({
 	},
 
 	/* ---- charts */
-	renderCharts: function(st) {
-		var h = st.history || { t: [], s: {} };
-		var t = h.t || [], s = h.s || {};
+	renderCharts: function(st, w) {
+		var cd = this.chartData(st, w);
+		var h = cd.h, t = h.t || [], s = h.s || {};
 		var out = [];
+		var lossMax = function(data) { return data.some(function(v) { return v >= 100; }); };
 
-		if (st.wan && st.wan.targets && st.wan.targets.length) {
+		if (s.lvl)
+			out.push(statusRibbon(t, s.lvl, w.from, w.to));
+
+		var targets = (st.wan && st.wan.targets) || [];
+		var labels = Object.keys(s).filter(function(k) { return k.indexOf('rtt:') === 0; }).map(function(k) { return k.substr(4); });
+		if (labels.length) {
 			var series = [], lossBands = [];
-			st.wan.targets.forEach(function(x, i) {
-				var rtt = s['rtt:' + x.label], loss = s['loss:' + x.label];
-				if (!rtt) return;
-				series.push({ name: targetName(x.label, x.host), color: COLORS[i % COLORS.length], data: rtt });
-				if (loss)
-					lossBands = lossBands.concat(bandsFor(t, function(k) { return loss[k] > 0; },
-						loss.some(function(v) { return v >= 100; }) ? '#d64541' : '#e0a100', _('Packet loss')));
+			labels.forEach(function(label, i) {
+				var tg = targets.filter(function(x) { return x.label === label; })[0];
+				var loss = s['loss:' + label] || [];
+				series.push({ name: targetName(label, tg && tg.host), color: COLORS[i % COLORS.length], data: s['rtt:' + label], loss: loss,
+					fmt: (function(l) { return function(v, k) { return fmtMs(v) + (l[k] > 0 ? ' · ' + _('loss %d%%').format(l[k]) : ''); }; })(loss) });
+				lossBands = lossBands.concat(bandsFor(t, function(k) { return loss[k] > 0; }, lossMax(loss) ? '#d64541' : '#e0a100', _('Packet loss')));
 			});
-			out.push(lineChart(t, series, { title: _('Ping (ms) – red/yellow background = packet loss'), bands: lossBands, min_max: 20, legend: true }));
+			out.push(lineChart(t, series, { from: w.from, to: w.to, title: _('Ping (ms) – red/yellow background = packet loss'), bands: lossBands, min_max: 20, legend: true }));
 		}
 
-		if (st.iptv && s['iptv:kbps']) {
-			var kb = s['iptv:kbps'], min = st.iptv.min_kbps || 0;
-			var playing = kb.some(function(v) { return v >= min; });
-			out.push(lineChart(t, [ { name: _('IPTV bitrate'), color: '#7a59c0', data: kb.map(function(v) { return v == null ? null : v / 1000; }) } ], {
-				title: _('IPTV bitrate (Mbit/s) – red background = stream below threshold'),
-				bands: playing ? bandsFor(t, function(k) { return kb[k] != null && kb[k] < min; }, '#d64541', _('Stream stopped')) : [],
+		if (s['iptv:kbps']) {
+			var kb = s['iptv:kbps'];
+			/* stall periods come from the events: an idle decoder (0 kbit/s) is not a fault */
+			var evs = this.events().slice().sort(function(a, b) { return a.ts - b.ts; });
+			var stallBands = [];
+			evs.forEach(function(e, i) {
+				if (e.type !== 'stream_stall') return;
+				var end = null;
+				for (var j = i + 1; j < evs.length; j++)
+					if (evs[j].type === 'stream_resume' || evs[j].type === 'stream_lost' || evs[j].type === 'monitor_start') { end = evs[j].ts; break; }
+				if (end == null) end = (st.iptv && st.iptv.state === 'stalled') ? st.ts : e.ts + (st.interval || 10);
+				if (end >= w.from && e.ts <= w.to)
+					stallBands.push({ from: e.ts, to: end, color: '#d64541', title: _('Stream stopped for %s').format(fmtDur(end - e.ts)) });
+			});
+			out.push(lineChart(t, [ {
+				name: cd.fine ? _('IPTV bitrate') : _('IPTV bitrate (1 min average)'), color: '#7a59c0',
+				data: kb.map(function(v) { return v == null ? null : v / 1000; }),
+				fmt: function(v) { return fmtRate(v * 1000); }
+			} ], {
+				from: w.from, to: w.to,
+				title: _('IPTV bitrate (Mbit/s) – red = stream stopped while watching'),
+				bands: stallBands,
 				fmt: function(v) { return v.toFixed(1); },
 				min_max: 1
 			}));
@@ -518,23 +757,26 @@ return view.extend({
 		Object.keys(s).forEach(function(k) {
 			if (k.indexOf('err:') !== 0) return;
 			var data = s[k];
-			if (!data.some(function(v) { return v > 0; })) return;
+			if (!data.some(function(v, i) { return v > 0 && t[i] >= w.from && t[i] <= w.to; })) return;
 			errSeries.push({ name: k.substr(4), color: COLORS[ci++ % COLORS.length], data: data });
 		});
 		if (errSeries.length)
-			out.push(lineChart(t, errSeries, { title: _('Interface errors per interval'), min_max: 1, legend: true }));
+			out.push(lineChart(t, errSeries, { from: w.from, to: w.to, title: cd.fine ? _('Interface errors per interval') : _('Interface errors per minute'), min_max: 1, legend: true }));
 
-		var span = t.length > 1 ? fmtDur(t[t.length - 1] - t[0]) : '–';
+		var hasData = t.some(function(ts) { return ts >= w.from && ts <= w.to; });
+
 		return E('div', { 'class': 'cbi-section' }, [
-			E('h3', {}, _('Last %s').format(span)),
-			out.length ? out : E('div', { 'class': 'ispt-muted' }, _('Collecting data…'))
+			E('h3', {}, _('History')),
+			this.renderNav(),
+			hasData ? out : E('div', { 'class': 'ispt-muted' },
+				t.length ? _('No data for this period (data is kept in RAM for up to 24 h and is lost on reboot).') : _('Collecting data…'))
 		]);
 	},
 
 	/* ---- timeline */
-	renderTimeline: function(ev) {
+	renderTimeline: function(w) {
 		var self = this;
-		var list = (ev && ev.events) || [];
+		var list = this.events().filter(function(e) { return e.ts >= w.from && e.ts <= w.to + 1; });
 		if (this.filter)
 			list = list.filter(function(e) { return e.area === self.filter; });
 
@@ -556,7 +798,8 @@ return view.extend({
 			list = list.filter(function(e) { return e.lvl !== 'info'; });
 
 		var rows = list.slice(0, 200).map(function(e) {
-			return E('tr', { 'class': 'lvl-' + e.lvl }, [
+			return E('tr', { 'class': 'click lvl-' + e.lvl, 'title': _('Show this moment in the charts'),
+				'click': function() { self.setWindow(self.range > 3600 ? 3600 : self.range, e.ts + Math.min(self.range, 3600) / 2); } }, [
 				E('td', { 'class': 'when' }, fmtTime(e.ts)),
 				E('td', { 'class': 'area' }, areaName(e.area)),
 				E('td', {}, eventText(e))
@@ -564,7 +807,7 @@ return view.extend({
 		});
 
 		return E('div', { 'class': 'cbi-section' }, [
-			E('h3', {}, _('Timeline')),
+			E('h3', {}, w.live ? _('Timeline') : _('Timeline – selected period')),
 			E('div', { 'class': 'ispt-filter' }, buttons.concat([ onlyProblems ])),
 			rows.length
 				? E('table', { 'class': 'ispt-tl' }, rows)
@@ -619,30 +862,45 @@ return view.extend({
 	/* ---- assembly */
 	redraw: function() {
 		if (!this.root || !this.last) return;
-		var res = this.last[0], ev = this.last[1];
+		var res = this.last[0];
 		var st = res.state;
+		var w = this.win();
 
 		var parts = [ this.renderBanner(res) ];
 		if (st) {
+			parts.push(this.renderDiagnosis(st, w));
 			parts.push(E('div', { 'class': 'ispt-cards' }, [ this.renderWan(st), this.renderIptv(st), this.renderPorts(st) ]));
-			parts.push(this.renderCharts(st));
+			parts.push(this.renderCharts(st, w));
 		}
-		parts.push(this.renderTimeline(ev));
+		parts.push(this.renderTimeline(w));
 		parts.push(this.renderActions());
 
 		dom.content(this.root, parts);
 	},
 
-	render: function(data) {
+	refreshSlow: function() {
 		var self = this;
-		this.last = data;
+		return Promise.all([ readJson('/tmp/isp-tester/events.json'), readJson('/tmp/isp-tester/history.json') ]).then(function(d) {
+			if (Array.isArray(d[0])) self.allEvents = d[0];
+			if (d[1] && d[1].t) self.minHist = d[1];
+		});
+	},
+
+	render: function(data) {
+		var self = this, ticks = 0;
+		this.last = [ data[0], data[1] ];
+		if (Array.isArray(data[2])) this.allEvents = data[2];
+		if (data[3] && data[3].t) this.minHist = data[3];
 		this.root = E('div');
 
 		this.redraw();
 
 		poll.add(function() {
-			return Promise.all([ callStatus(), callEvents(200, '') ]).then(function(d) {
-				self.last = d;
+			var slow = (++ticks % 6 === 0) ? self.refreshSlow() : Promise.resolve();
+			return Promise.all([ callStatus(), callEvents(200, ''), slow ]).then(function(d) {
+				self.last = [ d[0], d[1] ];
+				/* do not re-render while the user hovers a chart (tooltip would jump) */
+				if (self.root.querySelector('.ispt-tip:not([style*="none"])')) return;
 				self.redraw();
 			});
 		}, 5);

@@ -76,7 +76,7 @@ function write_atomic(path, data) {
 function round(v, digits) {
 	if (v == null) return null;
 	let m = 10 ** (digits ?? 0);
-	return int(v * m + (v >= 0 ? 0.5 : -0.5)) / m;
+	return int(v * m + (v >= 0 ? 0.5 : -0.5)) / (m * 1.0);
 }
 
 function worst(a, b) {
@@ -91,6 +91,7 @@ function default_config() {
 		max_samples: 8640,
 		max_events: 1000,
 		history: 360,
+		long_history: 1440,
 		warn_window: 900,
 		wan: {
 			enabled: true, interface: 'wan', device: '', ping_gateway: true,
@@ -131,6 +132,7 @@ function load_config() {
 		c.max_samples = num(g.max_samples, c.max_samples);
 		c.max_events  = num(g.max_events, c.max_events);
 		c.history     = num(g.history, c.history);
+		c.long_history = num(g.long_history, c.long_history);
 		c.warn_window = num(g.warn_window, c.warn_window);
 		c.err_cooldown = num(g.err_cooldown, c.err_cooldown);
 		c.drop_warn   = num(g.drop_warn, c.drop_warn);
@@ -179,6 +181,7 @@ function load_config() {
 let cfg = load_config();
 let events = [];
 let history = { t: [], s: {} };
+let history_min = { t: [], s: {} };
 let devstate = {};      /* dev -> { prev, link, since, err_acc, drop_acc, last_err_ev, ... } */
 let targets = {};       /* label -> { host, state, since, loss, rtt, rtt_max, sent, recv, busy } */
 let wan_down_since = null;
@@ -225,18 +228,67 @@ function count_events(since) {
 
 /* ---------------------------------------------------------------- history */
 
-function hist_push(key, val) {
-	history.s[key] ??= [];
-	push(history.s[key], val);
+/* append one point; keeps all series aligned with h.t (missing -> null) */
+function hist_add(h, t, vals, max) {
+	push(h.t, t);
+	let n = length(h.t);
+
+	for (let k, v in vals)
+		if (v != null && h.s[k] == null) {
+			h.s[k] = [];
+			for (let i = 0; i < n - 1; i++) push(h.s[k], null);
+		}
+
+	for (let k, arr in h.s)
+		push(arr, vals[k]);
+
+	if (n > max) {
+		let cut = n - max;
+		h.t = slice(h.t, cut);
+		for (let k, arr in h.s) {
+			h.s[k] = slice(arr, cut);
+			if (length(filter(h.s[k], (v) => v != null)) == 0)
+				delete h.s[k];
+		}
+	}
 }
 
-function hist_trim() {
-	let max = cfg.history;
-	if (length(history.t) > max) {
-		let cut = length(history.t) - max;
-		history.t = slice(history.t, cut);
-		for (let k, arr in history.s)
-			history.s[k] = slice(arr, cut);
+/* 1-minute aggregates for the long (24 h) history */
+const AGG_MODE = { rtt: 'avg', rttmax: 'max', loss: 'max', 'iptv:kbps': 'avg', 'iptv:min': 'min', err: 'sum', drop: 'sum', lvl: 'max' };
+
+let agg = null;
+
+function agg_mode(k) {
+	return AGG_MODE[k] ?? AGG_MODE[split(k, ':')[0]] ?? 'avg';
+}
+
+function agg_flush() {
+	if (!agg) return;
+	let vals = {};
+	for (let k, a in agg.v) {
+		switch (agg_mode(k)) {
+		case 'max': vals[k] = a.max; break;
+		case 'min': vals[k] = a.min; break;
+		case 'sum': vals[k] = a.sum; break;
+		default:    vals[k] = round(a.sum / a.n, 1);
+		}
+	}
+	hist_add(history_min, agg.t, vals, cfg.long_history);
+	write_atomic(`${RUNDIR}/history.json`, sprintf('%J', history_min));
+	agg = null;
+}
+
+function agg_add(t, vals) {
+	let m = t - t % 60;
+	if (agg && agg.t != m) agg_flush();
+	agg ??= { t: m, v: {} };
+	for (let k, v in vals) {
+		if (v == null) continue;
+		let a = agg.v[k] ??= { sum: 0, n: 0, min: v, max: v };
+		a.sum += v;
+		a.n++;
+		if (v < a.min) a.min = v;
+		if (v > a.max) a.max = v;
 	}
 }
 
@@ -697,6 +749,9 @@ function handle_clear_request() {
 	fs.unlink(flag);
 	events = [];
 	history = { t: [], s: {} };
+	history_min = { t: [], s: {} };
+	agg = null;
+	fs.unlink(`${RUNDIR}/history.json`);
 	fs.unlink(`${RUNDIR}/samples.prev.csv`);
 	fs.writefile(`${RUNDIR}/samples.csv`, csv_header + '\n');
 	csv_rows = 0;
@@ -782,18 +837,23 @@ function tick() {
 	/* ---- history (skip the baseline tick without deltas) */
 	let t = now();
 	if (dt > 0) {
-		push(history.t, t);
+		let hv = { lvl: LEVEL[overall] };
 		for (let x in (wan?.targets ?? [])) {
-			hist_push(`rtt:${x.label}`, x.rtt);
-			hist_push(`loss:${x.label}`, x.loss);
+			hv[`rtt:${x.label}`] = x.rtt;
+			hv[`loss:${x.label}`] = x.loss;
 		}
-		if (iptv_res) hist_push('iptv:kbps', iptv_res.kbps);
+		if (iptv_res) hv['iptv:kbps'] = iptv_res.kbps;
 		for (let d in devs) {
 			let r = res[d.dev];
-			hist_push(`err:${d.dev}`, r.delta ? (r.delta.err + r.delta.crc) : null);
-			hist_push(`drop:${d.dev}`, r.delta ? r.delta.drop : null);
+			hv[`err:${d.dev}`] = r.delta ? (r.delta.err + r.delta.crc) : null;
+			hv[`drop:${d.dev}`] = r.delta ? r.delta.drop : null;
 		}
-		hist_trim();
+		hist_add(history, t, hv, cfg.history);
+
+		let mv = { ...hv };
+		for (let x in (wan?.targets ?? [])) mv[`rttmax:${x.label}`] = x.rtt;
+		if (iptv_res) mv['iptv:min'] = iptv_res.kbps;
+		agg_add(t, mv);
 
 		/* ---- CSV */
 		let tlist = cfg.wan.enabled ? map(wan_targets(), (x) => ({ label: x.label, t: targets[x.label] ?? {} })) : [];
@@ -837,6 +897,24 @@ fs.mkdir(RUNDIR);
 
 let old = json(fs.readfile(`${RUNDIR}/events.json`) || '[]');
 if (type(old) == 'array') events = old;
+
+/* keep chart history across collector restarts (e.g. after saving settings) */
+let load_hist = (name, max) => {
+	let h;
+	try { h = json(fs.readfile(`${RUNDIR}/${name}`) || 'null'); } catch (e) { h = null; }
+	if (name == 'state.json') h = h?.history;
+	if (type(h?.t) != 'array' || type(h?.s) != 'object') return { t: [], s: {} };
+	let n = length(h.t);
+	for (let k, arr in h.s)
+		if (type(arr) != 'array' || length(arr) != n) return { t: [], s: {} };
+	if (n > max) {
+		h.t = slice(h.t, n - max);
+		for (let k, arr in h.s) h.s[k] = slice(arr, n - max);
+	}
+	return h;
+};
+history = load_hist('state.json', cfg.history);
+history_min = load_hist('history.json', cfg.long_history);
 
 emit('info', 'system', 'collector', 'monitor_start', { interval: cfg.interval });
 

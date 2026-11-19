@@ -9,7 +9,8 @@
 			"file": {
 				"/tmp/isp-tester/samples.csv": [ "read" ],
 				"/tmp/isp-tester/samples.prev.csv": [ "read" ],
-				"/tmp/isp-tester/events.json": [ "read" ]
+				"/tmp/isp-tester/events.json": [ "read" ],
+				"/tmp/isp-tester/history.json": [ "read" ]
 			},
 			"uci": [ "isp_tester" ]
 		},

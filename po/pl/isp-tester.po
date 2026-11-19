@@ -121,6 +121,48 @@ msgstr "Bitrate IPTV spadł do %s (zwykle %s)"
 msgid "Collecting data…"
 msgstr "Zbieram dane…"
 
+msgid "no response"
+msgstr "brak odpowiedzi"
+
+msgid "State"
+msgstr "Stan"
+
+msgid "last %s (live)"
+msgstr "ostatnie %s (na żywo)"
+
+msgid "Earlier"
+msgstr "Wcześniej"
+
+msgid "Later"
+msgstr "Później"
+
+msgid "Now"
+msgstr "Teraz"
+
+msgid "Probable cause (%s)"
+msgstr "Prawdopodobna przyczyna (%s)"
+
+msgid "last %s"
+msgstr "ostatnie %s"
+
+msgid "selected period"
+msgstr "wybrany okres"
+
+msgid "ISP %d%%"
+msgstr "Operator %d%%"
+
+msgid "Router / home %d%%"
+msgstr "Router / dom %d%%"
+
+msgid "%d problems, %d IPTV freezes"
+msgstr "%d problemów, %d zawieszeń IPTV"
+
+msgid "Nothing was logged that points at a fault."
+msgstr "Nie zalogowano nic, co wskazywałoby na awarię."
+
+msgid "Heuristic based on what happened at the same time; treat it as a hint, not proof. The timeline below is the evidence."
+msgstr "Heurystyka oparta na tym, co działo się w tym samym czasie – traktuj to jako wskazówkę, nie dowód. Dowodem jest oś czasu poniżej."
+
 msgid "Monitoring is not running"
 msgstr "Monitorowanie nie działa"
 
@@ -190,9 +232,6 @@ msgstr "wychodzący"
 msgid "incoming"
 msgstr "przychodzący"
 
-msgid "State"
-msgstr "Stan"
-
 msgid "for %s"
 msgstr "od %s"
 
@@ -238,26 +277,38 @@ msgstr "Mrugnięcia"
 msgid "Disabled in Settings."
 msgstr "Wyłączone w Ustawieniach."
 
+msgid "loss %d%%"
+msgstr "straty %d%%"
+
 msgid "Packet loss"
 msgstr "Utrata pakietów"
 
 msgid "Ping (ms) – red/yellow background = packet loss"
 msgstr "Ping (ms) – czerwone/żółte tło = utrata pakietów"
 
+msgid "Stream stopped for %s"
+msgstr "Strumień stał przez %s"
+
 msgid "IPTV bitrate"
 msgstr "Bitrate IPTV"
 
-msgid "IPTV bitrate (Mbit/s) – red background = stream below threshold"
-msgstr "Bitrate IPTV (Mbit/s) – czerwone tło = strumień poniżej progu"
+msgid "IPTV bitrate (1 min average)"
+msgstr "Bitrate IPTV (średnia 1 min)"
 
-msgid "Stream stopped"
-msgstr "Strumień zatrzymany"
+msgid "IPTV bitrate (Mbit/s) – red = stream stopped while watching"
+msgstr "Bitrate IPTV (Mbit/s) – czerwone = strumień stanął podczas oglądania"
 
 msgid "Interface errors per interval"
 msgstr "Błędy interfejsów na pomiar"
 
-msgid "Last %s"
-msgstr "Ostatnie %s"
+msgid "Interface errors per minute"
+msgstr "Błędy interfejsów na minutę"
+
+msgid "History"
+msgstr "Historia"
+
+msgid "No data for this period (data is kept in RAM for up to 24 h and is lost on reboot)."
+msgstr "Brak danych dla tego okresu (dane są trzymane w RAM do 24 h i znikają po restarcie)."
 
 msgid "All"
 msgstr "Wszystko"
@@ -265,8 +316,14 @@ msgstr "Wszystko"
 msgid "Only problems"
 msgstr "Tylko problemy"
 
+msgid "Show this moment in the charts"
+msgstr "Pokaż ten moment na wykresach"
+
 msgid "Timeline"
 msgstr "Oś czasu"
+
+msgid "Timeline – selected period"
+msgstr "Oś czasu – wybrany okres"
 
 msgid "No events yet."
 msgstr "Brak zdarzeń."
@@ -297,6 +354,99 @@ msgstr "Wyczyść"
 
 msgid "Watches the Internet connection, IPTV stream and switch ports, and records every problem with a timestamp – so you have proof when you call your ISP."
 msgstr "Obserwuje łącze internetowe, strumień IPTV i porty switcha, i zapisuje każdy problem z godziną – żebyś miał dowody przy rozmowie z operatorem."
+
+msgid "ISP"
+msgstr "Operator"
+
+msgid "Router / home"
+msgstr "Router / dom"
+
+msgid "Line / ONT"
+msgstr "Linia / ONT"
+
+msgid "Note"
+msgstr "Uwaga"
+
+msgid "Most likely an ISP problem"
+msgstr "Najprawdopodobniej problem po stronie operatora"
+
+msgid "Most likely on your side (router / home network)"
+msgstr "Najprawdopodobniej po Twojej stronie (router / sieć domowa)"
+
+msgid "Mixed – problems on both sides"
+msgstr "Mieszane – problemy po obu stronach"
+
+msgid "Nothing serious found"
+msgstr "Nic poważnego nie znaleziono"
+
+msgid "No problems in this period"
+msgstr "Brak problemów w tym okresie"
+
+msgid "high confidence"
+msgstr "wysoka pewność"
+
+msgid "medium confidence"
+msgstr "średnia pewność"
+
+msgid "low confidence – little data"
+msgstr "niska pewność – mało danych"
+
+msgid "WAN port lost link %d× – cable to the ONT/modem, or the ONT itself (power, fault)."
+msgstr "Port WAN stracił łącze %d× – kabel do ONT/modemu albo sam ONT (zasilanie, awaria)."
+
+msgid "Internet completely down %d× while the WAN link stayed up – outage in the ISP network."
+msgstr "Internet całkowicie padł %d×, choć łącze WAN było aktywne – awaria w sieci operatora."
+
+msgid "Packet loss already at the ISP gateway (%d×) – problem on the line / ISP access network."
+msgstr "Straty pakietów już na bramie operatora (%d×) – problem na linii / w sieci dostępowej operatora."
+
+msgid "High latency to the ISP gateway (%d×) – congestion at the ISP (or a busy router)."
+msgstr "Wysokie opóźnienie do bramy operatora (%d×) – przeciążenie u operatora (albo zajęty router)."
+
+msgid "Loss only beyond the gateway (%d×) – ISP backbone / peering."
+msgstr "Straty tylko za bramą (%d×) – szkielet sieci / peering operatora."
+
+msgid "Only %s had loss (%d×) – most likely that server, not your connection."
+msgstr "Straty miał tylko %s (%d×) – najpewniej ten serwer, nie Twoje łącze."
+
+msgid "Errors on the WAN port (%d×) – cable to the ONT/modem or its port."
+msgstr "Błędy na porcie WAN (%d×) – kabel do ONT/modemu albo jego port."
+
+msgid "%d of %d IPTV freezes happened together with Internet problems – shared cause on the ISP line."
+msgstr "%d z %d zawieszeń IPTV wystąpiło razem z problemami Internetu – wspólna przyczyna na linii operatora."
+
+msgid "%d of %d IPTV freezes coincided with port problems (%s) – cable or switch at home."
+msgstr "%d z %d zawieszeń IPTV zbiegło się z problemami na portach (%s) – kabel lub switch w domu."
+
+msgid "%d of %d IPTV freezes came with errors on the IPTV device – cable/port on the IPTV path."
+msgstr "%d z %d zawieszeń IPTV wystąpiło z błędami na urządzeniu IPTV – kabel/port na ścieżce IPTV."
+
+msgid "IPTV freezes repeat every ~%d s – typical IGMP membership timeout: check the IGMP querier / snooping / proxy on the router."
+msgstr "Zawieszenia IPTV powtarzają się co ~%d s – typowy timeout członkostwa IGMP: sprawdź IGMP querier / snooping / proxy na routerze."
+
+msgid "%d of %d IPTV freezes: the router stopped sending to the decoder while everything else was fine – IGMP snooping/querier on the router."
+msgstr "%d z %d zawieszeń IPTV: router przestał wysyłać do dekodera, choć reszta działała – IGMP snooping/querier na routerze."
+
+msgid "%d of %d IPTV freezes: multicast stopped arriving from the ISP while Internet and ports were fine – ISP IPTV/multicast side (less often an IGMP issue on the router)."
+msgstr "%d z %d zawieszeń IPTV: multicast przestał przychodzić od operatora, choć Internet i porty działały – strona IPTV/multicast operatora (rzadziej problem z IGMP na routerze)."
+
+msgid "IGMP snooping is on but the querier is off on %s – streams can time out on the switch."
+msgstr "IGMP snooping włączony, ale querier wyłączony na %s – strumienie mogą wygasać na switchu."
+
+msgid "IPTV bitrate dropped sharply %d× – unstable stream from the ISP."
+msgstr "Bitrate IPTV gwałtownie spadł %d× – niestabilny strumień od operatora."
+
+msgid "Link renegotiated to a lower speed (%s, %d×) – damaged cable or connector (e.g. only 2 pairs working)."
+msgstr "Łącze wynegocjowało niższą prędkość (%s, %d×) – uszkodzony kabel lub wtyk (np. działają tylko 2 pary)."
+
+msgid "Link drops on %s (%d×) – cable, connector, power of the connected device, or switch."
+msgstr "Zaniki łącza na %s (%d×) – kabel, wtyk, zasilanie podłączonego urządzenia albo switch."
+
+msgid "Errors/drops on %s (%d×) – cable or connector."
+msgstr "Błędy/odrzucenia na %s (%d×) – kabel lub wtyk."
+
+msgid "Network device %s disappeared (%d×) – driver, configuration or reboot."
+msgstr "Urządzenie sieciowe %s zniknęło (%d×) – sterownik, konfiguracja albo restart."
 
 msgid "ISP Tester – Settings"
 msgstr "ISP Tester – Ustawienia"
