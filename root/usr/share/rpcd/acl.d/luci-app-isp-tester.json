@@ -1,0 +1,24 @@
+{
+	"luci-app-isp-tester": {
+		"description": "Grant access to ISP Tester",
+		"read": {
+			"ubus": {
+				"luci.isp_tester": [ "status", "events" ],
+				"luci": [ "getInitList" ]
+			},
+			"file": {
+				"/tmp/isp-tester/samples.csv": [ "read" ],
+				"/tmp/isp-tester/samples.prev.csv": [ "read" ],
+				"/tmp/isp-tester/events.json": [ "read" ]
+			},
+			"uci": [ "isp_tester" ]
+		},
+		"write": {
+			"ubus": {
+				"luci.isp_tester": [ "clear" ],
+				"luci": [ "setInitAction" ]
+			},
+			"uci": [ "isp_tester" ]
+		}
+	}
+}

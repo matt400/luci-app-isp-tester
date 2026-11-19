@@ -1,0 +1,6 @@
+#!/bin/sh
+rm -f /tmp/luci-indexcache* /tmp/luci-modulecache/* 2>/dev/null
+/etc/init.d/rpcd reload
+/etc/init.d/isp_tester enable
+/etc/init.d/isp_tester start
+exit 0

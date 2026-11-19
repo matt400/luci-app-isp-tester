@@ -1,0 +1,493 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+
+msgid "OK"
+msgstr ""
+
+msgid "Warning"
+msgstr ""
+
+msgid "Fault"
+msgstr ""
+
+msgid "No data"
+msgstr ""
+
+msgid "%d d %d h"
+msgstr ""
+
+msgid "%d h %d min"
+msgstr ""
+
+msgid "%d min %d s"
+msgstr ""
+
+msgid "%d s"
+msgstr ""
+
+msgid "ISP gateway (%s)"
+msgstr ""
+
+msgid "ISP gateway"
+msgstr ""
+
+msgid "Internet"
+msgstr ""
+
+msgid "IPTV"
+msgstr ""
+
+msgid "Ports"
+msgstr ""
+
+msgid "System"
+msgstr ""
+
+msgid "Device %s does not exist"
+msgstr ""
+
+msgid "%s: link down for %s"
+msgstr ""
+
+msgid "%s: receiving errors right now"
+msgstr ""
+
+msgid "%s: problems in the last minutes (see timeline)"
+msgstr ""
+
+msgid "Problems in the last minutes (see timeline)"
+msgstr ""
+
+msgid "%s: no response (%d%% loss)"
+msgstr ""
+
+msgid "%s: %d%% packet loss"
+msgstr ""
+
+msgid "%s: high latency %s"
+msgstr ""
+
+msgid "Internet unreachable for %s"
+msgstr ""
+
+msgid "Stream stopped %s ago"
+msgstr ""
+
+msgid "Bitrate is much lower than usual"
+msgstr ""
+
+msgid "Monitoring started (every %d s)"
+msgstr ""
+
+msgid "Logs cleared"
+msgstr ""
+
+msgid "Device %s disappeared"
+msgstr ""
+
+msgid "Device %s is back"
+msgstr ""
+
+msgid "%s: link DOWN"
+msgstr ""
+
+msgid "%s: link up again at %s after %s"
+msgstr ""
+
+msgid "%s: link flapped %d× between samples"
+msgstr ""
+
+msgid "%s: link speed changed %s → %s"
+msgstr ""
+
+msgid "%s: %d errors, %d CRC/frame errors"
+msgstr ""
+
+msgid "%s: %d dropped packets"
+msgstr ""
+
+msgid "%s: %d%% packet loss (avg %s)"
+msgstr ""
+
+msgid "%s: high latency %s (max %s)"
+msgstr ""
+
+msgid "%s: not responding (%d%% loss)"
+msgstr ""
+
+msgid "%s: OK again after %s (%s)"
+msgstr ""
+
+msgid "INTERNET DOWN – no target responds"
+msgstr ""
+
+msgid "Internet back after %s"
+msgstr ""
+
+msgid "IPTV stream started (%s)"
+msgstr ""
+
+msgid "IPTV STREAM STOPPED (was %s)"
+msgstr ""
+
+msgid "IPTV stream resumed after %s"
+msgstr ""
+
+msgid "IPTV stream did not come back within %s (decoder off or outage)"
+msgstr ""
+
+msgid "IPTV bitrate dropped to %s (usual %s)"
+msgstr ""
+
+msgid "Collecting data…"
+msgstr ""
+
+msgid "Monitoring is not running"
+msgstr ""
+
+msgid "Nothing is being logged right now."
+msgstr ""
+
+msgid "Start monitoring"
+msgstr ""
+
+msgid "Waiting for the first measurement…"
+msgstr ""
+
+msgid "Everything works"
+msgstr ""
+
+msgid "Works, but there were problems"
+msgstr ""
+
+msgid "Fault right now"
+msgstr ""
+
+msgid "Internet, IPTV and ports look healthy."
+msgstr ""
+
+msgid "Last hour: %d errors, %d warnings"
+msgstr ""
+
+msgid "Last 24 h: %d errors, %d warnings"
+msgstr ""
+
+msgid "Updated %s ago · running for %s"
+msgstr ""
+
+msgid "Target"
+msgstr ""
+
+msgid "Loss"
+msgstr ""
+
+msgid "Ping"
+msgstr ""
+
+msgid "Waiting for ping results…"
+msgstr ""
+
+msgid "WAN device"
+msgstr ""
+
+msgid "Traffic ↓ / ↑"
+msgstr ""
+
+msgid "Set the IPTV device in Settings."
+msgstr ""
+
+msgid "Stream running"
+msgstr ""
+
+msgid "STREAM STOPPED"
+msgstr ""
+
+msgid "No stream (decoder off?)"
+msgstr ""
+
+msgid "Device"
+msgstr ""
+
+msgid "outgoing"
+msgstr ""
+
+msgid "incoming"
+msgstr ""
+
+msgid "State"
+msgstr ""
+
+msgid "for %s"
+msgstr ""
+
+msgid "Usual bitrate"
+msgstr ""
+
+msgid "Packets/s"
+msgstr ""
+
+msgid "IGMP snooping (%s)"
+msgstr ""
+
+msgid "on"
+msgstr ""
+
+msgid "off"
+msgstr ""
+
+msgid "IGMP querier"
+msgstr ""
+
+msgid "Add ports to watch in Settings."
+msgstr ""
+
+msgid "missing"
+msgstr ""
+
+msgid "down"
+msgstr ""
+
+msgid "Port"
+msgstr ""
+
+msgid "Link"
+msgstr ""
+
+msgid "Up for"
+msgstr ""
+
+msgid "Total errors / dropped packets since boot"
+msgstr ""
+
+msgid "Err / drop"
+msgstr ""
+
+msgid "Link state changes since boot"
+msgstr ""
+
+msgid "Flaps"
+msgstr ""
+
+msgid "Disabled in Settings."
+msgstr ""
+
+msgid "Packet loss"
+msgstr ""
+
+msgid "Ping (ms) – red/yellow background = packet loss"
+msgstr ""
+
+msgid "IPTV bitrate"
+msgstr ""
+
+msgid "IPTV bitrate (Mbit/s) – red background = stream below threshold"
+msgstr ""
+
+msgid "Stream stopped"
+msgstr ""
+
+msgid "Interface errors per interval"
+msgstr ""
+
+msgid "Last %s"
+msgstr ""
+
+msgid "All"
+msgstr ""
+
+msgid "Only problems"
+msgstr ""
+
+msgid "Timeline"
+msgstr ""
+
+msgid "No events yet."
+msgstr ""
+
+msgid "Download measurements (CSV)"
+msgstr ""
+
+msgid "Download timeline (CSV)"
+msgstr ""
+
+msgid "Clear logs"
+msgstr ""
+
+msgid "Unable to read measurements: %s"
+msgstr ""
+
+msgid "This deletes the timeline, charts and CSV measurements. Download them first if you need them for your ISP."
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
+
+msgid "Logs will be cleared within one interval."
+msgstr ""
+
+msgid "Clear"
+msgstr ""
+
+msgid "ISP Tester"
+msgstr ""
+
+msgid "Watches the Internet connection, IPTV stream and switch ports, and records every problem with a timestamp – so you have proof when you call your ISP."
+msgstr ""
+
+msgid "ISP Tester – Settings"
+msgstr ""
+
+msgid "Changes are applied immediately after “Save & Apply”; the collector restarts, keeping the timeline (charts start over)."
+msgstr ""
+
+msgid "General"
+msgstr ""
+
+msgid "Enable monitoring"
+msgstr ""
+
+msgid "Sampling interval"
+msgstr ""
+
+msgid "Seconds between measurements."
+msgstr ""
+
+msgid "Measurements kept"
+msgstr ""
+
+msgid "Rows kept in the CSV (in RAM). 8640 rows × 10 s = 24 h."
+msgstr ""
+
+msgid "Timeline entries kept"
+msgstr ""
+
+msgid "Chart points"
+msgstr ""
+
+msgid "360 points × 10 s = last hour."
+msgstr ""
+
+msgid "Stay yellow for"
+msgstr ""
+
+msgid "Seconds an area stays marked as “Warning” after a problem was logged."
+msgstr ""
+
+msgid "Dropped packets threshold"
+msgstr ""
+
+msgid "Dropped packets per interval needed to log an entry. Some drops are normal (unknown protocols)."
+msgstr ""
+
+msgid "Internet (WAN)"
+msgstr ""
+
+msgid "Monitor Internet"
+msgstr ""
+
+msgid "WAN interface"
+msgstr ""
+
+msgid "Used to find the WAN device and the ISP gateway."
+msgstr ""
+
+msgid "WAN device (override)"
+msgstr ""
+
+msgid "Leave empty to detect it from the interface."
+msgstr ""
+
+msgid "Ping ISP gateway"
+msgstr ""
+
+msgid "Loss to the gateway points at the line / ISP access network; loss only to far targets points at the ISP backbone."
+msgstr ""
+
+msgid "Ping targets"
+msgstr ""
+
+msgid "Pings per round"
+msgstr ""
+
+msgid "Loss for warning (%)"
+msgstr ""
+
+msgid "Loss for fault (%)"
+msgstr ""
+
+msgid "High latency (ms)"
+msgstr ""
+
+msgid "0 disables the latency warning."
+msgstr ""
+
+msgid "Monitor IPTV"
+msgstr ""
+
+msgid "IPTV device"
+msgstr ""
+
+msgid "A device that carries only IPTV traffic: the IPTV VLAN (e.g. <code>eth1.236</code>) or the port the decoder is connected to. Watch TV and check that the bitrate on the overview matches."
+msgstr ""
+
+msgid "Measure"
+msgstr ""
+
+msgid "Incoming traffic (VLAN from the ISP)"
+msgstr ""
+
+msgid "Outgoing traffic (port towards the decoder)"
+msgstr ""
+
+msgid "Bridge for IGMP status"
+msgstr ""
+
+msgid "Optional. Shows whether IGMP snooping and the querier are active on this bridge."
+msgstr ""
+
+msgid "Stream threshold (kbit/s)"
+msgstr ""
+
+msgid "Below this the stream counts as stopped. An HD channel usually uses 4000–12000 kbit/s."
+msgstr ""
+
+msgid "Decoder off after (s)"
+msgstr ""
+
+msgid "If the stream does not come back within this time, it is logged as “ended” instead of an ongoing outage."
+msgstr ""
+
+msgid "Bitrate dip warning (%)"
+msgstr ""
+
+msgid "Warn when the bitrate falls below this percentage of its usual value. 0 disables."
+msgstr ""
+
+msgid "Physical ports (or any devices) to watch for link drops, speed changes and errors."
+msgstr ""
+
+msgid "Enabled"
+msgstr ""
+
+msgid "Name"
+msgstr ""
+
+msgid "e.g. TV switch"
+msgstr ""
+
+msgid "Must be up"
+msgstr ""
+
+msgid "Link down counts as a fault (not just information)."
+msgstr ""
+
+msgid "Overview"
+msgstr ""
+
+msgid "Settings"
+msgstr ""
+
+msgid "Grant access to ISP Tester"
+msgstr ""
+

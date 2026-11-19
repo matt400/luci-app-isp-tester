@@ -1,0 +1,453 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: pl\n"
+"Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+
+msgid "Warning"
+msgstr "Ostrzeżenie"
+
+msgid "Fault"
+msgstr "Awaria"
+
+msgid "No data"
+msgstr "Brak danych"
+
+msgid "ISP gateway (%s)"
+msgstr "Brama operatora (%s)"
+
+msgid "ISP gateway"
+msgstr "Brama operatora"
+
+msgid "Ports"
+msgstr "Porty"
+
+msgid "Device %s does not exist"
+msgstr "Urządzenie %s nie istnieje"
+
+msgid "%s: link down for %s"
+msgstr "%s: brak łącza od %s"
+
+msgid "%s: receiving errors right now"
+msgstr "%s: błędy na bieżąco"
+
+msgid "%s: problems in the last minutes (see timeline)"
+msgstr "%s: problemy w ostatnich minutach (patrz oś czasu)"
+
+msgid "Problems in the last minutes (see timeline)"
+msgstr "Problemy w ostatnich minutach (patrz oś czasu)"
+
+msgid "%s: no response (%d%% loss)"
+msgstr "%s: brak odpowiedzi (%d%% strat)"
+
+msgid "%s: %d%% packet loss"
+msgstr "%s: %d%% utraconych pakietów"
+
+msgid "%s: high latency %s"
+msgstr "%s: wysokie opóźnienie %s"
+
+msgid "Internet unreachable for %s"
+msgstr "Internet niedostępny od %s"
+
+msgid "Stream stopped %s ago"
+msgstr "Strumień zatrzymany %s temu"
+
+msgid "Bitrate is much lower than usual"
+msgstr "Bitrate dużo niższy niż zwykle"
+
+msgid "Monitoring started (every %d s)"
+msgstr "Monitorowanie uruchomione (co %d s)"
+
+msgid "Logs cleared"
+msgstr "Logi wyczyszczone"
+
+msgid "Device %s disappeared"
+msgstr "Urządzenie %s zniknęło"
+
+msgid "Device %s is back"
+msgstr "Urządzenie %s wróciło"
+
+msgid "%s: link DOWN"
+msgstr "%s: łącze PADŁO"
+
+msgid "%s: link up again at %s after %s"
+msgstr "%s: łącze wróciło z prędkością %s po %s"
+
+msgid "%s: link flapped %d× between samples"
+msgstr "%s: łącze mrugnęło %d× między pomiarami"
+
+msgid "%s: link speed changed %s → %s"
+msgstr "%s: zmiana prędkości łącza %s → %s"
+
+msgid "%s: %d errors, %d CRC/frame errors"
+msgstr "%s: %d błędów, %d błędów CRC/ramki"
+
+msgid "%s: %d dropped packets"
+msgstr "%s: %d odrzuconych pakietów"
+
+msgid "%s: %d%% packet loss (avg %s)"
+msgstr "%s: %d%% utraconych pakietów (śr. %s)"
+
+msgid "%s: high latency %s (max %s)"
+msgstr "%s: wysokie opóźnienie %s (maks. %s)"
+
+msgid "%s: not responding (%d%% loss)"
+msgstr "%s: nie odpowiada (%d%% strat)"
+
+msgid "%s: OK again after %s (%s)"
+msgstr "%s: znów OK po %s (%s)"
+
+msgid "INTERNET DOWN – no target responds"
+msgstr "INTERNET PADŁ – żaden cel nie odpowiada"
+
+msgid "Internet back after %s"
+msgstr "Internet wrócił po %s"
+
+msgid "IPTV stream started (%s)"
+msgstr "Strumień IPTV ruszył (%s)"
+
+msgid "IPTV STREAM STOPPED (was %s)"
+msgstr "STRUMIEŃ IPTV ZATRZYMANY (był %s)"
+
+msgid "IPTV stream resumed after %s"
+msgstr "Strumień IPTV wrócił po %s"
+
+msgid "IPTV stream did not come back within %s (decoder off or outage)"
+msgstr "Strumień IPTV nie wrócił w ciągu %s (dekoder wyłączony lub awaria)"
+
+msgid "IPTV bitrate dropped to %s (usual %s)"
+msgstr "Bitrate IPTV spadł do %s (zwykle %s)"
+
+msgid "Collecting data…"
+msgstr "Zbieram dane…"
+
+msgid "Monitoring is not running"
+msgstr "Monitorowanie nie działa"
+
+msgid "Nothing is being logged right now."
+msgstr "W tej chwili nic nie jest logowane."
+
+msgid "Start monitoring"
+msgstr "Uruchom monitorowanie"
+
+msgid "Waiting for the first measurement…"
+msgstr "Czekam na pierwszy pomiar…"
+
+msgid "Everything works"
+msgstr "Wszystko działa"
+
+msgid "Works, but there were problems"
+msgstr "Działa, ale były problemy"
+
+msgid "Fault right now"
+msgstr "Awaria w tej chwili"
+
+msgid "Internet, IPTV and ports look healthy."
+msgstr "Internet, IPTV i porty wyglądają zdrowo."
+
+msgid "Last hour: %d errors, %d warnings"
+msgstr "Ostatnia godzina: %d błędów, %d ostrzeżeń"
+
+msgid "Last 24 h: %d errors, %d warnings"
+msgstr "Ostatnie 24 h: %d błędów, %d ostrzeżeń"
+
+msgid "Updated %s ago · running for %s"
+msgstr "Aktualizacja %s temu · działa od %s"
+
+msgid "Target"
+msgstr "Cel"
+
+msgid "Loss"
+msgstr "Straty"
+
+msgid "Waiting for ping results…"
+msgstr "Czekam na wyniki pingu…"
+
+msgid "WAN device"
+msgstr "Urządzenie WAN"
+
+msgid "Traffic ↓ / ↑"
+msgstr "Ruch ↓ / ↑"
+
+msgid "Set the IPTV device in Settings."
+msgstr "Ustaw urządzenie IPTV w Ustawieniach."
+
+msgid "Stream running"
+msgstr "Strumień działa"
+
+msgid "STREAM STOPPED"
+msgstr "STRUMIEŃ ZATRZYMANY"
+
+msgid "No stream (decoder off?)"
+msgstr "Brak strumienia (dekoder wyłączony?)"
+
+msgid "Device"
+msgstr "Urządzenie"
+
+msgid "outgoing"
+msgstr "wychodzący"
+
+msgid "incoming"
+msgstr "przychodzący"
+
+msgid "State"
+msgstr "Stan"
+
+msgid "for %s"
+msgstr "od %s"
+
+msgid "Usual bitrate"
+msgstr "Zwykły bitrate"
+
+msgid "Packets/s"
+msgstr "Pakiety/s"
+
+msgid "on"
+msgstr "wł."
+
+msgid "off"
+msgstr "wył."
+
+msgid "Add ports to watch in Settings."
+msgstr "Dodaj porty do obserwacji w Ustawieniach."
+
+msgid "missing"
+msgstr "brak"
+
+msgid "down"
+msgstr "brak łącza"
+
+msgid "Link"
+msgstr "Łącze"
+
+msgid "Up for"
+msgstr "Działa od"
+
+msgid "Total errors / dropped packets since boot"
+msgstr "Suma błędów / odrzuconych pakietów od startu"
+
+msgid "Err / drop"
+msgstr "Błędy / odrz."
+
+msgid "Link state changes since boot"
+msgstr "Zmiany stanu łącza od startu"
+
+msgid "Flaps"
+msgstr "Mrugnięcia"
+
+msgid "Disabled in Settings."
+msgstr "Wyłączone w Ustawieniach."
+
+msgid "Packet loss"
+msgstr "Utrata pakietów"
+
+msgid "Ping (ms) – red/yellow background = packet loss"
+msgstr "Ping (ms) – czerwone/żółte tło = utrata pakietów"
+
+msgid "IPTV bitrate"
+msgstr "Bitrate IPTV"
+
+msgid "IPTV bitrate (Mbit/s) – red background = stream below threshold"
+msgstr "Bitrate IPTV (Mbit/s) – czerwone tło = strumień poniżej progu"
+
+msgid "Stream stopped"
+msgstr "Strumień zatrzymany"
+
+msgid "Interface errors per interval"
+msgstr "Błędy interfejsów na pomiar"
+
+msgid "Last %s"
+msgstr "Ostatnie %s"
+
+msgid "All"
+msgstr "Wszystko"
+
+msgid "Only problems"
+msgstr "Tylko problemy"
+
+msgid "Timeline"
+msgstr "Oś czasu"
+
+msgid "No events yet."
+msgstr "Brak zdarzeń."
+
+msgid "Download measurements (CSV)"
+msgstr "Pobierz pomiary (CSV)"
+
+msgid "Download timeline (CSV)"
+msgstr "Pobierz oś czasu (CSV)"
+
+msgid "Clear logs"
+msgstr "Wyczyść logi"
+
+msgid "Unable to read measurements: %s"
+msgstr "Nie można odczytać pomiarów: %s"
+
+msgid "This deletes the timeline, charts and CSV measurements. Download them first if you need them for your ISP."
+msgstr "Spowoduje to usunięcie osi czasu, wykresów i pomiarów CSV. Najpierw je pobierz, jeśli potrzebujesz ich dla operatora."
+
+msgid "Cancel"
+msgstr "Anuluj"
+
+msgid "Logs will be cleared within one interval."
+msgstr "Logi zostaną wyczyszczone w ciągu jednego interwału."
+
+msgid "Clear"
+msgstr "Wyczyść"
+
+msgid "Watches the Internet connection, IPTV stream and switch ports, and records every problem with a timestamp – so you have proof when you call your ISP."
+msgstr "Obserwuje łącze internetowe, strumień IPTV i porty switcha, i zapisuje każdy problem z godziną – żebyś miał dowody przy rozmowie z operatorem."
+
+msgid "ISP Tester – Settings"
+msgstr "ISP Tester – Ustawienia"
+
+msgid "Changes are applied immediately after “Save & Apply”; the collector restarts, keeping the timeline (charts start over)."
+msgstr "Zmiany działają od razu po „Zapisz i zastosuj”; kolektor się restartuje, oś czasu zostaje (wykresy zaczynają od nowa)."
+
+msgid "General"
+msgstr "Ogólne"
+
+msgid "Enable monitoring"
+msgstr "Włącz monitorowanie"
+
+msgid "Sampling interval"
+msgstr "Interwał pomiarów"
+
+msgid "Seconds between measurements."
+msgstr "Sekundy między pomiarami."
+
+msgid "Measurements kept"
+msgstr "Liczba przechowywanych pomiarów"
+
+msgid "Rows kept in the CSV (in RAM). 8640 rows × 10 s = 24 h."
+msgstr "Wiersze trzymane w CSV (w RAM). 8640 wierszy × 10 s = 24 h."
+
+msgid "Timeline entries kept"
+msgstr "Liczba wpisów osi czasu"
+
+msgid "Chart points"
+msgstr "Punkty wykresu"
+
+msgid "360 points × 10 s = last hour."
+msgstr "360 punktów × 10 s = ostatnia godzina."
+
+msgid "Stay yellow for"
+msgstr "Żółty status przez"
+
+msgid "Seconds an area stays marked as “Warning” after a problem was logged."
+msgstr "Ile sekund obszar pozostaje oznaczony jako „Ostrzeżenie” po zalogowaniu problemu."
+
+msgid "Dropped packets threshold"
+msgstr "Próg odrzuconych pakietów"
+
+msgid "Dropped packets per interval needed to log an entry. Some drops are normal (unknown protocols)."
+msgstr "Liczba odrzuconych pakietów na pomiar potrzebna do wpisu. Trochę odrzuceń to norma (nieznane protokoły)."
+
+msgid "Monitor Internet"
+msgstr "Monitoruj Internet"
+
+msgid "WAN interface"
+msgstr "Interfejs WAN"
+
+msgid "Used to find the WAN device and the ISP gateway."
+msgstr "Służy do znalezienia urządzenia WAN i bramy operatora."
+
+msgid "WAN device (override)"
+msgstr "Urządzenie WAN (ręcznie)"
+
+msgid "Leave empty to detect it from the interface."
+msgstr "Zostaw puste, aby wykryć z interfejsu."
+
+msgid "Ping ISP gateway"
+msgstr "Pinguj bramę operatora"
+
+msgid "Loss to the gateway points at the line / ISP access network; loss only to far targets points at the ISP backbone."
+msgstr "Straty do bramy wskazują na linię / sieć dostępową operatora; straty tylko do dalszych celów wskazują na szkielet sieci operatora."
+
+msgid "Ping targets"
+msgstr "Cele pingu"
+
+msgid "Pings per round"
+msgstr "Pingi na rundę"
+
+msgid "Loss for warning (%)"
+msgstr "Straty dla ostrzeżenia (%)"
+
+msgid "Loss for fault (%)"
+msgstr "Straty dla awarii (%)"
+
+msgid "High latency (ms)"
+msgstr "Wysokie opóźnienie (ms)"
+
+msgid "0 disables the latency warning."
+msgstr "0 wyłącza ostrzeżenie o opóźnieniu."
+
+msgid "Monitor IPTV"
+msgstr "Monitoruj IPTV"
+
+msgid "IPTV device"
+msgstr "Urządzenie IPTV"
+
+msgid "A device that carries only IPTV traffic: the IPTV VLAN (e.g. <code>eth1.236</code>) or the port the decoder is connected to. Watch TV and check that the bitrate on the overview matches."
+msgstr "Urządzenie, przez które idzie tylko ruch IPTV: VLAN IPTV (np. <code>eth1.236</code>) albo port, do którego podłączony jest dekoder. Włącz TV i sprawdź, czy bitrate na przeglądzie się zgadza."
+
+msgid "Measure"
+msgstr "Mierz"
+
+msgid "Incoming traffic (VLAN from the ISP)"
+msgstr "Ruch przychodzący (VLAN od operatora)"
+
+msgid "Outgoing traffic (port towards the decoder)"
+msgstr "Ruch wychodzący (port do dekodera)"
+
+msgid "Bridge for IGMP status"
+msgstr "Most do statusu IGMP"
+
+msgid "Optional. Shows whether IGMP snooping and the querier are active on this bridge."
+msgstr "Opcjonalne. Pokazuje, czy IGMP snooping i querier są aktywne na tym moście."
+
+msgid "Stream threshold (kbit/s)"
+msgstr "Próg strumienia (kbit/s)"
+
+msgid "Below this the stream counts as stopped. An HD channel usually uses 4000–12000 kbit/s."
+msgstr "Poniżej tej wartości strumień uznawany jest za zatrzymany. Kanał HD to zwykle 4000–12000 kbit/s."
+
+msgid "Decoder off after (s)"
+msgstr "Dekoder wyłączony po (s)"
+
+msgid "If the stream does not come back within this time, it is logged as “ended” instead of an ongoing outage."
+msgstr "Jeśli strumień nie wróci w tym czasie, zostanie zapisany jako „zakończony” zamiast trwającej awarii."
+
+msgid "Bitrate dip warning (%)"
+msgstr "Ostrzeżenie o spadku bitrate (%)"
+
+msgid "Warn when the bitrate falls below this percentage of its usual value. 0 disables."
+msgstr "Ostrzegaj, gdy bitrate spadnie poniżej tego procentu zwykłej wartości. 0 wyłącza."
+
+msgid "Physical ports (or any devices) to watch for link drops, speed changes and errors."
+msgstr "Fizyczne porty (lub dowolne urządzenia) do obserwacji pod kątem zaników łącza, zmian prędkości i błędów."
+
+msgid "Enabled"
+msgstr "Włączony"
+
+msgid "Name"
+msgstr "Nazwa"
+
+msgid "e.g. TV switch"
+msgstr "np. switch przy TV"
+
+msgid "Must be up"
+msgstr "Musi działać"
+
+msgid "Link down counts as a fault (not just information)."
+msgstr "Brak łącza liczy się jako awaria (a nie tylko informacja)."
+
+msgid "Overview"
+msgstr "Przegląd"
+
+msgid "Settings"
+msgstr "Ustawienia"
+
+msgid "Grant access to ISP Tester"
+msgstr "Dostęp do ISP Tester"
+

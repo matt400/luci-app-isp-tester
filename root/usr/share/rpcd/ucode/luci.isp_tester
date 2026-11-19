@@ -1,0 +1,58 @@
+// luci-app-isp-tester - rpcd ucode plugin
+'use strict';
+
+import { readfile, writefile, stat, mkdir } from 'fs';
+
+const RUNDIR = '/tmp/isp-tester';
+
+function read_json(name, dflt) {
+	let data = readfile(`${RUNDIR}/${name}`);
+	if (data == null) return dflt;
+	try { return json(data); } catch (e) { return dflt; }
+}
+
+function service_running() {
+	let pid = trim(readfile('/var/run/isp_tester.pid') ?? '');
+	return pid != '' && stat(`/proc/${pid}`) != null;
+}
+
+return {
+	'luci.isp_tester': {
+		/* current health + chart history */
+		status: {
+			call: function() {
+				let st = read_json('state.json', null);
+				return {
+					running: service_running(),
+					state: st
+				};
+			}
+		},
+
+		/* event timeline, newest first */
+		events: {
+			args: { limit: 200, area: '' },
+			call: function(req) {
+				let ev = read_json('events.json', []);
+				let limit = +(req.args.limit ?? 200);
+				let area = req.args.area ?? '';
+				let out = [];
+
+				for (let i = length(ev) - 1; i >= 0 && (limit <= 0 || length(out) < limit); i--)
+					if (area == '' || ev[i].area == area)
+						push(out, ev[i]);
+
+				return { events: out, total: length(ev) };
+			}
+		},
+
+		/* ask the collector to wipe events, history and CSV on its next tick */
+		clear: {
+			call: function() {
+				mkdir(RUNDIR);
+				writefile(`${RUNDIR}/clear`, '1');
+				return { result: true };
+			}
+		}
+	}
+};

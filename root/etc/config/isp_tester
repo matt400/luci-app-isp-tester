@@ -1,0 +1,55 @@
+
+config general 'general'
+	option enabled '1'
+	# sampling interval in seconds
+	option interval '10'
+	# CSV rows kept in /tmp (8640 x 10 s = 24 h)
+	option max_samples '8640'
+	option max_events '1000'
+	# points kept for the charts (360 x 10 s = 1 h)
+	option history '360'
+	# an area stays yellow this long after a warning/error event (s)
+	option warn_window '900'
+	# at most one "errors"/"drops" event per device per this many seconds
+	option err_cooldown '60'
+	# drops per interval needed to log a "drops" event
+	option drop_warn '50'
+
+config wan 'wan'
+	option enabled '1'
+	# logical interface used to find the WAN device and gateway
+	option interface 'wan'
+	option ping_gateway '1'
+	list target '1.1.1.1'
+	list target '8.8.8.8'
+	option count '3'
+	# packet loss % (per round of pings) for yellow / red
+	option loss_warn '1'
+	option loss_fail '50'
+	# average RTT (ms) for yellow, 0 = off
+	option rtt_warn '80'
+
+config iptv 'iptv'
+	option enabled '1'
+	# device that carries ONLY IPTV traffic, e.g. eth1.236 or the decoder's port
+	option device ''
+	# rx = traffic arriving on the device, tx = traffic leaving it (decoder port)
+	option direction 'rx'
+	# optional bridge to show IGMP snooping/querier state of
+	option bridge ''
+	# below this the stream is considered stopped
+	option min_kbps '500'
+	# a stall longer than this is treated as "stream ended" (decoder off)
+	option idle_after '60'
+	# warn when bitrate falls below this % of its running average, 0 = off
+	option dip_pct '40'
+
+config port
+	option device 'lan1'
+	option label 'Switch'
+	option expect_up '1'
+
+config port
+	option device 'lan2'
+	option label 'Access point'
+	option expect_up '1'
