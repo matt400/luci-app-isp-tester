@@ -1,6 +1,8 @@
 
 config general 'general'
 	option enabled '1'
+	# show the "Probable cause" panel on the overview (UI only)
+	option diagnosis '1'
 	# sampling interval in seconds
 	option interval '10'
 	# CSV rows kept in /tmp (8640 x 10 s = 24 h)

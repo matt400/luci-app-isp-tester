@@ -17,6 +17,11 @@ return view.extend({
 		o.default = '1';
 		o.rmempty = false;
 
+		o = s.option(form.Flag, 'diagnosis', _('Show “Probable cause” panel'),
+			_('Heuristic verdict whether problems come from the ISP or from your side. Only affects the overview page.'));
+		o.default = '1';
+		o.rmempty = false;
+
 		o = s.option(form.Value, 'interval', _('Sampling interval'), _('Seconds between measurements.'));
 		o.datatype = 'range(2,300)';
 		o.placeholder = '10';

@@ -601,3 +601,9 @@ msgstr "Ustawienia"
 msgid "Grant access to ISP Tester"
 msgstr "Dostęp do ISP Tester"
 
+msgid "Show “Probable cause” panel"
+msgstr "Pokazuj panel „Prawdopodobna przyczyna”"
+
+msgid "Heuristic verdict whether problems come from the ISP or from your side. Only affects the overview page."
+msgstr "Heurystyczna ocena, czy problemy są po stronie operatora, czy po Twojej. Dotyczy tylko strony przeglądu."
+

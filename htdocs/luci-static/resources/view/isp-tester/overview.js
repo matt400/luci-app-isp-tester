@@ -5,6 +5,7 @@
 'require fs';
 'require ui';
 'require dom';
+'require uci';
 'require isp_tester.diagnose as diagnose';
 
 var callStatus = rpc.declare({
@@ -439,7 +440,8 @@ return view.extend({
 	minHist: null,
 
 	load: function() {
-		return Promise.all([ callStatus(), callEvents(200, ''), readJson('/tmp/isp-tester/events.json'), readJson('/tmp/isp-tester/history.json') ]);
+		return Promise.all([ callStatus(), callEvents(200, ''), readJson('/tmp/isp-tester/events.json'), readJson('/tmp/isp-tester/history.json'),
+			uci.load('isp_tester').catch(function() {}) ]);
 	},
 
 	/* ---- time window */
@@ -868,7 +870,8 @@ return view.extend({
 
 		var parts = [ this.renderBanner(res) ];
 		if (st) {
-			parts.push(this.renderDiagnosis(st, w));
+			if (uci.get('isp_tester', 'general', 'diagnosis') !== '0')
+				parts.push(this.renderDiagnosis(st, w));
 			parts.push(E('div', { 'class': 'ispt-cards' }, [ this.renderWan(st), this.renderIptv(st), this.renderPorts(st) ]));
 			parts.push(this.renderCharts(st, w));
 		}

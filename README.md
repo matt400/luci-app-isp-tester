@@ -21,7 +21,7 @@ Gateway vs. far-target loss helps pinpoint the cause. Loss to the gateway points
 **Status → ISP Tester → Overview**
 
 - A large status banner: green "Everything works", yellow "Works, but there were problems" (within the last 15 min) or red "Fault right now".
-- **Probable cause** panel for the selected period. It gives a verdict (*ISP*, *router / home network*, *mixed*), an ISP-vs-home ratio, and the findings behind it (see below).
+- **Probable cause** panel for the selected period. It gives a verdict (*ISP*, *router / home network*, *mixed*), an ISP-vs-home ratio, and the findings behind it (see below). It can be hidden in Settings (*Show “Probable cause” panel*).
 - One card each for Internet, IPTV and Ports, with live values and the reason for any yellow or red state.
 - **History** for up to 24 h: pick 1 h / 6 h / 24 h and move back and forward with ◀ ▶ (*Now* returns to live). A green/yellow/red state strip shows when things went wrong. The charts show ping with packet-loss bands, IPTV bitrate with stall bands, and interface errors. Hover a chart to see exact values. The last hour live uses 10 s samples; older data uses 1-minute aggregates (worst loss, minimum bitrate and summed errors are kept, so short glitches are not averaged away).
 - A timeline of the selected period, filterable by area or "only problems". Click an event to zoom the charts to that moment.
