@@ -99,28 +99,29 @@ Switch the TV on and check that the overview shows a few Mbit/s. Then set *strea
 
 ## Install
 
-### Build with the SDK / buildroot
+### Package (recommended)
+
+Build it in the OpenWrt 24.10 SDK:
 
 ```sh
-# in the OpenWrt 24.10 SDK
 git clone https://github.com/matt400/luci-app-isp-tester package/luci-app-isp-tester
 ./scripts/feeds update -a && ./scripts/feeds install -a
 make package/luci-app-isp-tester/compile V=s
 ```
 
-Copy the resulting package to the router and install it with `opkg install` / `apk add --allow-untrusted`.
+Copy the `.ipk` files from `bin/packages/*/base/` to the router and run `opkg install` on them.
 
-### Quick test without building (copy files)
+### Quick test (copy files)
 
 ```sh
 ROUTER=root@192.168.1.1
-opkg update && opkg install ucode-mod-fs ucode-mod-uloop ucode-mod-uci ucode-mod-ubus rpcd-mod-ucode   # on the router
+ssh $ROUTER 'opkg update && opkg install ucode-mod-fs ucode-mod-uloop ucode-mod-uci ucode-mod-ubus rpcd-mod-ucode'
 scp -O -r root/* $ROUTER:/
-scp -O -r htdocs/luci-static/resources/view/isp-tester $ROUTER:/www/luci-static/resources/view/
+scp -O -r htdocs/luci-static/resources/* $ROUTER:/www/luci-static/resources/
 ssh $ROUTER 'chmod +x /etc/init.d/isp_tester && sh /etc/uci-defaults/80_luci-isp-tester'
 ```
 
-Translations are only installed by the package build.
+This overwrites `/etc/config/isp_tester` and installs no translations.
 
 ## Command line
 
