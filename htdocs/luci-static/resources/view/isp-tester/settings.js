@@ -300,6 +300,11 @@ return view.extend({
 		o.datatype = 'range(5,3600)';
 		o.placeholder = '60';
 
+		o = s.taboption('advanced', form.Value, 'off_after', _('Decoder switched off after (s)'),
+			_('If the stream stops and no channel is subscribed any more (IGMP), for this long, it is logged as the decoder being switched off, not as a fault. 0 disables. Needs IGMP watching.'));
+		o.datatype = 'range(0,300)';
+		o.placeholder = '15';
+
 		o = s.taboption('advanced', form.Value, 'dip_pct', _('Bitrate dip warning (%)'),
 			_('Warn when the bitrate falls below this percentage of its usual value. 0 disables.'));
 		o.datatype = 'range(0,100)';

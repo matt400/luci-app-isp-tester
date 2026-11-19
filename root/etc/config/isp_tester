@@ -61,6 +61,9 @@ config iptv 'iptv'
 	option stall_after '2'
 	# a stall longer than this is treated as "stream ended" (decoder off)
 	option idle_after '60'
+	# a stop while no channel is subscribed (IGMP) for this long (s) is logged as
+	# "decoder switched off" (info), not as a fault; 0 = always a fault
+	option off_after '15'
 	# warn when bitrate falls below this % of its running average, 0 = off
 	option dip_pct '40'
 	# watch IGMP group membership and the multicast proxy (igmpproxy, mcproxy)

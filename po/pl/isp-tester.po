@@ -1290,3 +1290,15 @@ msgstr "Zainstaluj %s"
 
 msgid "An update is running…"
 msgstr "Aktualizacja w toku…"
+
+msgid "IPTV stream ended: decoder switched off (no channel subscribed)"
+msgstr "Strumień IPTV zakończony: dekoder wyłączony (brak subskrybowanego kanału)"
+
+msgid "IPTV stream did not come back within %s (channel still subscribed: outage)"
+msgstr "Strumień IPTV nie wrócił w ciągu %s (kanał nadal subskrybowany: awaria)"
+
+msgid "Decoder switched off after (s)"
+msgstr "Dekoder wyłączony po (s) – bez subskrypcji"
+
+msgid "If the stream stops and no channel is subscribed any more (IGMP), for this long, it is logged as the decoder being switched off, not as a fault. 0 disables. Needs IGMP watching."
+msgstr "Jeśli strumień zniknie i przez ten czas żaden kanał nie jest już subskrybowany (IGMP), zostanie zapisany jako wyłączenie dekodera, a nie awaria. 0 wyłącza. Wymaga śledzenia IGMP."
