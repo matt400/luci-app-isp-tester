@@ -4,6 +4,9 @@ msgstr ""
 "Language: pl\n"
 "Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
 
+msgid "OK"
+msgstr "OK"
+
 msgid "Warning"
 msgstr "Ostrzeżenie"
 
@@ -13,14 +16,38 @@ msgstr "Awaria"
 msgid "No data"
 msgstr "Brak danych"
 
+msgid "%d d %d h"
+msgstr "%d d %d h"
+
+msgid "%d h %d min"
+msgstr "%d h %d min"
+
+msgid "%d min %d s"
+msgstr "%d min %d s"
+
+msgid "%d s"
+msgstr "%d s"
+
 msgid "ISP gateway (%s)"
 msgstr "Brama operatora (%s)"
 
 msgid "ISP gateway"
 msgstr "Brama operatora"
 
+msgid "Internet"
+msgstr "Internet"
+
+msgid "IPTV"
+msgstr "IPTV"
+
 msgid "Ports"
 msgstr "Porty"
+
+msgid "Router"
+msgstr "Router"
+
+msgid "Your reports"
+msgstr "Twoje zgłoszenia"
 
 msgid "Device %s does not exist"
 msgstr "Urządzenie %s nie istnieje"
@@ -43,11 +70,35 @@ msgstr "%s: brak odpowiedzi (%d%% strat)"
 msgid "%s: %d%% packet loss"
 msgstr "%s: %d%% utraconych pakietów"
 
+msgid "%s: high jitter %s"
+msgstr "%s: duży jitter %s"
+
 msgid "%s: high latency %s"
 msgstr "%s: wysokie opóźnienie %s"
 
 msgid "Internet unreachable for %s"
 msgstr "Internet niedostępny od %s"
+
+msgid "WAN interface %s is down (no PPPoE/DHCP session) for %s"
+msgstr "Interfejs WAN %s nie działa (brak sesji PPPoE/DHCP) od %s"
+
+msgid "No ping data: enable the Ping plugin of luci-app-statistics (collectd) and add the ISP gateway and far hosts there."
+msgstr "Brak danych ping: włącz wtyczkę Ping w luci-app-statistics (collectd) i dodaj tam bramę operatora oraz dalsze hosty."
+
+msgid "Multicast proxy %s is not running"
+msgstr "Proxy multicast %s nie działa"
+
+msgid "Router CPU busy"
+msgstr "Router przeciążony"
+
+msgid "Router CPU busy: %d%% (%s)"
+msgstr "Router przeciążony: CPU %d%% (%s)"
+
+msgid "Router is low on RAM: %d%% free"
+msgstr "Routerowi brakuje RAM: wolne %d%%"
+
+msgid "Connection table %d%% full"
+msgstr "Tablica połączeń zajęta w %d%%"
 
 msgid "Stream stopped %s ago"
 msgstr "Strumień zatrzymany %s temu"
@@ -88,6 +139,9 @@ msgstr "%s: %d odrzuconych pakietów"
 msgid "%s: %d%% packet loss (avg %s)"
 msgstr "%s: %d%% utraconych pakietów (śr. %s)"
 
+msgid "%s: high jitter %s (ping %s)"
+msgstr "%s: duży jitter %s (ping %s)"
+
 msgid "%s: high latency %s (max %s)"
 msgstr "%s: wysokie opóźnienie %s (maks. %s)"
 
@@ -118,6 +172,102 @@ msgstr "Strumień IPTV nie wrócił w ciągu %s (dekoder wyłączony lub awaria)
 msgid "IPTV bitrate dropped to %s (usual %s)"
 msgstr "Bitrate IPTV spadł do %s (zwykle %s)"
 
+msgid "WAN interface %s DOWN (PPPoE/DHCP session lost)"
+msgstr "Interfejs WAN %s ROZŁĄCZONY (utracona sesja PPPoE/DHCP)"
+
+msgid "WAN interface %s up again after %s"
+msgstr "Interfejs WAN %s znów działa po %s"
+
+msgid "WAN session restarted (previous one lasted %s)"
+msgstr "Sesja WAN zestawiona od nowa (poprzednia trwała %s)"
+
+msgid "WAN address changed %s → %s"
+msgstr "Zmiana adresu WAN %s → %s"
+
+msgid "Multicast proxy %s STOPPED"
+msgstr "Proxy multicast %s ZATRZYMANE"
+
+msgid "Multicast proxy %s running again after %s"
+msgstr "Proxy multicast %s znów działa po %s"
+
+msgid "Multicast proxy %s restarted"
+msgstr "Proxy multicast %s uruchomione ponownie"
+
+msgid "Router CPU busy: %d%% on %s (softirq %d%%)"
+msgstr "Router przeciążony: CPU %d%% na %s (softirq %d%%)"
+
+msgid "Router CPU load normal again after %s"
+msgstr "Obciążenie CPU routera znów normalne po %s"
+
+msgid "Router RAM OK again after %s"
+msgstr "RAM routera znów OK po %s"
+
+msgid "Connection table %d%% full (%d of %d)"
+msgstr "Tablica połączeń zajęta w %d%% (%d z %d)"
+
+msgid "Connection table OK again after %s"
+msgstr "Tablica połączeń znów OK po %s"
+
+msgid "You reported: %s"
+msgstr "Zgłosiłeś: %s"
+
+msgid "TV froze"
+msgstr "Obraz TV stanął"
+
+msgid "TV picture breaks up"
+msgstr "Obraz TV się rozsypuje"
+
+msgid "Internet is slow"
+msgstr "Internet działa wolno"
+
+msgid "Internet does not work"
+msgstr "Internet nie działa"
+
+msgid "Something else"
+msgstr "Coś innego"
+
+msgid "PPPoE: the ISP stopped answering LCP echo"
+msgstr "PPPoE: operator przestał odpowiadać na LCP echo"
+
+msgid "PPPoE: authentication failed"
+msgstr "PPPoE: błąd uwierzytelniania"
+
+msgid "PPPoE: no answer from the ISP access server"
+msgstr "PPPoE: brak odpowiedzi serwera dostępowego operatora"
+
+msgid "PPPoE: connection terminated"
+msgstr "PPPoE: połączenie zakończone"
+
+msgid "DHCP: no lease from the ISP"
+msgstr "DHCP: brak dzierżawy od operatora"
+
+msgid "Multicast proxy error"
+msgstr "Błąd proxy multicast"
+
+msgid "Network driver / switch chip hang"
+msgstr "Zawieszenie sterownika sieci / układu switcha"
+
+msgid "Connection table full, packets dropped"
+msgstr "Tablica połączeń pełna, pakiety odrzucane"
+
+msgid "Router ran out of memory"
+msgstr "Routerowi zabrakło pamięci"
+
+msgid "DNS server overloaded (query limit)"
+msgstr "Serwer DNS przeciążony (limit zapytań)"
+
+msgid "System log"
+msgstr "Log systemowy"
+
+msgid "channel change"
+msgstr "zmiana kanału"
+
+msgid "IGMP membership was dropped"
+msgstr "członkostwo IGMP zostało porzucone"
+
+msgid "still subscribed, data stopped"
+msgstr "nadal subskrybowany, dane przestały płynąć"
+
 msgid "Collecting data…"
 msgstr "Zbieram dane…"
 
@@ -126,6 +276,15 @@ msgstr "brak odpowiedzi"
 
 msgid "State"
 msgstr "Stan"
+
+msgid "1 h"
+msgstr "1 h"
+
+msgid "6 h"
+msgstr "6 h"
+
+msgid "24 h"
+msgstr "24 h"
 
 msgid "last %s (live)"
 msgstr "ostatnie %s (na żywo)"
@@ -157,14 +316,32 @@ msgstr "Router / dom %d%%"
 msgid "%d problems, %d IPTV freezes"
 msgstr "%d problemów, %d zawieszeń IPTV"
 
+msgid "%d channel changes ignored"
+msgstr "pominięto %d zmian kanału"
+
 msgid "Nothing was logged that points at a fault."
 msgstr "Nie zalogowano nic, co wskazywałoby na awarię."
 
 msgid "Heuristic based on what happened at the same time; treat it as a hint, not proof. The timeline below is the evidence."
 msgstr "Heurystyka oparta na tym, co działo się w tym samym czasie – traktuj to jako wskazówkę, nie dowód. Dowodem jest oś czasu poniżej."
 
+msgid "Monitoring is turned off"
+msgstr "Monitorowanie jest wyłączone"
+
+msgid "Nothing is measured or logged. The data collected so far stays available until reboot."
+msgstr "Nic nie jest mierzone ani logowane. Zebrane dotąd dane są dostępne do restartu routera."
+
+msgid "Turn on"
+msgstr "Włącz"
+
 msgid "Monitoring is not running"
 msgstr "Monitorowanie nie działa"
+
+msgid "It is turned on but the collector is not running – see the system log (logread -e isp-tester)."
+msgstr "Jest włączone, ale kolektor nie działa – sprawdź log systemowy (logread -e isp-tester)."
+
+msgid "Restart"
+msgstr "Uruchom ponownie"
 
 msgid "Waiting for the first measurement…"
 msgstr "Czekam na pierwszy pomiar…"
@@ -190,20 +367,83 @@ msgstr "Ostatnie 24 h: %d błędów, %d ostrzeżeń"
 msgid "Updated %s ago · running for %s"
 msgstr "Aktualizacja %s temu · działa od %s"
 
-msgid "Target"
-msgstr "Cel"
+msgid "Click the moment you notice a problem (TV freezes, Internet slow). It is logged and compared with the measurements."
+msgstr "Kliknij w chwili, gdy zauważysz problem (TV stoi, Internet wolny). Zostanie to zapisane i porównane z pomiarami."
 
-msgid "Loss"
-msgstr "Straty"
+msgid "⚑ Problem now"
+msgstr "⚑ Problem teraz"
 
-msgid "Waiting for ping results…"
-msgstr "Czekam na wyniki pingu…"
+msgid "Optional note, e.g. channel, room, what you saw"
+msgstr "Opcjonalna notatka, np. kanał, pokój, co widać"
+
+msgid "Logged. It will appear in the timeline within one interval."
+msgstr "Zapisano. Pojawi się na osi czasu w ciągu jednego interwału."
+
+msgid "(logged %d s after you clicked)"
+msgstr "(zapisano %d s po kliknięciu)"
+
+msgid "Could not log the report."
+msgstr "Nie udało się zapisać zgłoszenia."
+
+msgid "What is wrong right now?"
+msgstr "Co jest nie tak w tej chwili?"
+
+msgid "This puts a mark on the timeline. The analysis then checks whether the router measured something at that moment."
+msgstr "To stawia znacznik na osi czasu. Analiza sprawdzi potem, czy router zmierzył coś w tym momencie."
+
+msgid "Cancel"
+msgstr "Anuluj"
 
 msgid "WAN device"
 msgstr "Urządzenie WAN"
 
 msgid "Traffic ↓ / ↑"
 msgstr "Ruch ↓ / ↑"
+
+msgid "Ping data"
+msgstr "Dane ping"
+
+msgid "collectd (live)"
+msgstr "collectd (na żywo)"
+
+msgid "collectd RRD files (delayed; enable the UnixSock plugin for live values)"
+msgstr "pliki RRD collectd (z opóźnieniem; włącz wtyczkę UnixSock dla danych na żywo)"
+
+msgid "none"
+msgstr "brak"
+
+msgid "Session"
+msgstr "Sesja"
+
+msgid "%s, up for %s"
+msgstr "%s, działa od %s"
+
+msgid "DOWN"
+msgstr "ROZŁĄCZONA"
+
+msgid "Address"
+msgstr "Adres"
+
+msgid "%d reconnects since start"
+msgstr "%d ponownych połączeń od startu"
+
+msgid "Target"
+msgstr "Cel"
+
+msgid "Loss"
+msgstr "Straty"
+
+msgid "Ping"
+msgstr "Ping"
+
+msgid "Standard deviation of the ping time (collectd)"
+msgstr "Odchylenie standardowe czasu ping (collectd)"
+
+msgid "Jitter"
+msgstr "Jitter"
+
+msgid "Waiting for ping results…"
+msgstr "Czekam na wyniki pingu…"
 
 msgid "Set the IPTV device in Settings."
 msgstr "Ustaw urządzenie IPTV w Ustawieniach."
@@ -235,11 +475,44 @@ msgstr "Zwykły bitrate"
 msgid "Packets/s"
 msgstr "Pakiety/s"
 
+msgid "IGMP snooping (%s)"
+msgstr "IGMP snooping (%s)"
+
 msgid "on"
 msgstr "wł."
 
 msgid "off"
 msgstr "wył."
+
+msgid "IGMP querier"
+msgstr "Querier IGMP"
+
+msgid "IGMP timers"
+msgstr "Timery IGMP"
+
+msgid "membership %d s, query %d s"
+msgstr "członkostwo %d s, zapytania %d s"
+
+msgid "Bridge groups"
+msgstr "Grupy na mostku"
+
+msgid "Multicast proxy"
+msgstr "Proxy multicast"
+
+msgid "%s not running"
+msgstr "%s nie działa"
+
+msgid "none found"
+msgstr "nie znaleziono"
+
+msgid "Channels joined (%s)"
+msgstr "Subskrybowane kanały (%s)"
+
+msgid "device not in IGMP table"
+msgstr "urządzenia nie ma w tablicy IGMP"
+
+msgid "changed %s ago"
+msgstr "zmiana %s temu"
 
 msgid "Add ports to watch in Settings."
 msgstr "Dodaj porty do obserwacji w Ustawieniach."
@@ -249,6 +522,9 @@ msgstr "brak"
 
 msgid "down"
 msgstr "brak łącza"
+
+msgid "Port"
+msgstr "Port"
 
 msgid "Link"
 msgstr "Łącze"
@@ -271,6 +547,9 @@ msgstr "Mrugnięcia"
 msgid "Disabled in Settings."
 msgstr "Wyłączone w Ustawieniach."
 
+msgid "jitter %s"
+msgstr "jitter %s"
+
 msgid "loss %d%%"
 msgstr "straty %d%%"
 
@@ -289,6 +568,9 @@ msgstr "Bitrate IPTV"
 msgid "IPTV bitrate (1 min average)"
 msgstr "Bitrate IPTV (średnia 1 min)"
 
+msgid "Lowest 1 s bitrate"
+msgstr "Najniższy bitrate (1 s)"
+
 msgid "IPTV bitrate (Mbit/s) – red = stream stopped while watching"
 msgstr "Bitrate IPTV (Mbit/s) – czerwone = strumień stanął podczas oglądania"
 
@@ -303,6 +585,87 @@ msgstr "Historia"
 
 msgid "No data for this period (data is kept in RAM for up to 24 h and is lost on reboot)."
 msgstr "Brak danych dla tego okresu (dane są trzymane w RAM do 24 h i znikają po restarcie)."
+
+msgid "When do problems happen"
+msgstr "Kiedy występują problemy"
+
+msgid "Problems per hour of the day (%s). A peak in the evening points at an overloaded ISP network."
+msgstr "Problemy wg godziny dnia (%s). Szczyt wieczorem wskazuje na przeciążoną sieć operatora."
+
+msgid "%02d:00–%02d:59: %d problems"
+msgstr "%02d:00–%02d:59: %d problemów"
+
+msgid "Connection fault report"
+msgstr "Raport usterek łącza"
+
+msgid "Print / save as PDF"
+msgstr "Drukuj / zapisz jako PDF"
+
+msgid "Period: %s – %s · generated %s by luci-app-isp-tester"
+msgstr "Okres: %s – %s · wygenerowano %s przez luci-app-isp-tester"
+
+msgid "Connection"
+msgstr "Łącze"
+
+msgid "WAN interface / device"
+msgstr "Interfejs / urządzenie WAN"
+
+msgid "Ping targets"
+msgstr "Cele pingu"
+
+msgid "IPTV measured on"
+msgstr "IPTV mierzone na"
+
+msgid "Summary"
+msgstr "Podsumowanie"
+
+msgid "Internet outages"
+msgstr "Przerwy w Internecie"
+
+msgid "%d, total %s, longest %s"
+msgstr "%d, łącznie %s, najdłuższa %s"
+
+msgid "Packet loss at the ISP gateway"
+msgstr "Straty pakietów na bramie operatora"
+
+msgid "%d×"
+msgstr "%d×"
+
+msgid "Packet loss to far targets"
+msgstr "Straty pakietów do dalszych celów"
+
+msgid "WAN session drops (PPPoE/DHCP)"
+msgstr "Zerwania sesji WAN (PPPoE/DHCP)"
+
+msgid "WAN port link drops"
+msgstr "Zaniki łącza na porcie WAN"
+
+msgid "Related messages in the system log"
+msgstr "Powiązane komunikaty w logu systemowym"
+
+msgid "IPTV freezes"
+msgstr "Zamrożenia IPTV"
+
+msgid "%d channel changes not counted"
+msgstr "nie liczono %d zmian kanału"
+
+msgid "Router overloaded"
+msgstr "Przeciążenie routera"
+
+msgid "Problems reported by the user"
+msgstr "Problemy zgłoszone przez użytkownika"
+
+msgid "Assessment"
+msgstr "Ocena"
+
+msgid "Problems by hour of day"
+msgstr "Problemy wg godziny dnia"
+
+msgid "Event log (problems only)"
+msgstr "Dziennik zdarzeń (tylko problemy)"
+
+msgid "Measured continuously on the customer's router. Times are local router time."
+msgstr "Mierzone w sposób ciągły na routerze klienta. Godziny według czasu lokalnego routera."
 
 msgid "All"
 msgstr "Wszystko"
@@ -328,17 +691,44 @@ msgstr "Pobierz pomiary (CSV)"
 msgid "Download timeline (CSV)"
 msgstr "Pobierz oś czasu (CSV)"
 
+msgid "Summary of the selected period for your ISP; print it or save it as PDF."
+msgstr "Podsumowanie wybranego okresu dla operatora; wydrukuj lub zapisz jako PDF."
+
+msgid "Report for the ISP"
+msgstr "Raport dla operatora"
+
 msgid "Clear logs"
 msgstr "Wyczyść logi"
+
+msgid "Turn monitoring off"
+msgstr "Wyłącz monitorowanie"
+
+msgid "Data kept in %s (survives a reboot)"
+msgstr "Dane zapisywane w %s (przetrwają restart)"
+
+msgid "Data kept in RAM (lost on reboot)"
+msgstr "Dane w RAM (znikną po restarcie)"
+
+msgid "notifications: uclient-fetch / wget missing"
+msgstr "powiadomienia: brak uclient-fetch / wget"
+
+msgid "notifications: last attempt failed %s ago (%d waiting)"
+msgstr "powiadomienia: ostatnia próba nieudana %s temu (czeka %d)"
+
+msgid "notifications: last sent %s ago"
+msgstr "powiadomienia: ostatnio wysłane %s temu"
+
+msgid "notifications: nothing sent yet"
+msgstr "powiadomienia: jeszcze nic nie wysłano"
 
 msgid "Unable to read measurements: %s"
 msgstr "Nie można odczytać pomiarów: %s"
 
+msgid "Unable to change monitoring state: %s"
+msgstr "Nie można zmienić stanu monitorowania: %s"
+
 msgid "This deletes the timeline, charts and CSV measurements. Download them first if you need them for your ISP."
 msgstr "Spowoduje to usunięcie osi czasu, wykresów i pomiarów CSV. Najpierw je pobierz, jeśli potrzebujesz ich dla operatora."
-
-msgid "Cancel"
-msgstr "Anuluj"
 
 msgid "Logs will be cleared within one interval."
 msgstr "Logi zostaną wyczyszczone w ciągu jednego interwału."
@@ -346,8 +736,293 @@ msgstr "Logi zostaną wyczyszczone w ciągu jednego interwału."
 msgid "Clear"
 msgstr "Wyczyść"
 
+msgid "ISP Tester"
+msgstr "ISP Tester"
+
 msgid "Watches the Internet connection, IPTV stream and switch ports, and records every problem with a timestamp – so you have proof when you call your ISP."
 msgstr "Obserwuje łącze internetowe, strumień IPTV i porty switcha, i zapisuje każdy problem z godziną – żebyś miał dowody przy rozmowie z operatorem."
+
+msgid "ISP Tester – Settings"
+msgstr "ISP Tester – Ustawienia"
+
+msgid "Changes are applied immediately after “Save & Apply”; the collector restarts, keeping the timeline (charts start over)."
+msgstr "Zmiany działają od razu po „Zapisz i zastosuj”; kolektor się restartuje, oś czasu zostaje (wykresy zaczynają od nowa)."
+
+msgid "General"
+msgstr "Ogólne"
+
+msgid "Enable monitoring"
+msgstr "Włącz monitorowanie"
+
+msgid "Turns the whole package on or off, including start at boot. Can also be switched on the overview page."
+msgstr "Włącza lub wyłącza cały pakiet, także uruchamianie przy starcie. Można to też przełączyć na stronie przeglądu."
+
+msgid "Sampling interval"
+msgstr "Interwał pomiarów"
+
+msgid "Seconds between measurements."
+msgstr "Sekundy między pomiarami."
+
+msgid "Measurements kept"
+msgstr "Liczba przechowywanych pomiarów"
+
+msgid "Rows kept in the CSV (in RAM). 8640 rows × 10 s = 24 h."
+msgstr "Wiersze trzymane w CSV (w RAM). 8640 wierszy × 10 s = 24 h."
+
+msgid "Timeline entries kept"
+msgstr "Liczba wpisów osi czasu"
+
+msgid "Chart points"
+msgstr "Punkty wykresu"
+
+msgid "360 points × 10 s = last hour."
+msgstr "360 punktów × 10 s = ostatnia godzina."
+
+msgid "Stay yellow for"
+msgstr "Żółty status przez"
+
+msgid "Seconds an area stays marked as “Warning” after a problem was logged."
+msgstr "Ile sekund obszar pozostaje oznaczony jako „Ostrzeżenie” po zalogowaniu problemu."
+
+msgid "Dropped packets threshold"
+msgstr "Próg odrzuconych pakietów"
+
+msgid "Dropped packets per interval needed to log an entry. Some drops are normal (unknown protocols)."
+msgstr "Liczba odrzuconych pakietów na pomiar potrzebna do wpisu. Trochę odrzuceń to norma (nieznane protokoły)."
+
+msgid "Keep data on"
+msgstr "Zapisuj dane w"
+
+msgid "Optional folder on a USB stick (e.g. <code>/mnt/sda1</code>, mounted via System → Mount Points). <code>/tmp/isp-tester</code> becomes a link to it, so the timeline, history and CSV survive a reboot. Written: every event, the history once a minute, one CSV line per interval. Do not use the internal flash. Empty = RAM."
+msgstr "Opcjonalny folder na pendrive (np. <code>/mnt/sda1</code>, zamontowany w System → Punkty montowania). <code>/tmp/isp-tester</code> staje się do niego dowiązaniem, więc oś czasu, historia i CSV przetrwają restart. Zapisy: każde zdarzenie, historia raz na minutę, jedna linia CSV na interwał. Nie używaj wewnętrznej pamięci flash. Puste = RAM."
+
+msgid "Read the system log"
+msgstr "Czytaj log systemowy"
+
+msgid "Turns messages of other services into timeline events: pppd (LCP echo timeouts, authentication, PPPoE discovery), udhcpc (lease lost), igmpproxy/mcproxy errors, kernel (network driver hang, connection table full, out of memory), dnsmasq (query limit)."
+msgstr "Zamienia komunikaty innych usług na zdarzenia na osi czasu: pppd (brak odpowiedzi LCP echo, uwierzytelnianie, PPPoE discovery), udhcpc (utrata dzierżawy), błędy igmpproxy/mcproxy, jądro (zawieszenie sterownika sieci, pełna tablica połączeń, brak pamięci), dnsmasq (limit zapytań)."
+
+msgid "Internet (WAN)"
+msgstr "Internet (WAN)"
+
+msgid "Ping is not measured here but taken from collectd: install <code>luci-app-statistics</code> and <code>collectd-mod-ping</code>, enable the Ping plugin and add the ISP gateway and one or two far hosts (e.g. 1.1.1.1, 8.8.8.8). Enable the UnixSock plugin (<code>collectd-mod-unixsock</code>) for live values; without it the values are read from the RRD files and lag behind by the cache time."
+msgstr "Ping nie jest mierzony tutaj, tylko pobierany z collectd: zainstaluj <code>luci-app-statistics</code> i <code>collectd-mod-ping</code>, włącz wtyczkę Ping i dodaj bramę operatora oraz jeden-dwa dalsze hosty (np. 1.1.1.1, 8.8.8.8). Włącz wtyczkę UnixSock (<code>collectd-mod-unixsock</code>), aby mieć dane na żywo; bez niej wartości są czytane z plików RRD i spóźniają się o czas bufora."
+
+msgid "Monitor Internet"
+msgstr "Monitoruj Internet"
+
+msgid "WAN interface"
+msgstr "Interfejs WAN"
+
+msgid "Used to find the WAN device and the ISP gateway."
+msgstr "Służy do znalezienia urządzenia WAN i bramy operatora."
+
+msgid "WAN device (override)"
+msgstr "Urządzenie WAN (ręcznie)"
+
+msgid "Leave empty to detect it from the interface."
+msgstr "Zostaw puste, aby wykryć z interfejsu."
+
+msgid "ISP gateway host"
+msgstr "Host bramy operatora"
+
+msgid "Which of the collectd ping hosts is the ISP gateway. Empty = the gateway netifd reports for the WAN interface. Loss to the gateway points at the line / ISP access network; loss only to far hosts points at the ISP backbone."
+msgstr "Który z hostów ping w collectd to brama operatora. Puste = brama zgłaszana przez netifd dla interfejsu WAN. Straty do bramy wskazują na linię / sieć dostępową operatora; straty tylko do dalszych hostów – na sieć szkieletową operatora."
+
+msgid "Loss for warning (%)"
+msgstr "Straty dla ostrzeżenia (%)"
+
+msgid "Loss for fault (%)"
+msgstr "Straty dla awarii (%)"
+
+msgid "High latency (ms)"
+msgstr "Wysokie opóźnienie (ms)"
+
+msgid "0 disables the latency warning."
+msgstr "0 wyłącza ostrzeżenie o opóźnieniu."
+
+msgid "High jitter (ms)"
+msgstr "Duży jitter (ms)"
+
+msgid "Standard deviation of the ping time as reported by collectd. Matters for calls, games and IPTV over unicast. 0 = no warning."
+msgstr "Odchylenie standardowe czasu ping zgłaszane przez collectd. Ważne dla rozmów, gier i IPTV przez unicast. 0 = bez ostrzeżenia."
+
+msgid "Monitor IPTV"
+msgstr "Monitoruj IPTV"
+
+msgid "IPTV device"
+msgstr "Urządzenie IPTV"
+
+msgid "A device that carries only IPTV traffic: the IPTV VLAN (e.g. <code>eth1.236</code>) or the port the decoder is connected to. Watch TV and check that the bitrate on the overview matches."
+msgstr "Urządzenie, przez które idzie tylko ruch IPTV: VLAN IPTV (np. <code>eth1.236</code>) albo port, do którego podłączony jest dekoder. Włącz TV i sprawdź, czy bitrate na przeglądzie się zgadza."
+
+msgid "Measure"
+msgstr "Mierz"
+
+msgid "Incoming traffic (VLAN from the ISP)"
+msgstr "Ruch przychodzący (VLAN od operatora)"
+
+msgid "Outgoing traffic (port towards the decoder)"
+msgstr "Ruch wychodzący (port do dekodera)"
+
+msgid "Bridge for IGMP status"
+msgstr "Most do statusu IGMP"
+
+msgid "Optional. Shows whether IGMP snooping and the querier are active on this bridge."
+msgstr "Opcjonalne. Pokazuje, czy IGMP snooping i querier są aktywne na tym moście."
+
+msgid "Stream threshold (kbit/s)"
+msgstr "Próg strumienia (kbit/s)"
+
+msgid "Below this the stream counts as stopped. An HD channel usually uses 4000–12000 kbit/s."
+msgstr "Poniżej tej wartości strumień uznawany jest za zatrzymany. Kanał HD to zwykle 4000–12000 kbit/s."
+
+msgid "IPTV sampling interval (s)"
+msgstr "Próbkowanie IPTV (s)"
+
+msgid "How often the IPTV bitrate is measured, independent of the main interval. 1 s catches freezes of a few seconds; 0 measures only once per main interval."
+msgstr "Jak często mierzony jest bitrate IPTV, niezależnie od głównego interwału. 1 s wyłapuje zawieszenia trwające kilka sekund; 0 = pomiar tylko raz na główny interwał."
+
+msgid "Freeze after (s)"
+msgstr "Zawieszenie po (s)"
+
+msgid "How long the bitrate must stay below the threshold to log a freeze. 2 s ignores single short gaps the decoder buffer hides."
+msgstr "Jak długo bitrate musi być poniżej progu, żeby zapisać zawieszenie. 2 s pomija pojedyncze krótkie przerwy, które ukrywa bufor dekodera."
+
+msgid "Decoder off after (s)"
+msgstr "Dekoder wyłączony po (s)"
+
+msgid "If the stream does not come back within this time, it is logged as “ended” instead of an ongoing outage."
+msgstr "Jeśli strumień nie wróci w tym czasie, zostanie zapisany jako „zakończony” zamiast trwającej awarii."
+
+msgid "Bitrate dip warning (%)"
+msgstr "Ostrzeżenie o spadku bitrate (%)"
+
+msgid "Warn when the bitrate falls below this percentage of its usual value. 0 disables."
+msgstr "Ostrzegaj, gdy bitrate spadnie poniżej tego procentu zwykłej wartości. 0 wyłącza."
+
+msgid "Watch IGMP"
+msgstr "Obserwuj IGMP"
+
+msgid "Tracks which multicast groups (channels) are joined and whether the multicast proxy (igmpproxy, mcproxy) is running. This tells a channel change from a freeze, and an IGMP timeout from the ISP not sending."
+msgstr "Śledzi, które grupy multicast (kanały) są subskrybowane i czy działa proxy multicast (igmpproxy, mcproxy). Pozwala odróżnić zmianę kanału od zamrożenia, a timeout IGMP od braku danych od operatora."
+
+msgid "IGMP upstream device"
+msgstr "Urządzenie upstream IGMP"
+
+msgid "Where the proxy joins the groups (its upstream, usually the IPTV VLAN). Empty = the IPTV device when measuring incoming traffic."
+msgstr "Gdzie proxy dołącza do grup (jego upstream, zwykle VLAN IPTV). Puste = urządzenie IPTV przy pomiarze ruchu przychodzącego."
+
+msgid "Router load"
+msgstr "Obciążenie routera"
+
+msgid "An overloaded router drops packets too. Only read from /proc to explain problems in the timeline; for graphs use Status → Realtime Graphs or luci-app-statistics."
+msgstr "Przeciążony router też gubi pakiety. Tylko odczyt z /proc, by wyjaśniać problemy na osi czasu; wykresy znajdziesz w Status → Wykresy w czasie rzeczywistym lub luci-app-statistics."
+
+msgid "Watch router load"
+msgstr "Obserwuj obciążenie routera"
+
+msgid "CPU busy (%)"
+msgstr "CPU zajęte (%)"
+
+msgid "Busiest core, two intervals in a row. Routing often saturates a single core. 0 disables."
+msgstr "Najbardziej obciążony rdzeń, dwa interwały z rzędu. Routing często obciąża jeden rdzeń. 0 wyłącza."
+
+msgid "Free RAM below (%)"
+msgstr "Wolny RAM poniżej (%)"
+
+msgid "0 disables."
+msgstr "0 wyłącza."
+
+msgid "Connection table full (%)"
+msgstr "Tablica połączeń pełna (%)"
+
+msgid "When the table is full, new connections fail. 0 disables."
+msgstr "Gdy tablica jest pełna, nowe połączenia nie działają. 0 wyłącza."
+
+msgid "Notifications"
+msgstr "Powiadomienia"
+
+msgid "Push a message to your phone when something breaks. Messages that cannot be sent during an outage are sent when the Internet is back."
+msgstr "Wyślij powiadomienie na telefon, gdy coś się zepsuje. Wiadomości, których nie da się wysłać w czasie awarii, zostaną wysłane, gdy Internet wróci."
+
+msgid "Send notifications"
+msgstr "Wysyłaj powiadomienia"
+
+msgid "Service"
+msgstr "Usługa"
+
+msgid "ntfy (app ntfy.sh)"
+msgstr "ntfy (aplikacja ntfy.sh)"
+
+msgid "Telegram bot"
+msgstr "Bot Telegram"
+
+msgid "Webhook (JSON POST)"
+msgstr "Webhook (JSON POST)"
+
+msgid "URL"
+msgstr "URL"
+
+msgid "ntfy: topic URL, e.g. <code>https://ntfy.sh/my-secret-topic-123</code> (anyone who knows the name can read it, so make it hard to guess). Webhook: URL that receives <code>{\"text\": …}</code>."
+msgstr "ntfy: adres tematu, np. <code>https://ntfy.sh/moj-tajny-temat-123</code> (każdy, kto zna nazwę, może czytać, więc niech będzie trudna do zgadnięcia). Webhook: adres, który dostanie <code>{\"text\": …}</code>."
+
+msgid "Bot token"
+msgstr "Token bota"
+
+msgid "From @BotFather."
+msgstr "Od @BotFather."
+
+msgid "Chat ID"
+msgstr "ID czatu"
+
+msgid "Send"
+msgstr "Wysyłaj"
+
+msgid "Faults only (and when they end)"
+msgstr "Tylko awarie (i ich koniec)"
+
+msgid "Faults and warnings"
+msgstr "Awarie i ostrzeżenia"
+
+msgid "At most one message every (s)"
+msgstr "Najwyżej jedna wiadomość co (s)"
+
+msgid "Events in between are collected into one message."
+msgstr "Zdarzenia w międzyczasie są zbierane w jedną wiadomość."
+
+msgid "Message language"
+msgstr "Język wiadomości"
+
+msgid "Test"
+msgstr "Test"
+
+msgid "Send test message"
+msgstr "Wyślij wiadomość testową"
+
+msgid "The test message will be sent within one interval. Save & Apply changed settings first."
+msgstr "Wiadomość testowa zostanie wysłana w ciągu jednego interwału. Najpierw zapisz zmienione ustawienia."
+
+msgid "Monitoring is not running, nothing can be sent."
+msgstr "Monitorowanie nie działa, nic nie zostanie wysłane."
+
+msgid "Physical ports (or any devices) to watch for link drops, speed changes and errors."
+msgstr "Fizyczne porty (lub dowolne urządzenia) do obserwacji pod kątem zaników łącza, zmian prędkości i błędów."
+
+msgid "Enabled"
+msgstr "Włączony"
+
+msgid "Name"
+msgstr "Nazwa"
+
+msgid "e.g. TV switch"
+msgstr "np. switch przy TV"
+
+msgid "Must be up"
+msgstr "Musi działać"
+
+msgid "Link down counts as a fault (not just information)."
+msgstr "Brak łącza liczy się jako awaria (a nie tylko informacja)."
 
 msgid "ISP"
 msgstr "Operator"
@@ -397,6 +1072,9 @@ msgstr "Straty pakietów już na bramie operatora (%d×) – problem na linii / 
 msgid "High latency to the ISP gateway (%d×) – congestion at the ISP (or a busy router)."
 msgstr "Wysokie opóźnienie do bramy operatora (%d×) – przeciążenie u operatora (albo zajęty router)."
 
+msgid "High jitter to the ISP gateway (%d×) – unstable line or congestion at the ISP (or a busy router)."
+msgstr "Duży jitter do bramy operatora (%d×) – niestabilna linia lub przeciążenie u operatora (albo zajęty router)."
+
 msgid "Loss only beyond the gateway (%d×) – ISP backbone / peering."
 msgstr "Straty tylko za bramą (%d×) – szkielet sieci / peering operatora."
 
@@ -415,8 +1093,65 @@ msgstr "%d z %d zawieszeń IPTV zbiegło się z problemami na portach (%s) – k
 msgid "%d of %d IPTV freezes came with errors on the IPTV device – cable/port on the IPTV path."
 msgstr "%d z %d zawieszeń IPTV wystąpiło z błędami na urządzeniu IPTV – kabel/port na ścieżce IPTV."
 
+msgid "IPTV freezes repeat every ~%d s – the same as the bridge's IGMP %s interval (%d s): the membership times out. Enable the IGMP querier on the bridge or fix the proxy."
+msgstr "Zamrożenia IPTV powtarzają się co ~%d s – tyle samo, co interwał IGMP %s mostka (%d s): członkostwo wygasa. Włącz querier IGMP na mostku albo popraw proxy."
+
+msgid "membership"
+msgstr "członkostwa"
+
+msgid "query"
+msgstr "zapytań"
+
 msgid "IPTV freezes repeat every ~%d s – typical IGMP membership timeout: check the IGMP querier / snooping / proxy on the router."
 msgstr "Zawieszenia IPTV powtarzają się co ~%d s – typowy timeout członkostwa IGMP: sprawdź IGMP querier / snooping / proxy na routerze."
+
+msgid "%d of %d IPTV freezes started when the IGMP membership was dropped, then the decoder joined again – IGMP timeout on the router/switch (querier, snooping, proxy)."
+msgstr "%d z %d zamrożeń IPTV zaczęło się, gdy członkostwo IGMP zostało porzucone, po czym dekoder dołączył ponownie – timeout IGMP na routerze/switchu (querier, snooping, proxy)."
+
+msgid "%d of %d IPTV freezes: the router stayed subscribed to the channel but the ISP stopped sending – ISP multicast side."
+msgstr "%d z %d zamrożeń IPTV: router cały czas subskrybował kanał, ale operator przestał wysyłać – strona multicast operatora."
+
+msgid "%d IPTV interruptions were channel changes – ignored."
+msgstr "%d przerw IPTV to zmiany kanału – pominięte."
+
+msgid "%d of %d IPTV freezes happened when the multicast proxy stopped or restarted."
+msgstr "%d z %d zamrożeń IPTV wystąpiło, gdy proxy multicast zatrzymało się lub zrestartowało."
+
+msgid "Multicast proxy %s stopped or restarted (%d×) – router: check its configuration and the system log."
+msgstr "Proxy multicast %s zatrzymało się lub zrestartowało (%d×) – router: sprawdź jego konfigurację i log systemowy."
+
+msgid "No multicast proxy (igmpproxy / mcproxy) is running – fine if the IPTV VLAN is bridged, otherwise IPTV cannot work reliably."
+msgstr "Nie działa żadne proxy multicast (igmpproxy / mcproxy) – w porządku, jeśli VLAN IPTV jest zmostkowany, w przeciwnym razie IPTV nie może działać stabilnie."
+
+msgid "WAN session dropped/restarted %d× (PPPoE/DHCP) while the cable link stayed up – ISP side (authentication, BRAS, DHCP server)."
+msgstr "Sesja WAN zerwana/zestawiona od nowa %d× (PPPoE/DHCP), choć łącze na kablu było – po stronie operatora (uwierzytelnianie, BRAS, serwer DHCP)."
+
+msgid "pppd: the ISP stopped answering LCP echo requests (%d×) – line or ISP access network."
+msgstr "pppd: operator przestał odpowiadać na zapytania LCP echo (%d×) – linia lub sieć dostępowa operatora."
+
+msgid "pppd/udhcpc: no PPPoE access server, failed authentication or no DHCP lease (%d×) – ISP side."
+msgstr "pppd/udhcpc: brak serwera dostępowego PPPoE, błąd uwierzytelniania lub brak dzierżawy DHCP (%d×) – po stronie operatora."
+
+msgid "pppd: connection terminated %d× (see the timeline for the reason)."
+msgstr "pppd: połączenie zakończone %d× (przyczyna na osi czasu)."
+
+msgid "The multicast proxy logged errors (%d×) – check its configuration (upstream / downstream interfaces)."
+msgstr "Proxy multicast zgłaszało błędy (%d×) – sprawdź jego konfigurację (interfejsy upstream / downstream)."
+
+msgid "Network driver / switch chip hung (%d×, kernel \"transmit timed out\") – router hardware or driver."
+msgstr "Sterownik sieci / układ switcha się zawiesił (%d×, jądro „transmit timed out”) – sprzęt lub sterownik routera."
+
+msgid "%d problems happened while the router was overloaded (CPU / RAM / connection table) – the router itself may be dropping packets."
+msgstr "%d problemów wystąpiło, gdy router był przeciążony (CPU / RAM / tablica połączeń) – sam router mógł gubić pakiety."
+
+msgid "The router was overloaded %d× (no problems at those moments)."
+msgstr "Router był przeciążony %d× (bez problemów w tych chwilach)."
+
+msgid "%d of %d of your reports match a measured problem."
+msgstr "%d z %d Twoich zgłoszeń pokrywa się ze zmierzonym problemem."
+
+msgid "%d of %d of your reports have nothing measured around them – the problem is not visible on this router: check the IPTV device setting, or the cause is the decoder, the TV or Wi-Fi."
+msgstr "%d z %d Twoich zgłoszeń nie ma wokół siebie żadnego pomiaru – problemu nie widać na tym routerze: sprawdź ustawienie urządzenia IPTV albo przyczyną jest dekoder, telewizor lub Wi-Fi."
 
 msgid "%d of %d IPTV freezes: the router stopped sending to the decoder while everything else was fine – IGMP snooping/querier on the router."
 msgstr "%d z %d zawieszeń IPTV: router przestał wysyłać do dekodera, choć reszta działała – IGMP snooping/querier na routerze."
@@ -442,195 +1177,8 @@ msgstr "Błędy/odrzucenia na %s (%d×) – kabel lub wtyk."
 msgid "Network device %s disappeared (%d×) – driver, configuration or reboot."
 msgstr "Urządzenie sieciowe %s zniknęło (%d×) – sterownik, konfiguracja albo restart."
 
-msgid "ISP Tester – Settings"
-msgstr "ISP Tester – Ustawienia"
-
-msgid "Changes are applied immediately after “Save & Apply”; the collector restarts, keeping the timeline (charts start over)."
-msgstr "Zmiany działają od razu po „Zapisz i zastosuj”; kolektor się restartuje, oś czasu zostaje (wykresy zaczynają od nowa)."
-
-msgid "General"
-msgstr "Ogólne"
-
-msgid "Enable monitoring"
-msgstr "Włącz monitorowanie"
-
-msgid "Sampling interval"
-msgstr "Interwał pomiarów"
-
-msgid "Seconds between measurements."
-msgstr "Sekundy między pomiarami."
-
-msgid "Measurements kept"
-msgstr "Liczba przechowywanych pomiarów"
-
-msgid "Rows kept in the CSV (in RAM). 8640 rows × 10 s = 24 h."
-msgstr "Wiersze trzymane w CSV (w RAM). 8640 wierszy × 10 s = 24 h."
-
-msgid "Timeline entries kept"
-msgstr "Liczba wpisów osi czasu"
-
-msgid "Chart points"
-msgstr "Punkty wykresu"
-
-msgid "360 points × 10 s = last hour."
-msgstr "360 punktów × 10 s = ostatnia godzina."
-
-msgid "Stay yellow for"
-msgstr "Żółty status przez"
-
-msgid "Seconds an area stays marked as “Warning” after a problem was logged."
-msgstr "Ile sekund obszar pozostaje oznaczony jako „Ostrzeżenie” po zalogowaniu problemu."
-
-msgid "Dropped packets threshold"
-msgstr "Próg odrzuconych pakietów"
-
-msgid "Dropped packets per interval needed to log an entry. Some drops are normal (unknown protocols)."
-msgstr "Liczba odrzuconych pakietów na pomiar potrzebna do wpisu. Trochę odrzuceń to norma (nieznane protokoły)."
-
-msgid "Monitor Internet"
-msgstr "Monitoruj Internet"
-
-msgid "WAN interface"
-msgstr "Interfejs WAN"
-
-msgid "Used to find the WAN device and the ISP gateway."
-msgstr "Służy do znalezienia urządzenia WAN i bramy operatora."
-
-msgid "WAN device (override)"
-msgstr "Urządzenie WAN (ręcznie)"
-
-msgid "Leave empty to detect it from the interface."
-msgstr "Zostaw puste, aby wykryć z interfejsu."
-
-msgid "Ping ISP gateway"
-msgstr "Pinguj bramę operatora"
-
-msgid "Loss to the gateway points at the line / ISP access network; loss only to far targets points at the ISP backbone."
-msgstr "Straty do bramy wskazują na linię / sieć dostępową operatora; straty tylko do dalszych celów wskazują na szkielet sieci operatora."
-
-msgid "Ping targets"
-msgstr "Cele pingu"
-
-msgid "Pings per round"
-msgstr "Pingi na rundę"
-
-msgid "Loss for warning (%)"
-msgstr "Straty dla ostrzeżenia (%)"
-
-msgid "Loss for fault (%)"
-msgstr "Straty dla awarii (%)"
-
-msgid "High latency (ms)"
-msgstr "Wysokie opóźnienie (ms)"
-
-msgid "0 disables the latency warning."
-msgstr "0 wyłącza ostrzeżenie o opóźnieniu."
-
-msgid "Monitor IPTV"
-msgstr "Monitoruj IPTV"
-
-msgid "IPTV device"
-msgstr "Urządzenie IPTV"
-
-msgid "A device that carries only IPTV traffic: the IPTV VLAN (e.g. <code>eth1.236</code>) or the port the decoder is connected to. Watch TV and check that the bitrate on the overview matches."
-msgstr "Urządzenie, przez które idzie tylko ruch IPTV: VLAN IPTV (np. <code>eth1.236</code>) albo port, do którego podłączony jest dekoder. Włącz TV i sprawdź, czy bitrate na przeglądzie się zgadza."
-
-msgid "Measure"
-msgstr "Mierz"
-
-msgid "Incoming traffic (VLAN from the ISP)"
-msgstr "Ruch przychodzący (VLAN od operatora)"
-
-msgid "Outgoing traffic (port towards the decoder)"
-msgstr "Ruch wychodzący (port do dekodera)"
-
-msgid "Bridge for IGMP status"
-msgstr "Most do statusu IGMP"
-
-msgid "Optional. Shows whether IGMP snooping and the querier are active on this bridge."
-msgstr "Opcjonalne. Pokazuje, czy IGMP snooping i querier są aktywne na tym moście."
-
-msgid "Stream threshold (kbit/s)"
-msgstr "Próg strumienia (kbit/s)"
-
-msgid "Below this the stream counts as stopped. An HD channel usually uses 4000–12000 kbit/s."
-msgstr "Poniżej tej wartości strumień uznawany jest za zatrzymany. Kanał HD to zwykle 4000–12000 kbit/s."
-
-msgid "IPTV sampling interval (s)"
-msgstr "Próbkowanie IPTV (s)"
-
-msgid "How often the IPTV bitrate is measured, independent of the main interval. 1 s catches freezes of a few seconds; 0 measures only once per main interval."
-msgstr "Jak często mierzony jest bitrate IPTV, niezależnie od głównego interwału. 1 s wyłapuje zawieszenia trwające kilka sekund; 0 = pomiar tylko raz na główny interwał."
-
-msgid "Freeze after (s)"
-msgstr "Zawieszenie po (s)"
-
-msgid "How long the bitrate must stay below the threshold to log a freeze. 2 s ignores single short gaps the decoder buffer hides."
-msgstr "Jak długo bitrate musi być poniżej progu, żeby zapisać zawieszenie. 2 s pomija pojedyncze krótkie przerwy, które ukrywa bufor dekodera."
-
-msgid "Lowest 1 s bitrate"
-msgstr "Najniższy bitrate (1 s)"
-
-msgid "Decoder off after (s)"
-msgstr "Dekoder wyłączony po (s)"
-
-msgid "If the stream does not come back within this time, it is logged as “ended” instead of an ongoing outage."
-msgstr "Jeśli strumień nie wróci w tym czasie, zostanie zapisany jako „zakończony” zamiast trwającej awarii."
-
-msgid "Bitrate dip warning (%)"
-msgstr "Ostrzeżenie o spadku bitrate (%)"
-
-msgid "Warn when the bitrate falls below this percentage of its usual value. 0 disables."
-msgstr "Ostrzegaj, gdy bitrate spadnie poniżej tego procentu zwykłej wartości. 0 wyłącza."
-
-msgid "Physical ports (or any devices) to watch for link drops, speed changes and errors."
-msgstr "Fizyczne porty (lub dowolne urządzenia) do obserwacji pod kątem zaników łącza, zmian prędkości i błędów."
-
-msgid "Enabled"
-msgstr "Włączony"
-
-msgid "Name"
-msgstr "Nazwa"
-
-msgid "e.g. TV switch"
-msgstr "np. switch przy TV"
-
-msgid "Must be up"
-msgstr "Musi działać"
-
-msgid "Link down counts as a fault (not just information)."
-msgstr "Brak łącza liczy się jako awaria (a nie tylko informacja)."
-
 msgid "Overview"
 msgstr "Przegląd"
 
 msgid "Settings"
 msgstr "Ustawienia"
-
-msgid "Grant access to ISP Tester"
-msgstr "Dostęp do ISP Tester"
-
-msgid "Monitoring is turned off"
-msgstr "Monitorowanie jest wyłączone"
-
-msgid "Nothing is measured or logged. The data collected so far stays available until reboot."
-msgstr "Nic nie jest mierzone ani logowane. Zebrane dotąd dane są dostępne do restartu routera."
-
-msgid "Turn on"
-msgstr "Włącz"
-
-msgid "It is turned on but the collector is not running – see the system log (logread -e isp-tester)."
-msgstr "Jest włączone, ale kolektor nie działa – sprawdź log systemowy (logread -e isp-tester)."
-
-msgid "Restart"
-msgstr "Uruchom ponownie"
-
-msgid "Turn monitoring off"
-msgstr "Wyłącz monitorowanie"
-
-msgid "Unable to change monitoring state: %s"
-msgstr "Nie można zmienić stanu monitorowania: %s"
-
-msgid "Turns the whole package on or off, including start at boot. Can also be switched on the overview page."
-msgstr "Włącza lub wyłącza cały pakiet, także uruchamianie przy starcie. Można to też przełączyć na stronie przeglądu."
-

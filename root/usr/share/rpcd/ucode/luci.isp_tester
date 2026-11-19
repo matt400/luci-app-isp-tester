@@ -1,13 +1,14 @@
 // luci-app-isp-tester - rpcd ucode plugin
 'use strict';
 
-import { readfile, writefile, stat, mkdir } from 'fs';
+import { readfile, writefile, stat, mkdir, open } from 'fs';
 import { cursor } from 'uci';
 
-const RUNDIR = '/tmp/isp-tester';
+const RUNDIR = '/tmp/isp-tester';           /* timeline, history, CSV (may link to USB) */
+const VARDIR = '/var/run/isp-tester';       /* current state and requests to the collector */
 
-function read_json(name, dflt) {
-	let data = readfile(`${RUNDIR}/${name}`);
+function read_json(name, dflt, dir) {
+	let data = readfile(`${dir ?? RUNDIR}/${name}`);
 	if (data == null) return dflt;
 	try { return json(data); } catch (e) { return dflt; }
 }
@@ -27,7 +28,7 @@ return {
 		/* current health + chart history */
 		status: {
 			call: function() {
-				let st = read_json('state.json', null);
+				let st = read_json('state.json', null, VARDIR);
 				return {
 					enabled: is_enabled(),
 					running: service_running(),
@@ -72,9 +73,35 @@ return {
 		/* ask the collector to wipe events, history and CSV on its next tick */
 		clear: {
 			call: function() {
-				mkdir(RUNDIR);
-				writefile(`${RUNDIR}/clear`, '1');
+				mkdir(VARDIR);
+				writefile(`${VARDIR}/clear`, '1');
 				return { result: true };
+			}
+		},
+
+		/* "problem now" report from the user; logged on the collector's next tick
+		 * with the time of the click */
+		mark: {
+			args: { what: '', note: '' },
+			call: function(req) {
+				let what = `${req.args.what ?? ''}`;
+				if (!match(what, /^[a-z_]{1,20}$/)) what = 'other';
+				let note = substr(`${req.args.note ?? ''}`, 0, 200);
+				mkdir(VARDIR);
+				let f = open(`${VARDIR}/marks.pending`, 'a');
+				if (!f) return { result: false };
+				f.write(sprintf('%J\n', { ts: time(), what, note }));
+				f.close();
+				return { result: true, running: service_running() };
+			}
+		},
+
+		/* send a test push notification (on the collector's next tick) */
+		test_notify: {
+			call: function() {
+				mkdir(VARDIR);
+				writefile(`${VARDIR}/notify_test`, '1');
+				return { result: true, running: service_running() };
 			}
 		}
 	}
