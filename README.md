@@ -99,7 +99,22 @@ Switch the TV on and check that the overview shows a few Mbit/s. Then set *strea
 
 ## Install
 
+Nothing is compiled, neither on the router nor in the SDK. The LuCI views (`.js`) run in your browser. The collector and the rpcd backend (`.uc`) are interpreted by `ucode` on the router. The package is `PKGARCH:=all`, so one build works on every OpenWrt 24.10 device.
+
+Two ways to install:
+
+| | Package (SDK) | Copy files (scp) |
+|---|---|---|
+| Dependencies | installed automatically | install by hand |
+| Upgrade / uninstall | `opkg upgrade` / `opkg remove` | by hand |
+| `/etc/config/isp_tester` kept on upgrade | yes | no (overwritten) |
+| Polish translation | yes (`luci-i18n-isp-tester-pl`) | no |
+
+Use the package for normal use and the file copy for quick tests during development.
+
 ### Build with the SDK / buildroot
+
+The SDK build only packs the files into an `.ipk`/`.apk` and turns the `.po` translations into `.lmo`.
 
 ```sh
 # in the OpenWrt 24.10 SDK
@@ -108,19 +123,36 @@ git clone https://github.com/matt400/luci-app-isp-tester package/luci-app-isp-te
 make package/luci-app-isp-tester/compile V=s
 ```
 
-Copy the resulting package to the router and install it with `opkg install` / `apk add --allow-untrusted`.
+The packages end up in `bin/packages/<arch>/base/`: `luci-app-isp-tester_*.ipk` and, optionally, `luci-i18n-isp-tester-pl_*.ipk`. Copy them to the router and install them:
+
+```sh
+scp -O bin/packages/*/base/luci-*isp-tester*.ipk root@192.168.1.1:/tmp/
+ssh root@192.168.1.1 'opkg update && opkg install /tmp/luci-*isp-tester*.ipk'
+```
+
+On OpenWrt versions that use `apk` instead of `opkg`, install with `apk add --allow-untrusted /tmp/luci-*isp-tester*.apk`.
 
 ### Quick test without building (copy files)
 
+Run these from the repository root on your PC. Only the `ssh` lines run commands on the router.
+
 ```sh
 ROUTER=root@192.168.1.1
-opkg update && opkg install ucode-mod-fs ucode-mod-uloop ucode-mod-uci ucode-mod-ubus rpcd-mod-ucode   # on the router
+
+# 1. dependencies (on the router)
+ssh $ROUTER 'opkg update && opkg install ucode-mod-fs ucode-mod-uloop ucode-mod-uci ucode-mod-ubus rpcd-mod-ucode'
+
+# 2. backend, config, init script, menu, ACL
 scp -O -r root/* $ROUTER:/
-scp -O -r htdocs/luci-static/resources/view/isp-tester $ROUTER:/www/luci-static/resources/view/
+
+# 3. LuCI views and the shared diagnose module (both directories are required)
+scp -O -r htdocs/luci-static/resources/* $ROUTER:/www/luci-static/resources/
+
+# 4. enable and start the collector, reload rpcd, clear the LuCI cache
 ssh $ROUTER 'chmod +x /etc/init.d/isp_tester && sh /etc/uci-defaults/80_luci-isp-tester'
 ```
 
-Translations are only installed by the package build.
+Step 2 overwrites `/etc/config/isp_tester` with the defaults, so back up your settings before you copy again. This method installs no translations (the UI stays in English) and no package entry, so remove it by deleting the copied files.
 
 ## Command line
 
