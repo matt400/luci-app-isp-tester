@@ -207,6 +207,10 @@ function reasonText(r) {
 	case 'conntrack_full':  return _('Connection table %d%% full').format(r.pct);
 	case 'stream_stalled':  return _('Stream stopped %s ago').format(fmtDur(Date.now() / 1000 - r.since));
 	case 'stream_dip':      return _('Bitrate is much lower than usual');
+	case 'vlan_vlan_not_found': return _('VLAN %d is not on any bridge port – check the VLAN number in Settings.').format(r.vlan);
+	case 'vlan_no_bridge_tool': return _('The bridge command is missing: install ip-bridge.');
+	case 'vlan_bridge_failed':
+	case 'vlan_no_stats':   return _('Cannot read the counters of VLAN %d from the bridge.').format(r.vlan);
 	default:                return r.c;
 	}
 }
@@ -285,6 +289,16 @@ function logText(k) {
 	case 'dns_limit':      return _('DNS server overloaded (query limit)');
 	default:               return _('System log');
 	}
+}
+
+/* "lan1: 239.0.0.1, 239.0.0.2 · lan2: …" – one entry per decoder port */
+function groupsByPort(mdb) {
+	var by = {}, order = [];
+	mdb.forEach(function(m) {
+		if (!by[m.port]) { by[m.port] = []; order.push(m.port); }
+		if (by[m.port].indexOf(m.grp) < 0) by[m.port].push(m.grp);
+	});
+	return order.sort().map(function(p) { return p + ': ' + by[p].join(', '); }).join(' · ');
 }
 
 function igmpNote(ig) {
@@ -780,7 +794,7 @@ return view.extend({
 	renderIptv: function(st) {
 		var t = st.iptv;
 		if (!t)
-			return this.disabledCard(_('IPTV'), _('Set the IPTV device in Settings.'));
+			return this.disabledCard(_('IPTV'), _('Set the IPTV VLAN (or device) in Settings.'));
 
 		var stateText = {
 			playing: _('Stream running'),
@@ -788,12 +802,18 @@ return view.extend({
 			idle: _('No stream (decoder off?)')
 		}[t.state] || t.state;
 
-		var kv = [
-			E('span', { 'class': 'k' }, _('Device')), E('span', {}, '%s (%s)'.format(t.device, t.direction === 'tx' ? _('outgoing') : _('incoming'))),
+		var v = t.vlan;
+		var kv = v ? [
+			E('span', { 'class': 'k' }, _('Measured on')), E('span', {}, _('VLAN %d on %s').format(v.id, v.bridge || '?')),
+			E('span', { 'class': 'k' }, _('Ports')), E('span', {}, (v.upstream ? v.upstream + ' (' + _('ISP') + ') → ' : '') +
+				(v.ports || []).filter(function(p) { return p !== v.upstream; }).join(', '))
+		] : [
+			E('span', { 'class': 'k' }, _('Device')), E('span', {}, '%s (%s)'.format(t.device, t.direction === 'tx' ? _('outgoing') : _('incoming')))
+		];
+		kv.push(
 			E('span', { 'class': 'k' }, _('State')), E('span', {}, stateText + ' · ' + _('for %s').format(fmtDur(Date.now() / 1000 - t.since))),
 			E('span', { 'class': 'k' }, _('Usual bitrate')), E('span', {}, t.avg ? fmtRate(t.avg) : '–'),
-			E('span', { 'class': 'k' }, _('Packets/s')), E('span', {}, t.pps != null ? String(t.pps) : '–')
-		];
+			E('span', { 'class': 'k' }, _('Packets/s')), E('span', {}, t.pps != null ? String(t.pps) : '–'));
 
 		if (t.bridge) {
 			kv.push(E('span', { 'class': 'k' }, _('IGMP snooping (%s)').format(t.bridge.name)),
@@ -807,12 +827,12 @@ return view.extend({
 				_('membership %d s, query %d s').format(t.bridge.membership_interval, t.bridge.query_interval || 0)));
 		if (t.bridge && t.bridge.mdb)
 			kv.push(E('span', { 'class': 'k' }, _('Bridge groups')), E('span', { 'class': 'ispt-groups' },
-				t.bridge.mdb.length ? t.bridge.mdb.map(function(m) { return m.grp + ' → ' + m.port; }).join(', ') : _('none')));
+				t.bridge.mdb.length ? groupsByPort(t.bridge.mdb) : _('none')));
 		if (t.igmp) {
 			var ig = t.igmp;
-			kv.push(E('span', { 'class': 'k' }, _('Multicast proxy')), E('span', {},
+			if (!v || ig.proxy_seen) kv.push(E('span', { 'class': 'k' }, _('Multicast proxy')), E('span', {},
 				ig.proxy_running ? [ dot('ok'), ig.proxy ] : ig.proxy_seen ? [ dot('fail'), _('%s not running').format(ig.proxy) ] : _('none found')));
-			if (ig.dev)
+			if (ig.dev && !v)
 				kv.push(E('span', { 'class': 'k' }, _('Channels joined (%s)').format(ig.dev)), E('span', { 'class': 'ispt-groups' },
 					!ig.found ? _('device not in IGMP table') :
 					(ig.groups && ig.groups.length ? ig.groups.join(', ') : _('none')) + (ig.version ? ' · IGMP' + ig.version.replace('V', 'v') : '') +
@@ -1029,7 +1049,7 @@ return view.extend({
 			row(_('WAN interface / device'), (st.wan ? st.wan.interface + ' / ' + st.wan.device : '–')) +
 			(st.wan && st.wan.session ? row(_('Session'), (st.wan.session.proto || '') + ' · ' + (st.wan.session.ip || '')) : '') +
 			row(_('Ping targets'), targets || '–') +
-			(st.iptv ? row(_('IPTV measured on'), st.iptv.device + ' (' + (st.iptv.direction === 'tx' ? _('outgoing') : _('incoming')) + ')') : '') +
+			(st.iptv ? row(_('IPTV measured on'), st.iptv.vlan ? _('VLAN %d on %s').format(st.iptv.vlan.id, st.iptv.vlan.bridge || '?') : st.iptv.device + ' (' + (st.iptv.direction === 'tx' ? _('outgoing') : _('incoming')) + ')') : '') +
 			'</table><h2>' + x(_('Summary')) + '</h2><table>' +
 			row(_('Internet outages'), _('%d, total %s, longest %s').format(net.n, fmtDur(net.total), fmtDur(net.longest))) +
 			row(_('Packet loss at the ISP gateway'), _('%d×').format(count(function(e) { return e.src === 'gateway' && (e.type === 'target_degraded' || e.type === 'target_fail') && e.d && e.d.loss > 0; }))) +

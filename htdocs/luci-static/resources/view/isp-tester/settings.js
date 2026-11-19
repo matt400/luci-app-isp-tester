@@ -104,62 +104,78 @@ return view.extend({
 		o.placeholder = '0';
 
 		/* ---- IPTV */
-		s = m.section(form.NamedSection, 'iptv', 'iptv', _('IPTV'));
+		s = m.section(form.NamedSection, 'iptv', 'iptv', _('IPTV'),
+			_('Usually it is enough to enter the IPTV VLAN of your ISP. The bridge, the port towards the ISP and the decoder ports are then found automatically.'));
+		s.tab('basic', _('Basic'));
+		s.tab('advanced', _('Advanced'));
 
-		o = s.option(form.Flag, 'enabled', _('Monitor IPTV'));
+		o = s.taboption('basic', form.Flag, 'enabled', _('Monitor IPTV'));
 		o.default = '1';
 		o.rmempty = false;
 
-		o = s.option(widgets.DeviceSelect, 'device', _('IPTV device'),
-			_('A device that carries only IPTV traffic: the IPTV VLAN (e.g. <code>eth1.236</code>) or the port the decoder is connected to. Watch TV and check that the bitrate on the overview matches.'));
+		o = s.taboption('basic', form.Value, 'vlan', _('IPTV VLAN'),
+			_('VLAN number of the IPTV service (e.g. <code>236</code>). For a VLAN that is only bridged to the decoders – no <code>eth1.236</code> or <code>br-lan.236</code> device on the router – the bitrate is read from the bridge\'s per-VLAN counters (they are switched on automatically) and the channels from the bridge\'s multicast table, separately for each decoder port. Leave empty to choose a device under “Advanced”.'));
+		o.datatype = 'range(1,4094)';
+		o.placeholder = '236';
+		o.optional = true;
+
+		o = s.taboption('advanced', widgets.DeviceSelect, 'upstream', _('Port towards the ISP'),
+			_('VLAN mode only. Empty = detected (the bridge port of the VLAN that is not a switch or Wi-Fi port, e.g. <code>eth1</code>).'));
 		o.noaliases = true;
 		o.optional = true;
 
-		o = s.option(form.ListValue, 'direction', _('Measure'));
+		o = s.taboption('advanced', widgets.DeviceSelect, 'device', _('IPTV device'),
+			_('Only when no VLAN is set: a device that carries only IPTV traffic (e.g. <code>eth1.236</code>) or the port the decoder is connected to. Watch TV and check that the bitrate on the overview matches.'));
+		o.noaliases = true;
+		o.optional = true;
+		o.depends('vlan', '');
+
+		o = s.taboption('advanced', form.ListValue, 'direction', _('Measure'));
 		o.value('rx', _('Incoming traffic (VLAN from the ISP)'));
 		o.value('tx', _('Outgoing traffic (port towards the decoder)'));
 		o.default = 'rx';
+		o.depends('vlan', '');
 
-		o = s.option(widgets.DeviceSelect, 'bridge', _('Bridge for IGMP status'),
-			_('Optional. Shows whether IGMP snooping and the querier are active on this bridge.'));
+		o = s.taboption('advanced', widgets.DeviceSelect, 'bridge', _('Bridge for IGMP status'),
+			_('Shows whether IGMP snooping and the querier are active on this bridge. In VLAN mode it is detected automatically.'));
 		o.noaliases = true;
 		o.optional = true;
 
-		o = s.option(form.Value, 'min_kbps', _('Stream threshold (kbit/s)'),
+		o = s.taboption('basic', form.Value, 'min_kbps', _('Stream threshold (kbit/s)'),
 			_('Below this the stream counts as stopped. An HD channel usually uses 4000–12000 kbit/s.'));
 		o.datatype = 'uinteger';
 		o.placeholder = '500';
 
-		o = s.option(form.Value, 'sample_interval', _('IPTV sampling interval (s)'),
+		o = s.taboption('advanced', form.Value, 'sample_interval', _('IPTV sampling interval (s)'),
 			_('How often the IPTV bitrate is measured, independent of the main interval. 1 s catches freezes of a few seconds; 0 measures only once per main interval.'));
 		o.datatype = 'or(0,range(0.5,10))';
 		o.placeholder = '1';
 
-		o = s.option(form.Value, 'stall_after', _('Freeze after (s)'),
+		o = s.taboption('basic', form.Value, 'stall_after', _('Freeze after (s)'),
 			_('How long the bitrate must stay below the threshold to log a freeze. 2 s ignores single short gaps the decoder buffer hides.'));
 		o.datatype = 'range(0,60)';
 		o.placeholder = '2';
 
-		o = s.option(form.Value, 'idle_after', _('Decoder off after (s)'),
+		o = s.taboption('advanced', form.Value, 'idle_after', _('Decoder off after (s)'),
 			_('If the stream does not come back within this time, it is logged as “ended” instead of an ongoing outage.'));
 		o.datatype = 'range(5,3600)';
 		o.placeholder = '60';
 
-		o = s.option(form.Value, 'dip_pct', _('Bitrate dip warning (%)'),
+		o = s.taboption('advanced', form.Value, 'dip_pct', _('Bitrate dip warning (%)'),
 			_('Warn when the bitrate falls below this percentage of its usual value. 0 disables.'));
 		o.datatype = 'range(0,100)';
 		o.placeholder = '40';
 
-		o = s.option(form.Flag, 'igmp', _('Watch IGMP'),
+		o = s.taboption('basic', form.Flag, 'igmp', _('Watch IGMP'),
 			_('Tracks which multicast groups (channels) are joined and whether the multicast proxy (igmpproxy, mcproxy) is running. This tells a channel change from a freeze, and an IGMP timeout from the ISP not sending.'));
 		o.default = '1';
 		o.rmempty = false;
 
-		o = s.option(widgets.DeviceSelect, 'igmp_device', _('IGMP upstream device'),
+		o = s.taboption('advanced', widgets.DeviceSelect, 'igmp_device', _('IGMP upstream device'),
 			_('Where the proxy joins the groups (its upstream, usually the IPTV VLAN). Empty = the IPTV device when measuring incoming traffic.'));
 		o.noaliases = true;
 		o.optional = true;
-		o.depends('igmp', '1');
+		o.depends({ igmp: '1', vlan: '' });
 
 		/* ---- router load */
 		s = m.section(form.NamedSection, 'system', 'system', _('Router load'),

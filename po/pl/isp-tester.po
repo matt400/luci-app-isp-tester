@@ -445,8 +445,6 @@ msgstr "Jitter"
 msgid "Waiting for ping results…"
 msgstr "Czekam na wyniki pingu…"
 
-msgid "Set the IPTV device in Settings."
-msgstr "Ustaw urządzenie IPTV w Ustawieniach."
 
 msgid "Stream running"
 msgstr "Strumień działa"
@@ -853,8 +851,6 @@ msgstr "Monitoruj IPTV"
 msgid "IPTV device"
 msgstr "Urządzenie IPTV"
 
-msgid "A device that carries only IPTV traffic: the IPTV VLAN (e.g. <code>eth1.236</code>) or the port the decoder is connected to. Watch TV and check that the bitrate on the overview matches."
-msgstr "Urządzenie, przez które idzie tylko ruch IPTV: VLAN IPTV (np. <code>eth1.236</code>) albo port, do którego podłączony jest dekoder. Włącz TV i sprawdź, czy bitrate na przeglądzie się zgadza."
 
 msgid "Measure"
 msgstr "Mierz"
@@ -868,8 +864,6 @@ msgstr "Ruch wychodzący (port do dekodera)"
 msgid "Bridge for IGMP status"
 msgstr "Most do statusu IGMP"
 
-msgid "Optional. Shows whether IGMP snooping and the querier are active on this bridge."
-msgstr "Opcjonalne. Pokazuje, czy IGMP snooping i querier są aktywne na tym moście."
 
 msgid "Stream threshold (kbit/s)"
 msgstr "Próg strumienia (kbit/s)"
@@ -1182,3 +1176,48 @@ msgstr "Przegląd"
 
 msgid "Settings"
 msgstr "Ustawienia"
+
+msgid "Usually it is enough to enter the IPTV VLAN of your ISP. The bridge, the port towards the ISP and the decoder ports are then found automatically."
+msgstr "Zwykle wystarczy wpisać VLAN IPTV operatora. Mostek, port w stronę operatora i porty dekoderów zostaną wykryte automatycznie."
+
+msgid "Basic"
+msgstr "Podstawowe"
+
+msgid "Advanced"
+msgstr "Zaawansowane"
+
+msgid "IPTV VLAN"
+msgstr "VLAN IPTV"
+
+msgid "VLAN number of the IPTV service (e.g. <code>236</code>). For a VLAN that is only bridged to the decoders – no <code>eth1.236</code> or <code>br-lan.236</code> device on the router – the bitrate is read from the bridge's per-VLAN counters (they are switched on automatically) and the channels from the bridge's multicast table, separately for each decoder port. Leave empty to choose a device under “Advanced”."
+msgstr "Numer VLAN usługi IPTV (np. <code>236</code>). Gdy VLAN jest tylko przemostkowany do dekoderów – na routerze nie ma urządzenia <code>eth1.236</code> ani <code>br-lan.236</code> – bitrate jest odczytywany z liczników VLAN mostka (włączanych automatycznie), a kanały z tablicy multicast mostka, osobno dla każdego portu dekodera. Puste = wybór urządzenia w „Zaawansowane”."
+
+msgid "Port towards the ISP"
+msgstr "Port w stronę operatora"
+
+msgid "VLAN mode only. Empty = detected (the bridge port of the VLAN that is not a switch or Wi-Fi port, e.g. <code>eth1</code>)."
+msgstr "Tylko w trybie VLAN. Puste = wykryj (port mostka w tym VLAN, który nie jest portem switcha ani Wi-Fi, np. <code>eth1</code>)."
+
+msgid "Only when no VLAN is set: a device that carries only IPTV traffic (e.g. <code>eth1.236</code>) or the port the decoder is connected to. Watch TV and check that the bitrate on the overview matches."
+msgstr "Tylko gdy VLAN nie jest ustawiony: urządzenie, przez które idzie wyłącznie IPTV (np. <code>eth1.236</code>), albo port, do którego podłączony jest dekoder. Włącz telewizję i sprawdź, czy bitrate w przeglądzie się zgadza."
+
+msgid "Shows whether IGMP snooping and the querier are active on this bridge. In VLAN mode it is detected automatically."
+msgstr "Pokazuje, czy na tym mostku działa IGMP snooping i querier. W trybie VLAN wykrywany automatycznie."
+
+msgid "VLAN %d is not on any bridge port – check the VLAN number in Settings."
+msgstr "VLAN %d nie jest na żadnym porcie mostka – sprawdź numer VLAN w ustawieniach."
+
+msgid "The bridge command is missing: install ip-bridge."
+msgstr "Brak polecenia bridge: zainstaluj ip-bridge."
+
+msgid "Cannot read the counters of VLAN %d from the bridge."
+msgstr "Nie można odczytać liczników VLAN %d z mostka."
+
+msgid "Set the IPTV VLAN (or device) in Settings."
+msgstr "Ustaw VLAN IPTV (lub urządzenie) w ustawieniach."
+
+msgid "Measured on"
+msgstr "Pomiar na"
+
+msgid "VLAN %d on %s"
+msgstr "VLAN %d na %s"

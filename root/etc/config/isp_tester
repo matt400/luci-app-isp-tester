@@ -39,7 +39,14 @@ config wan 'wan'
 
 config iptv 'iptv'
 	option enabled '1'
-	# device that carries ONLY IPTV traffic, e.g. eth1.236 or the decoder's port
+	# IPTV VLAN number (e.g. 236). Enough when the VLAN is only bridged to the
+	# decoders: bitrate from the bridge's per-VLAN counters, channels from the
+	# bridge's multicast table, ports detected. Empty = use 'device' below.
+	option vlan ''
+	# VLAN mode: port towards the ISP; empty = detected (e.g. eth1)
+	option upstream ''
+	# without vlan: device that carries ONLY IPTV traffic, e.g. eth1.236 or the
+	# decoder's port
 	option device ''
 	# rx = traffic arriving on the device, tx = traffic leaving it (decoder port)
 	option direction 'rx'

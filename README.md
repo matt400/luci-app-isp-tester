@@ -33,7 +33,7 @@ Target: **OpenWrt 24.10 and 25.12** (ucode + rpcd + LuCI JS). No compiled code, 
 | **Internet** | Ping results of **collectd** (luci-app-statistics, Ping plugin): loss, latency and jitter per host. The host netifd reports as gateway is marked as the ISP gateway | packet loss, high latency, high jitter (optional), host not responding, *Internet down* (no host responds), recovery with duration |
 | **WAN session** | netifd status of the WAN interface | interface down/up (PPPoE/DHCP session lost), session restarted between two checks, WAN address changed |
 | **System log** | `logread`: pppd, udhcpc, igmpproxy/mcproxy, kernel, dnsmasq | LCP echo timeouts, PPPoE discovery/authentication failures, DHCP lease lost, proxy errors, network driver hang, connection table full, out of memory, DNS query limit |
-| **IPTV** | Bitrate on a device that carries only IPTV traffic (e.g. the IPTV VLAN `eth1.236`, or the decoder's port measured outgoing) | stream started, **stream stopped**, stream resumed after *N s* (with what IGMP did meanwhile), stream lost (decoder off or long outage), bitrate dip |
+| **IPTV** | Bitrate of the IPTV VLAN (bridge per-VLAN counters), or of a device that carries only IPTV traffic (e.g. `eth1.236`, or the decoder's port measured outgoing) | stream started, **stream stopped**, stream resumed after *N s* (with what IGMP did meanwhile), stream lost (decoder off or long outage), bitrate dip |
 | **IGMP** | Joined groups on the proxy's upstream (`/proc/net/igmp`), multicast proxy process (igmpproxy, mcproxy, omcproxy), bridge MDB and IGMP timers | proxy stopped / restarted; every freeze is tagged as *channel change*, *membership dropped* or *still subscribed* |
 | **Ports** | `/sys/class/net/<dev>` counters and link state | link down/up, link flapping between samples, speed change (e.g. 1 Gbit → 100 Mbit), RX/TX/CRC errors, drops |
 | **Router** | `/proc`: CPU per core (incl. softirq), RAM, connection tracking table. Only read to explain problems; for graphs use *Status → Realtime Graphs* or luci-app-statistics | router overloaded, low RAM, connection table full |
@@ -67,7 +67,7 @@ Gateway vs. far-target loss helps pinpoint the cause. Loss to the gateway points
 - **Report for the ISP**: a printable summary of the selected period (outages, freezes with total/longest duration, session drops, verdict, problems by hour, event log). Print it or save it as PDF and attach it to your complaint.
 - Export buttons: measurements CSV (one row per interval) and timeline CSV.
 
-**Status → ISP Tester → Settings** holds all thresholds, the IPTV device and the list of ports. The ping hosts are set in collectd (luci-app-statistics).
+**Status → ISP Tester → Settings** holds all thresholds, the IPTV VLAN (or device) and the list of ports. The ping hosts are set in collectd (luci-app-statistics).
 
 The UI is in English and Polish.
 
@@ -119,14 +119,21 @@ To keep it across reboots, mount a USB stick (*System → Mount Points*) and set
 | `samples.csv` | one row per interval (ring buffer, default 8640 rows = 24 h at 10 s) |
 | `samples.prev.csv` | previous CSV after the column layout changed (config change) |
 
-## Choosing the IPTV device
+## Choosing what to measure IPTV on
 
-The bitrate has to be measured where **only IPTV** flows:
+**Simplest: enter the IPTV VLAN** (Settings → IPTV → *IPTV VLAN*, e.g. `236`). This is meant for the common setup where the ISP's IPTV VLAN is only bridged to the decoders (they get their address from the ISP) and the router has no `eth1.236` / `br-lan.236` device:
 
-- **VLAN subinterface** from the ISP (e.g. `eth1.236`). Use *direction: incoming*. This is the best choice if it exists.
+- the bridge, the port towards the ISP (e.g. `eth1`) and the decoder ports (e.g. `lan1`, `lan2`) are found from `bridge vlan show`;
+- the bitrate comes from the bridge's per-VLAN counters (`bridge -s vlan show vid 236`). The kernel keeps them off by default, so the collector switches them on (`vlan_stats_enabled=1`, same as `ip link set br-lan type bridge vlan_stats_enabled 1`);
+- the channels come from the bridge's multicast table (`bridge mdb`), shown per port, i.e. per decoder;
+- link drops and errors of the ISP port count for the IPTV card.
+
+One router is enough: decoders behind a second router/AP that only bridges the VLAN are seen through the port that leads to it (their IGMP joins pass through when snooping is off there). Only errors on the last cable behind that router are not visible.
+
+Without a VLAN (under *Advanced*) you choose a device where **only IPTV** flows:
+
+- **VLAN subinterface** from the ISP (e.g. `eth1.236`). Use *direction: incoming*.
 - **Port towards the decoder**. Use *direction: outgoing*. This only works if nothing else uses that port.
-
-If the IPTV VLAN is bridged by hardware (DSA bridge VLAN filtering), multicast forwarded between bridge ports never reaches the bridge device's own counters. In that case, pick the decoder's port.
 
 Switch the TV on and check that the overview shows a few Mbit/s. Then set *stream threshold* below the lowest normal bitrate (default 500 kbit/s).
 
