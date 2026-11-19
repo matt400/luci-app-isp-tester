@@ -13,7 +13,10 @@
  *   - router load: /proc (only to explain problems, no graphs)
  *   - system log (logread): pppd, udhcpc, igmpproxy, kernel, dnsmasq messages
  * The IPTV bitrate is the one own measurement: read from the interface
- * counters every second, which nothing in OpenWrt does.
+ * counters every second, which nothing in OpenWrt does. When the IPTV VLAN
+ * is only bridged (no eth1.236 / br-lan.236 device on the router), it is read
+ * from the bridge's per-VLAN counters instead (`bridge -s vlan`), and the
+ * channels from the bridge's multicast database (`bridge mdb`).
  *
  * It turns state changes into events:
  *   <RUNDIR>/events.json   - event timeline (ring buffer)
@@ -127,7 +130,7 @@ function default_config() {
 			collectd_socket: '', rrd_dir: ''
 		},
 		iptv: {
-			enabled: true, device: '', direction: 'rx', bridge: '',
+			enabled: true, vlan: 0, upstream: '', device: '', direction: 'rx', bridge: '',
 			min_kbps: 500, idle_after: 60, dip_pct: 40,
 			sample_interval: 1, stall_after: 2,
 			igmp: true, igmp_device: ''
@@ -215,6 +218,8 @@ function load_config() {
 		c.wan.rtt_warn  = num(w.rtt_warn, c.wan.rtt_warn);
 
 		c.iptv.enabled    = bool(t.enabled, true);
+		c.iptv.vlan       = num(t.vlan, 0);
+		c.iptv.upstream   = t.upstream ?? '';
 		c.iptv.device     = t.device ?? '';
 		c.iptv.direction  = (t.direction == 'tx') ? 'tx' : 'rx';
 		c.iptv.bridge     = t.bridge ?? '';
@@ -241,6 +246,17 @@ function load_config() {
 	if (c.wan.device && !valid_dev(c.wan.device)) c.wan.device = '';
 	if (c.iptv.device && !valid_dev(c.iptv.device)) c.iptv.device = '';
 	if (c.iptv.bridge && !valid_dev(c.iptv.bridge)) c.iptv.bridge = '';
+	if (c.iptv.upstream && !valid_dev(c.iptv.upstream)) c.iptv.upstream = '';
+	c.iptv.vlan = int(c.iptv.vlan);
+	if (c.iptv.vlan < 1 || c.iptv.vlan > 4094) c.iptv.vlan = 0;
+	/* VLAN mode: the VLAN number replaces the device; the counters come from
+	 * the bridge, read on the fast timer only */
+	if (c.iptv.vlan) {
+		c.iptv.device = '';
+		c.iptv.direction = 'rx';
+		c.iptv.igmp_device = '';
+		if (!(c.iptv.sample_interval > 0)) c.iptv.sample_interval = 1;
+	}
 	/* 0 (or >= interval) = sample IPTV only on the main tick, like before */
 	if (c.iptv.sample_interval < 0) c.iptv.sample_interval = 0;
 	if (c.iptv.sample_interval > 0 && c.iptv.sample_interval < 0.5) c.iptv.sample_interval = 0.5;
@@ -277,6 +293,8 @@ let csv_header = null;
 let last_mono = null;
 let started = now();
 let wansess = { up: null, uptime: null, seen: null, ip: null, since: now(), reconnects: 0 };
+/* bridged IPTV VLAN (see vlan_sample) */
+let vl = { bridge: null, upstream: null, ports: [], stats: null, mdb: null, error: null, cnt: null };
 let igmp = { groups: null, hist: [], proxy: null, proxy_seen: false, proxy_since: now() };
 let sys = { prev: null, cpu_n: 0, cpu: false, mem: false, ct: false, cpu_since: 0, mem_since: 0, ct_since: 0 };
 let notif = { pending: [], last: 0, busy: false, last_ok: null, last_fail: null, last_err: null };
@@ -573,6 +591,13 @@ function monitored_devices() {
 		add(cfg.wan.device, 'wan', 'WAN', true);
 	if (cfg.iptv.enabled)
 		add(cfg.iptv.device, 'iptv', 'IPTV', true);
+	if (cfg.iptv.enabled && cfg.iptv.vlan) {
+		/* the bridge ports of the IPTV VLAN: upstream must be up, the
+		 * decoder-side ports are reported but may be unplugged */
+		add(vl.upstream, 'iptv', sprintf('IPTV %d (ISP)', cfg.iptv.vlan), true);
+		for (let p in vl.ports)
+			if (p != vl.upstream) add(p, 'iptv', sprintf('IPTV %d', cfg.iptv.vlan), false);
+	}
 
 	return list;
 }
@@ -977,8 +1002,20 @@ function igmp_groups(dev) {
 }
 
 function igmp_poll() {
-	if (!cfg.iptv.enabled || !cfg.iptv.igmp || !cfg.iptv.igmp_dev) return;
-	let g = igmp_groups(cfg.iptv.igmp_dev);
+	if (!cfg.iptv.enabled || !cfg.iptv.igmp) return;
+	let g;
+	if (cfg.iptv.vlan) {
+		/* bridged VLAN: the channels are the groups the bridge forwards on it */
+		if (vl.mdb == null) return;
+		let seen = {};
+		g = { found: true, ver: null, groups: [] };
+		for (let e in vl.mdb)
+			if (!seen[e.grp]) { seen[e.grp] = true; push(g.groups, e.grp); }
+	}
+	else {
+		if (!cfg.iptv.igmp_dev) return;
+		g = igmp_groups(cfg.iptv.igmp_dev);
+	}
 	if (!g) return;
 
 	igmp.found = g.found;
@@ -1000,7 +1037,7 @@ function igmp_poll() {
  *   joined - subscribed the whole time: the data just stopped coming
  */
 function igmp_classify(from) {
-	if (!cfg.iptv.igmp || !cfg.iptv.igmp_dev || igmp.groups == null) return null;
+	if (!cfg.iptv.igmp || !(cfg.iptv.igmp_dev || cfg.iptv.vlan) || igmp.groups == null) return null;
 	/* the group change that causes a freeze comes within a sample or two of it */
 	let rel = filter(igmp.hist, (h) => h.ts >= from - 3);
 	if (!length(rel))
@@ -1058,7 +1095,7 @@ function bridge_mdb(br) {
 	for (let blk in (type(j) == 'array' ? j : []))
 		for (let e in (blk?.mdb ?? [])) {
 			if (!e?.grp || match(e.grp, /^(224\.0\.0\.|ff0[0-9a-f]:)/)) continue;
-			push(list, { grp: e.grp, port: e.port, state: e.state });
+			push(list, { grp: e.grp, port: e.port, state: e.state, vid: e.vid });
 		}
 	return list;
 }
@@ -1284,10 +1321,102 @@ function read_log() {
 		if (st.n > 0 && now() - st.last >= cfg.err_cooldown) log_emit(k);
 }
 
+/* ------------------------------------------------------------ IPTV VLAN */
+
+/*
+ * IPTV VLAN that is only bridged (eth1 -> br -> lan ports, the decoders get
+ * their address from the ISP): there is no network device carrying only IPTV,
+ * so the bitrate comes from the bridge's per-VLAN counters. The kernel keeps
+ * them off by default; they are switched on here (bridge vlan_stats_enabled,
+ * the same as `ip link set <br> type bridge vlan_stats_enabled 1`).
+ * Unless vlan_stats_per_port is on, all ports show the same, VLAN-wide
+ * counter: its RX is what entered the VLAN, i.e. the stream from the ISP.
+ */
+
+function base(path) {
+	let p = split(path ?? '', '/');
+	return p[length(p) - 1] || null;
+}
+
+/* the port the ISP is on: not a switch (DSA) port, not wireless */
+function is_uplink(p) {
+	return rd(p, 'ifindex') == rd(p, 'iflink') &&
+		!fs.stat(`${SYSNET}/${p}/wireless`) && !fs.stat(`${SYSNET}/${p}/phy80211`);
+}
+
+function bridge_json(args) {
+	let f = fs.popen(`${BRIDGE} -j ${args} 2>/dev/null`, 'r');
+	if (!f) return null;
+	let out = f.read('all');
+	f.close();
+	let j;
+	try { j = json(out || 'null'); } catch (e) { return null; }
+	return (type(j) == 'array') ? j : null;
+}
+
+function vlan_sample() {
+	let vid = cfg.iptv.vlan;
+	if (!BRIDGE) { vl.error = 'no_bridge_tool'; vl.cnt = null; return; }
+
+	let j = bridge_json(`-s vlan show vid ${vid}`);
+	if (j == null) { vl.error = 'bridge_failed'; vl.cnt = null; return; }
+
+	let ports = [], st = {};
+	for (let e in j) {
+		if (!valid_dev(e?.ifname)) continue;
+		for (let v in (e.vlans ?? [])) {
+			/* with -s the VLAN is "vid", without it "vlan" (+ "vlanEnd") */
+			let lo = v.vid ?? v.vlan, hi = v.vlanEnd ?? lo;
+			if (vid < lo || vid > hi) continue;
+			push(ports, e.ifname);
+			st[e.ifname] = v;
+		}
+	}
+
+	/* the bridge itself is listed when it is a member too (br.236 exists) */
+	let br = cfg.iptv.bridge || null;
+	if (!br)
+		for (let p in ports) {
+			let m = base(fs.readlink(`${SYSNET}/${p}/master`));
+			if (m) { br = m; break; }
+		}
+	vl.bridge = br;
+	vl.ports = filter(ports, (p) => p != br);
+	vl.upstream = cfg.iptv.upstream || filter(vl.ports, is_uplink)[0] || null;
+
+	if (!length(vl.ports)) { vl.error = 'vlan_not_found'; vl.cnt = null; return; }
+
+	if (br) {
+		let on = rd(br, 'bridge/vlan_stats_enabled');
+		if (on == '0') {
+			fs.writefile(`${SYSNET}/${br}/bridge/vlan_stats_enabled`, '1');
+			on = rd(br, 'bridge/vlan_stats_enabled');
+		}
+		vl.stats = on;
+	}
+
+	/* upstream port's RX (equals the VLAN-wide counter unless per-port) */
+	let s = vl.upstream ? st[vl.upstream] : null;
+	if (!s || s.rx_bytes == null)
+		for (let p in vl.ports)
+			if (st[p]?.rx_bytes != null && (!s || st[p].rx_bytes > s.rx_bytes)) s = st[p];
+
+	if (s?.rx_bytes == null) { vl.error = 'no_stats'; vl.cnt = null; }
+	else { vl.error = (vl.stats == '0') ? 'stats_off' : null; vl.cnt = { b: s.rx_bytes, p: s.rx_packets ?? 0 }; }
+
+	vl.mdb = (br && cfg.iptv.igmp)
+		? filter(bridge_mdb(br) ?? [], (e) => e.vid == null || e.vid == vid)
+		: null;
+}
+
 /* ------------------------------------------------------------------ IPTV */
 
+function iptv_on() {
+	return cfg.iptv.enabled && (cfg.iptv.device || cfg.iptv.vlan);
+}
+
 function iptv_fast() {
-	return cfg.iptv.enabled && cfg.iptv.device && cfg.iptv.sample_interval > 0;
+	return iptv_on() && cfg.iptv.sample_interval > 0;
 }
 
 function iptv_out(devres) {
@@ -1313,14 +1442,25 @@ function iptv_out(devres) {
 
 	let o = {
 		level, reasons, state: iptv.state, since: iptv.state == 'stalled' ? iptv.stall_since : iptv.since,
-		kbps: iptv.kbps, pps: iptv.pps, avg: round(iptv.avg, 0), device: cfg.iptv.device,
+		kbps: iptv.kbps, pps: iptv.pps, avg: round(iptv.avg, 0),
+		device: cfg.iptv.vlan ? sprintf('VLAN %d', cfg.iptv.vlan) : cfg.iptv.device,
 		direction: cfg.iptv.direction, min_kbps: cfg.iptv.min_kbps,
 		sample_interval: iptv_fast() ? cfg.iptv.sample_interval : cfg.interval,
 		min: iptv.tick?.min, stall_s: iptv.tick?.stall_s
 	};
 
-	if (cfg.iptv.bridge) {
-		let b = `${cfg.iptv.bridge}`;
+	if (cfg.iptv.vlan) {
+		o.vlan = { id: cfg.iptv.vlan, bridge: vl.bridge, upstream: vl.upstream, ports: vl.ports, error: vl.error };
+		if (vl.error && vl.error != 'stats_off') {
+			level = worst(level, 'warn');
+			push(reasons, { c: 'vlan_' + vl.error, vlan: cfg.iptv.vlan });
+			o.level = level;
+		}
+	}
+
+	let brname = cfg.iptv.bridge || (cfg.iptv.vlan ? vl.bridge : null);
+	if (brname) {
+		let b = `${brname}`;
 		let cs = (f) => { let v = num(rd(b, `bridge/${f}`), null); return (v == null) ? null : round(v / 100, 0); };
 		o.bridge = {
 			name: b,
@@ -1330,7 +1470,7 @@ function iptv_out(devres) {
 			/* kernel timers are in centiseconds */
 			membership_interval: cs('multicast_membership_interval'),
 			query_interval: cs('multicast_query_interval'),
-			mdb: bridge_mdb(b)
+			mdb: cfg.iptv.vlan ? vl.mdb : bridge_mdb(b)
 		};
 	}
 
@@ -1429,6 +1569,7 @@ function iptv_update(kbps, m, w, from_m, from_w) {
 }
 
 function iptv_counters() {
+	if (cfg.iptv.vlan) return vl.cnt;
 	let dev = cfg.iptv.device, tx = cfg.iptv.direction == 'tx';
 	if (!fs.stat(`${SYSNET}/${dev}`)) return null;
 	let b = num(rd(dev, `statistics/${tx ? 'tx' : 'rx'}_bytes`), null);
@@ -1438,6 +1579,7 @@ function iptv_counters() {
 
 /* fast sampler: one counter reading per sample_interval */
 function iptv_fast_sample() {
+	if (cfg.iptv.vlan) vlan_sample();
 	igmp_poll();
 	let c = iptv_counters(), m = mono(), w = now();
 	if (!c) {
@@ -1464,7 +1606,7 @@ function iptv_fast_sample() {
 
 /* called once per main tick: summary of the fast samples, dip detection */
 function sample_iptv(devres) {
-	if (!cfg.iptv.enabled || !cfg.iptv.device) return null;
+	if (!iptv_on()) return null;
 
 	let kbps = 0, pps = 0, ok = false;
 	let fast = iptv_fast();
@@ -1527,7 +1669,7 @@ function sample_iptv(devres) {
 function csv_columns(devs, tlist) {
 	let cols = [ 'time', 'overall' ];
 	for (let t in tlist) push(cols, `ping_${t.label}_loss`, `ping_${t.label}_rtt`, `ping_${t.label}_jitter`);
-	if (cfg.iptv.enabled && cfg.iptv.device) push(cols, 'iptv_state', 'iptv_kbps', 'iptv_min_kbps', 'iptv_stall_s', 'iptv_pps');
+	if (iptv_on()) push(cols, 'iptv_state', 'iptv_kbps', 'iptv_min_kbps', 'iptv_stall_s', 'iptv_pps');
 	for (let m in devs) push(cols, `${m.dev}_link`, `${m.dev}_speed`, `${m.dev}_err`, `${m.dev}_crc`, `${m.dev}_drop`, `${m.dev}_rx_kbps`, `${m.dev}_tx_kbps`);
 	return cols;
 }
@@ -1694,7 +1836,8 @@ function tick() {
 	}
 
 	/* ---- IPTV */
-	let iptv_res = sample_iptv(cfg.iptv.device ? res[cfg.iptv.device] : null);
+	let iptv_dev = cfg.iptv.vlan ? vl.upstream : cfg.iptv.device;
+	let iptv_res = sample_iptv(iptv_dev ? res[iptv_dev] : null);
 
 	/* ---- ports */
 	let ports = [];
@@ -1753,7 +1896,7 @@ function tick() {
 
 		let row = [ tstamp(t), overall ];
 		for (let x in tlist) push(row, x.t.res?.loss, x.t.res?.rtt, x.t.res?.jitter);
-		if (cfg.iptv.enabled && cfg.iptv.device) push(row, iptv_res?.state, iptv_res?.kbps, iptv_res?.min, iptv_res?.stall_s, iptv_res?.pps);
+		if (iptv_on()) push(row, iptv_res?.state, iptv_res?.kbps, iptv_res?.min, iptv_res?.stall_s, iptv_res?.pps);
 		for (let d in devs) {
 			let r = res[d.dev];
 			push(row, r.present ? (r.up ? 'up' : 'down') : 'missing', r.speed,

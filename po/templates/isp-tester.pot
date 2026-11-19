@@ -443,8 +443,6 @@ msgstr ""
 msgid "Waiting for ping results…"
 msgstr ""
 
-msgid "Set the IPTV device in Settings."
-msgstr ""
 
 msgid "Stream running"
 msgstr ""
@@ -851,8 +849,6 @@ msgstr ""
 msgid "IPTV device"
 msgstr ""
 
-msgid "A device that carries only IPTV traffic: the IPTV VLAN (e.g. <code>eth1.236</code>) or the port the decoder is connected to. Watch TV and check that the bitrate on the overview matches."
-msgstr ""
 
 msgid "Measure"
 msgstr ""
@@ -866,8 +862,6 @@ msgstr ""
 msgid "Bridge for IGMP status"
 msgstr ""
 
-msgid "Optional. Shows whether IGMP snooping and the querier are active on this bridge."
-msgstr ""
 
 msgid "Stream threshold (kbit/s)"
 msgstr ""
@@ -1179,4 +1173,49 @@ msgid "Overview"
 msgstr ""
 
 msgid "Settings"
+msgstr ""
+
+msgid "Usually it is enough to enter the IPTV VLAN of your ISP. The bridge, the port towards the ISP and the decoder ports are then found automatically."
+msgstr ""
+
+msgid "Basic"
+msgstr ""
+
+msgid "Advanced"
+msgstr ""
+
+msgid "IPTV VLAN"
+msgstr ""
+
+msgid "VLAN number of the IPTV service (e.g. <code>236</code>). For a VLAN that is only bridged to the decoders – no <code>eth1.236</code> or <code>br-lan.236</code> device on the router – the bitrate is read from the bridge's per-VLAN counters (they are switched on automatically) and the channels from the bridge's multicast table, separately for each decoder port. Leave empty to choose a device under “Advanced”."
+msgstr ""
+
+msgid "Port towards the ISP"
+msgstr ""
+
+msgid "VLAN mode only. Empty = detected (the bridge port of the VLAN that is not a switch or Wi-Fi port, e.g. <code>eth1</code>)."
+msgstr ""
+
+msgid "Only when no VLAN is set: a device that carries only IPTV traffic (e.g. <code>eth1.236</code>) or the port the decoder is connected to. Watch TV and check that the bitrate on the overview matches."
+msgstr ""
+
+msgid "Shows whether IGMP snooping and the querier are active on this bridge. In VLAN mode it is detected automatically."
+msgstr ""
+
+msgid "VLAN %d is not on any bridge port – check the VLAN number in Settings."
+msgstr ""
+
+msgid "The bridge command is missing: install ip-bridge."
+msgstr ""
+
+msgid "Cannot read the counters of VLAN %d from the bridge."
+msgstr ""
+
+msgid "Set the IPTV VLAN (or device) in Settings."
+msgstr ""
+
+msgid "Measured on"
+msgstr ""
+
+msgid "VLAN %d on %s"
 msgstr ""
