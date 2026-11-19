@@ -348,6 +348,11 @@ function sample_device(m, dt) {
 		out.level = 'fail';
 		out.reasons = [ { c: 'dev_missing', dev: m.dev } ];
 		ds.prev = null;
+		/* forget the link state, so a device that comes back with link down
+		 * is reported as such and "since" restarts */
+		ds.link = null;
+		ds.err_acc = null;
+		ds.drop_acc = null;
 		return out;
 	}
 
@@ -452,6 +457,7 @@ function default_gateway(dev) {
 	for (let line in split(data, '\n')) {
 		let f = split(trim(line), /\s+/);
 		if (length(f) < 4 || f[1] != '00000000' || f[0] == 'Iface') continue;
+		if (length(f) >= 8 && f[7] != '00000000') continue;     /* not a default route */
 		if (dev && f[0] != dev) continue;
 		let g = hex(f[2]);
 		if (!g) continue;
@@ -464,7 +470,8 @@ function default_gateway(dev) {
 function wan_targets() {
 	let list = [];
 	if (cfg.wan.ping_gateway) {
-		let gw = default_gateway(cfg.wan.device) ?? default_gateway(null);
+		/* PPPoE has no gateway in the routing table (0.0.0.0), use the peer from netifd */
+		let gw = default_gateway(cfg.wan.device) ?? cfg.wan.gw ?? default_gateway(null);
 		if (gw) push(list, { label: 'gateway', host: gw });
 	}
 	for (let t in cfg.wan.targets)
@@ -546,10 +553,12 @@ function start_pings() {
 	for (let i, tg in list) {
 		active[tg.label] = true;
 		let t = targets[tg.label] ??= { state: 'ok', since: now(), res: null, busy: false };
-		t.host = tg.host;
 		t.active = true;
-		t.file = `${RUNDIR}/ping.${i}`;
+		/* a running ping keeps its host and output file; the list order may change
+		 * (gateway appearing/disappearing), so never derive the file from the index */
 		if (t.busy) continue;
+		t.host = tg.host;
+		t.file = `${RUNDIR}/ping.${replace(tg.label, /[^A-Za-z0-9._-]/g, '_')}`;
 
 		let n = cfg.wan.count;
 		let cmd = sprintf('exec %s -q -c %d -W 1 -w %d %s > %s 2>&1', PING, n, n + 1, tg.host, t.file);
@@ -737,6 +746,12 @@ function refresh_wan_device() {
 		let dev = st?.l3_device ?? st?.device ?? '';
 		if (st?.up === false) return;      /* keep last known device while WAN is down */
 		if (valid_dev(dev)) cfg.wan.device = dev;
+
+		let gw = null;
+		for (let r in (st?.route ?? []))
+			if (r.target == '0.0.0.0' && r.mask == 0 && r.nexthop && r.nexthop != '0.0.0.0') { gw = r.nexthop; break; }
+		gw ??= st?.['ipv4-address']?.[0]?.ptpaddress;
+		cfg.wan.gw = valid_host(gw) ? gw : null;
 	}
 	catch (e) {
 		ubus_conn = null;
@@ -753,7 +768,10 @@ function handle_clear_request() {
 	agg = null;
 	fs.unlink(`${RUNDIR}/history.json`);
 	fs.unlink(`${RUNDIR}/samples.prev.csv`);
-	fs.writefile(`${RUNDIR}/samples.csv`, csv_header + '\n');
+	if (csv_header != null)
+		fs.writefile(`${RUNDIR}/samples.csv`, csv_header + '\n');
+	else
+		fs.unlink(`${RUNDIR}/samples.csv`);
 	csv_rows = 0;
 	emit('info', 'system', 'collector', 'cleared', {});
 }
