@@ -21,6 +21,23 @@ start_service() {
 	procd_close_instance
 }
 
+# keep the logs on persistent storage (USB) when the router is rebooted
+stop_service() {
+	config_load isp_tester
+	local dir
+	config_get dir general persist_dir
+	case "$dir" in
+		/tmp|/tmp/*|/var|/var/*|"") return 0 ;;
+	esac
+	[ -d "$dir" ] || return 0
+	mkdir -p "$dir/isp-tester" || return 0
+	for f in events.json history.json samples.csv; do
+		[ -f "/tmp/isp-tester/$f" ] || continue
+		cp "/tmp/isp-tester/$f" "$dir/isp-tester/$f.tmp" && mv "$dir/isp-tester/$f.tmp" "$dir/isp-tester/$f"
+	done
+	return 0
+}
+
 service_triggers() {
 	procd_add_reload_trigger isp_tester
 }

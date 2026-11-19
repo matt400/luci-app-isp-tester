@@ -14,6 +14,13 @@ config general 'general'
 	option err_cooldown '60'
 	# drops per interval needed to log a "drops" event
 	option drop_warn '50'
+	# copy the logs here (e.g. a USB stick, /mnt/sda1) so they survive a reboot;
+	# empty = RAM only. Avoid the internal flash, it wears out.
+	option persist_dir ''
+	# how often the copy is refreshed (s); it is also written on stop/reboot
+	option persist_interval '900'
+	# also write warnings/errors to the system log (and a remote syslog server, if set)
+	option syslog '0'
 
 config wan 'wan'
 	option enabled '1'
@@ -28,6 +35,15 @@ config wan 'wan'
 	option loss_fail '50'
 	# average RTT (ms) for yellow, 0 = off
 	option rtt_warn '80'
+	# jitter (ms, mean difference between consecutive replies) for yellow, 0 = off
+	option jitter_warn '0'
+	# check name resolution every interval
+	option dns '1'
+	option dns_host 'openwrt.org'
+	# DNS server to ask; empty = the router's own resolver
+	option dns_server ''
+	# lookup slower than this (ms) is logged, 0 = off
+	option dns_warn '500'
 
 config iptv 'iptv'
 	option enabled '1'
@@ -48,6 +64,36 @@ config iptv 'iptv'
 	option idle_after '60'
 	# warn when bitrate falls below this % of its running average, 0 = off
 	option dip_pct '40'
+	# watch IGMP group membership and the multicast proxy (igmpproxy, mcproxy)
+	option igmp '1'
+	# interface the proxy joins the groups on (its upstream); empty = the IPTV
+	# device when measuring incoming traffic
+	option igmp_device ''
+
+config system 'system'
+	option enabled '1'
+	# busiest CPU core (%) for two intervals in a row = router overloaded, 0 = off
+	option cpu_warn '90'
+	# free RAM (%) below this is logged, 0 = off
+	option mem_warn '10'
+	# connection tracking table fill (%), 0 = off
+	option conntrack_warn '90'
+
+config notify 'notify'
+	option enabled '0'
+	# ntfy | telegram | webhook
+	option service 'ntfy'
+	# ntfy: topic URL (https://ntfy.sh/your-secret-topic); webhook: URL that gets a JSON POST
+	option url ''
+	# telegram: bot token and chat id
+	option token ''
+	option chat_id ''
+	# err = faults only (plus recoveries), warn = also warnings
+	option min_level 'err'
+	# at most one message per this many seconds; events in between are batched
+	option cooldown '300'
+	# en | pl
+	option lang 'en'
 
 config port
 	option device 'lan1'

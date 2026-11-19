@@ -2,6 +2,14 @@
 'require view';
 'require form';
 'require tools.widgets as widgets';
+'require rpc';
+'require ui';
+
+var callTestNotify = rpc.declare({
+	object: 'luci.isp_tester',
+	method: 'test_notify',
+	expect: { '': {} }
+});
 
 return view.extend({
 	render: function() {
@@ -45,6 +53,20 @@ return view.extend({
 		o.datatype = 'uinteger';
 		o.placeholder = '50';
 
+		o = s.option(form.Value, 'persist_dir', _('Keep logs on'),
+			_('Optional folder on persistent storage, e.g. a USB stick (<code>/mnt/sda1</code>). The timeline, history and CSV are copied there regularly and on reboot, and restored after a reboot. Do not use the internal flash: frequent writes wear it out. Empty = RAM only.'));
+		o.placeholder = '/mnt/sda1';
+		o.optional = true;
+
+		o = s.option(form.Value, 'persist_interval', _('Copy every (s)'));
+		o.datatype = 'range(60,86400)';
+		o.placeholder = '900';
+		o.depends({ persist_dir: '', '!reverse': true });
+
+		o = s.option(form.Flag, 'syslog', _('Write problems to the system log'),
+			_('Warnings and faults also go to the system log (logread) and to a remote syslog server, if one is set in System → System → Logging.'));
+		o.default = '0';
+
 		/* ---- WAN */
 		s = m.section(form.NamedSection, 'wan', 'wan', _('Internet (WAN)'));
 
@@ -86,6 +108,32 @@ return view.extend({
 		o = s.option(form.Value, 'rtt_warn', _('High latency (ms)'), _('0 disables the latency warning.'));
 		o.datatype = 'uinteger';
 		o.placeholder = '80';
+
+		o = s.option(form.Value, 'jitter_warn', _('High jitter (ms)'),
+			_('Mean difference between consecutive ping replies. Matters for calls, games and IPTV over unicast. 0 = only measure, no warning.'));
+		o.datatype = 'uinteger';
+		o.placeholder = '0';
+
+		o = s.option(form.Flag, 'dns', _('Check DNS'),
+			_('Resolves a name every interval and logs failures and slow answers. "Internet does not work" is often DNS only.'));
+		o.default = '1';
+		o.rmempty = false;
+
+		o = s.option(form.Value, 'dns_host', _('Name to resolve'));
+		o.datatype = 'hostname';
+		o.placeholder = 'openwrt.org';
+		o.depends('dns', '1');
+
+		o = s.option(form.Value, 'dns_server', _('DNS server'),
+			_('Empty = the router\'s own resolver (answers are often cached). Enter the ISP\'s DNS server to test it directly.'));
+		o.datatype = 'host';
+		o.optional = true;
+		o.depends('dns', '1');
+
+		o = s.option(form.Value, 'dns_warn', _('Slow DNS (ms)'), _('0 disables the warning.'));
+		o.datatype = 'uinteger';
+		o.placeholder = '500';
+		o.depends('dns', '1');
 
 		/* ---- IPTV */
 		s = m.section(form.NamedSection, 'iptv', 'iptv', _('IPTV'));
@@ -133,6 +181,92 @@ return view.extend({
 			_('Warn when the bitrate falls below this percentage of its usual value. 0 disables.'));
 		o.datatype = 'range(0,100)';
 		o.placeholder = '40';
+
+		o = s.option(form.Flag, 'igmp', _('Watch IGMP'),
+			_('Tracks which multicast groups (channels) are joined and whether the multicast proxy (igmpproxy, mcproxy) is running. This tells a channel change from a freeze, and an IGMP timeout from the ISP not sending.'));
+		o.default = '1';
+		o.rmempty = false;
+
+		o = s.option(widgets.DeviceSelect, 'igmp_device', _('IGMP upstream device'),
+			_('Where the proxy joins the groups (its upstream, usually the IPTV VLAN). Empty = the IPTV device when measuring incoming traffic.'));
+		o.noaliases = true;
+		o.optional = true;
+		o.depends('igmp', '1');
+
+		/* ---- router load */
+		s = m.section(form.NamedSection, 'system', 'system', _('Router load'),
+			_('An overloaded router drops packets too. Logged so it is not blamed on the ISP.'));
+
+		o = s.option(form.Flag, 'enabled', _('Watch router load'));
+		o.default = '1';
+		o.rmempty = false;
+
+		o = s.option(form.Value, 'cpu_warn', _('CPU busy (%)'),
+			_('Busiest core, two intervals in a row. Routing often saturates a single core. 0 disables.'));
+		o.datatype = 'range(0,100)';
+		o.placeholder = '90';
+
+		o = s.option(form.Value, 'mem_warn', _('Free RAM below (%)'), _('0 disables.'));
+		o.datatype = 'range(0,100)';
+		o.placeholder = '10';
+
+		o = s.option(form.Value, 'conntrack_warn', _('Connection table full (%)'),
+			_('When the table is full, new connections fail. 0 disables.'));
+		o.datatype = 'range(0,100)';
+		o.placeholder = '90';
+
+		/* ---- notifications */
+		s = m.section(form.NamedSection, 'notify', 'notify', _('Notifications'),
+			_('Push a message to your phone when something breaks. Messages that cannot be sent during an outage are sent when the Internet is back.'));
+
+		o = s.option(form.Flag, 'enabled', _('Send notifications'));
+		o.default = '0';
+		o.rmempty = false;
+
+		o = s.option(form.ListValue, 'service', _('Service'));
+		o.value('ntfy', _('ntfy (app ntfy.sh)'));
+		o.value('telegram', _('Telegram bot'));
+		o.value('webhook', _('Webhook (JSON POST)'));
+		o.default = 'ntfy';
+
+		o = s.option(form.Value, 'url', _('URL'),
+			_('ntfy: topic URL, e.g. <code>https://ntfy.sh/my-secret-topic-123</code> (anyone who knows the name can read it, so make it hard to guess). Webhook: URL that receives <code>{"text": …}</code>.'));
+		o.datatype = 'string';
+		o.depends('service', 'ntfy');
+		o.depends('service', 'webhook');
+
+		o = s.option(form.Value, 'token', _('Bot token'), _('From @BotFather.'));
+		o.password = true;
+		o.depends('service', 'telegram');
+
+		o = s.option(form.Value, 'chat_id', _('Chat ID'));
+		o.depends('service', 'telegram');
+
+		o = s.option(form.ListValue, 'min_level', _('Send'));
+		o.value('err', _('Faults only (and when they end)'));
+		o.value('warn', _('Faults and warnings'));
+		o.default = 'err';
+
+		o = s.option(form.Value, 'cooldown', _('At most one message every (s)'),
+			_('Events in between are collected into one message.'));
+		o.datatype = 'range(30,86400)';
+		o.placeholder = '300';
+
+		o = s.option(form.ListValue, 'lang', _('Message language'));
+		o.value('en', 'English');
+		o.value('pl', 'Polski');
+		o.default = 'en';
+
+		o = s.option(form.Button, '_test', _('Test'));
+		o.inputtitle = _('Send test message');
+		o.inputstyle = 'action';
+		o.onclick = function() {
+			return callTestNotify().then(function(r) {
+				ui.addNotification(null, E('p', r && r.running
+					? _('The test message will be sent within one interval. Save & Apply changed settings first.')
+					: _('Monitoring is not running, nothing can be sent.')), r && r.running ? 'info' : 'warning');
+			});
+		};
 
 		/* ---- ports */
 		s = m.section(form.GridSection, 'port', _('Ports'),

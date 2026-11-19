@@ -1,7 +1,7 @@
 // luci-app-isp-tester - rpcd ucode plugin
 'use strict';
 
-import { readfile, writefile, stat, mkdir } from 'fs';
+import { readfile, writefile, stat, mkdir, open } from 'fs';
 import { cursor } from 'uci';
 
 const RUNDIR = '/tmp/isp-tester';
@@ -75,6 +75,32 @@ return {
 				mkdir(RUNDIR);
 				writefile(`${RUNDIR}/clear`, '1');
 				return { result: true };
+			}
+		},
+
+		/* "problem now" report from the user; logged on the collector's next tick
+		 * with the time of the click */
+		mark: {
+			args: { what: '', note: '' },
+			call: function(req) {
+				let what = `${req.args.what ?? ''}`;
+				if (!match(what, /^[a-z_]{1,20}$/)) what = 'other';
+				let note = substr(`${req.args.note ?? ''}`, 0, 200);
+				mkdir(RUNDIR);
+				let f = open(`${RUNDIR}/marks.pending`, 'a');
+				if (!f) return { result: false };
+				f.write(sprintf('%J\n', { ts: time(), what, note }));
+				f.close();
+				return { result: true, running: service_running() };
+			}
+		},
+
+		/* send a test push notification (on the collector's next tick) */
+		test_notify: {
+			call: function() {
+				mkdir(RUNDIR);
+				writefile(`${RUNDIR}/notify_test`, '1');
+				return { result: true, running: service_running() };
 			}
 		}
 	}

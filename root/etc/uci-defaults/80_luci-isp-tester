@@ -1,4 +1,12 @@
 #!/bin/sh
+# sections added in later versions (upgrades keep the old config file)
+uci -q get isp_tester.system >/dev/null || uci -q set isp_tester.system=system
+uci -q get isp_tester.notify >/dev/null || {
+	uci -q set isp_tester.notify=notify
+	uci -q set isp_tester.notify.enabled=0
+}
+uci -q commit isp_tester
+
 rm -f /tmp/luci-indexcache* /tmp/luci-modulecache/* 2>/dev/null
 /etc/init.d/rpcd reload
 /etc/init.d/isp_tester enable

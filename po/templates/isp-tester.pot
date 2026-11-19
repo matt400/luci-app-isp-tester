@@ -41,7 +41,10 @@ msgstr ""
 msgid "Ports"
 msgstr ""
 
-msgid "System"
+msgid "Router"
+msgstr ""
+
+msgid "Your reports"
 msgstr ""
 
 msgid "Device %s does not exist"
@@ -65,10 +68,37 @@ msgstr ""
 msgid "%s: %d%% packet loss"
 msgstr ""
 
+msgid "%s: high jitter %s"
+msgstr ""
+
 msgid "%s: high latency %s"
 msgstr ""
 
 msgid "Internet unreachable for %s"
+msgstr ""
+
+msgid "WAN interface %s is down (no PPPoE/DHCP session) for %s"
+msgstr ""
+
+msgid "DNS does not answer (for %s)"
+msgstr ""
+
+msgid "DNS is slow (%s)"
+msgstr ""
+
+msgid "Multicast proxy %s is not running"
+msgstr ""
+
+msgid "Router CPU busy"
+msgstr ""
+
+msgid "Router CPU busy: %d%% (%s)"
+msgstr ""
+
+msgid "Router is low on RAM: %d%% free"
+msgstr ""
+
+msgid "Connection table %d%% full"
 msgstr ""
 
 msgid "Stream stopped %s ago"
@@ -110,6 +140,9 @@ msgstr ""
 msgid "%s: %d%% packet loss (avg %s)"
 msgstr ""
 
+msgid "%s: high jitter %s (ping %s)"
+msgstr ""
+
 msgid "%s: high latency %s (max %s)"
 msgstr ""
 
@@ -138,6 +171,84 @@ msgid "IPTV stream did not come back within %s (decoder off or outage)"
 msgstr ""
 
 msgid "IPTV bitrate dropped to %s (usual %s)"
+msgstr ""
+
+msgid "WAN interface %s DOWN (PPPoE/DHCP session lost)"
+msgstr ""
+
+msgid "WAN interface %s up again after %s"
+msgstr ""
+
+msgid "WAN session restarted (previous one lasted %s)"
+msgstr ""
+
+msgid "WAN address changed %s → %s"
+msgstr ""
+
+msgid "DNS: %s could not be resolved via %s"
+msgstr ""
+
+msgid "DNS: %s could not be resolved"
+msgstr ""
+
+msgid "DNS: slow answer %s"
+msgstr ""
+
+msgid "DNS OK again after %s (%s)"
+msgstr ""
+
+msgid "Multicast proxy %s STOPPED"
+msgstr ""
+
+msgid "Multicast proxy %s running again after %s"
+msgstr ""
+
+msgid "Multicast proxy %s restarted"
+msgstr ""
+
+msgid "Router CPU busy: %d%% on %s (softirq %d%%)"
+msgstr ""
+
+msgid "Router CPU load normal again after %s"
+msgstr ""
+
+msgid "Router RAM OK again after %s"
+msgstr ""
+
+msgid "Connection table %d%% full (%d of %d)"
+msgstr ""
+
+msgid "Connection table OK again after %s"
+msgstr ""
+
+msgid "You reported: %s"
+msgstr ""
+
+msgid "Logs restored from %s after a restart"
+msgstr ""
+
+msgid "TV froze"
+msgstr ""
+
+msgid "TV picture breaks up"
+msgstr ""
+
+msgid "Internet is slow"
+msgstr ""
+
+msgid "Internet does not work"
+msgstr ""
+
+msgid "Something else"
+msgstr ""
+
+msgid "channel change"
+msgstr ""
+
+msgid "IGMP membership was dropped"
+msgstr ""
+
+msgid "still subscribed, data stopped"
 msgstr ""
 
 msgid "Collecting data…"
@@ -188,13 +299,31 @@ msgstr ""
 msgid "%d problems, %d IPTV freezes"
 msgstr ""
 
+msgid "%d channel changes ignored"
+msgstr ""
+
 msgid "Nothing was logged that points at a fault."
 msgstr ""
 
 msgid "Heuristic based on what happened at the same time; treat it as a hint, not proof. The timeline below is the evidence."
 msgstr ""
 
+msgid "Monitoring is turned off"
+msgstr ""
+
+msgid "Nothing is measured or logged. The data collected so far stays available until reboot."
+msgstr ""
+
+msgid "Turn on"
+msgstr ""
+
 msgid "Monitoring is not running"
+msgstr ""
+
+msgid "It is turned on but the collector is not running – see the system log (logread -e isp-tester)."
+msgstr ""
+
+msgid "Restart"
 msgstr ""
 
 msgid "Waiting for the first measurement…"
@@ -221,6 +350,60 @@ msgstr ""
 msgid "Updated %s ago · running for %s"
 msgstr ""
 
+msgid "Click the moment you notice a problem (TV freezes, Internet slow). It is logged and compared with the measurements."
+msgstr ""
+
+msgid "⚑ Problem now"
+msgstr ""
+
+msgid "Optional note, e.g. channel, room, what you saw"
+msgstr ""
+
+msgid "Logged. It will appear in the timeline within one interval."
+msgstr ""
+
+msgid "(logged %d s after you clicked)"
+msgstr ""
+
+msgid "Could not log the report."
+msgstr ""
+
+msgid "What is wrong right now?"
+msgstr ""
+
+msgid "This puts a mark on the timeline. The analysis then checks whether the router measured something at that moment."
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
+
+msgid "WAN device"
+msgstr ""
+
+msgid "Traffic ↓ / ↑"
+msgstr ""
+
+msgid "DNS"
+msgstr ""
+
+msgid "no answer"
+msgstr ""
+
+msgid "Session"
+msgstr ""
+
+msgid "%s, up for %s"
+msgstr ""
+
+msgid "DOWN"
+msgstr ""
+
+msgid "Address"
+msgstr ""
+
+msgid "%d reconnects since start"
+msgstr ""
+
 msgid "Target"
 msgstr ""
 
@@ -230,13 +413,13 @@ msgstr ""
 msgid "Ping"
 msgstr ""
 
+msgid "Mean difference between consecutive replies"
+msgstr ""
+
+msgid "Jitter"
+msgstr ""
+
 msgid "Waiting for ping results…"
-msgstr ""
-
-msgid "WAN device"
-msgstr ""
-
-msgid "Traffic ↓ / ↑"
 msgstr ""
 
 msgid "Set the IPTV device in Settings."
@@ -281,6 +464,36 @@ msgstr ""
 msgid "IGMP querier"
 msgstr ""
 
+msgid "IGMP timers"
+msgstr ""
+
+msgid "membership %d s, query %d s"
+msgstr ""
+
+msgid "Bridge groups"
+msgstr ""
+
+msgid "none"
+msgstr ""
+
+msgid "Multicast proxy"
+msgstr ""
+
+msgid "%s not running"
+msgstr ""
+
+msgid "none found"
+msgstr ""
+
+msgid "Channels joined (%s)"
+msgstr ""
+
+msgid "device not in IGMP table"
+msgstr ""
+
+msgid "changed %s ago"
+msgstr ""
+
 msgid "Add ports to watch in Settings."
 msgstr ""
 
@@ -311,7 +524,55 @@ msgstr ""
 msgid "Flaps"
 msgstr ""
 
+msgid "CPU"
+msgstr ""
+
+msgid "%d%% overall, busiest core %d%% (softirq %d%%)"
+msgstr ""
+
+msgid "Load"
+msgstr ""
+
+msgid "%d cores"
+msgstr ""
+
+msgid "Free RAM"
+msgstr ""
+
+msgid "of %d MB"
+msgstr ""
+
+msgid "Connections"
+msgstr ""
+
+msgid "Logs kept on"
+msgstr ""
+
+msgid "%s (copied %s ago)"
+msgstr ""
+
+msgid "%s – not mounted!"
+msgstr ""
+
+msgid "Notifications"
+msgstr ""
+
+msgid "uclient-fetch / wget missing"
+msgstr ""
+
+msgid "last attempt failed %s ago (%d waiting)"
+msgstr ""
+
+msgid "last sent %s ago"
+msgstr ""
+
+msgid "nothing sent yet"
+msgstr ""
+
 msgid "Disabled in Settings."
+msgstr ""
+
+msgid "jitter %s"
 msgstr ""
 
 msgid "loss %d%%"
@@ -332,7 +593,25 @@ msgstr ""
 msgid "IPTV bitrate (1 min average)"
 msgstr ""
 
+msgid "Lowest 1 s bitrate"
+msgstr ""
+
 msgid "IPTV bitrate (Mbit/s) – red = stream stopped while watching"
+msgstr ""
+
+msgid "DNS lookup time (ms)"
+msgstr ""
+
+msgid "DNS lookup time (ms, worst per minute)"
+msgstr ""
+
+msgid "Busiest CPU core"
+msgstr ""
+
+msgid "of it softirq (packet processing)"
+msgstr ""
+
+msgid "Router CPU (%)"
 msgstr ""
 
 msgid "Interface errors per interval"
@@ -345,6 +624,87 @@ msgid "History"
 msgstr ""
 
 msgid "No data for this period (data is kept in RAM for up to 24 h and is lost on reboot)."
+msgstr ""
+
+msgid "When do problems happen"
+msgstr ""
+
+msgid "Problems per hour of the day (%s). A peak in the evening points at an overloaded ISP network."
+msgstr ""
+
+msgid "%02d:00–%02d:59: %d problems"
+msgstr ""
+
+msgid "Connection fault report"
+msgstr ""
+
+msgid "Print / save as PDF"
+msgstr ""
+
+msgid "Period: %s – %s · generated %s by luci-app-isp-tester"
+msgstr ""
+
+msgid "Connection"
+msgstr ""
+
+msgid "WAN interface / device"
+msgstr ""
+
+msgid "Ping targets"
+msgstr ""
+
+msgid "IPTV measured on"
+msgstr ""
+
+msgid "Summary"
+msgstr ""
+
+msgid "Internet outages"
+msgstr ""
+
+msgid "%d, total %s, longest %s"
+msgstr ""
+
+msgid "Packet loss at the ISP gateway"
+msgstr ""
+
+msgid "%d×"
+msgstr ""
+
+msgid "Packet loss to far targets"
+msgstr ""
+
+msgid "WAN session drops (PPPoE/DHCP)"
+msgstr ""
+
+msgid "WAN port link drops"
+msgstr ""
+
+msgid "DNS failures"
+msgstr ""
+
+msgid "IPTV freezes"
+msgstr ""
+
+msgid "%d channel changes not counted"
+msgstr ""
+
+msgid "Router overloaded"
+msgstr ""
+
+msgid "Problems reported by the user"
+msgstr ""
+
+msgid "Assessment"
+msgstr ""
+
+msgid "Problems by hour of day"
+msgstr ""
+
+msgid "Event log (problems only)"
+msgstr ""
+
+msgid "Measured continuously on the customer's router. Times are local router time."
 msgstr ""
 
 msgid "All"
@@ -371,16 +731,25 @@ msgstr ""
 msgid "Download timeline (CSV)"
 msgstr ""
 
+msgid "Summary of the selected period for your ISP; print it or save it as PDF."
+msgstr ""
+
+msgid "Report for the ISP"
+msgstr ""
+
 msgid "Clear logs"
+msgstr ""
+
+msgid "Turn monitoring off"
 msgstr ""
 
 msgid "Unable to read measurements: %s"
 msgstr ""
 
-msgid "This deletes the timeline, charts and CSV measurements. Download them first if you need them for your ISP."
+msgid "Unable to change monitoring state: %s"
 msgstr ""
 
-msgid "Cancel"
+msgid "This deletes the timeline, charts and CSV measurements. Download them first if you need them for your ISP."
 msgstr ""
 
 msgid "Logs will be cleared within one interval."
@@ -393,6 +762,309 @@ msgid "ISP Tester"
 msgstr ""
 
 msgid "Watches the Internet connection, IPTV stream and switch ports, and records every problem with a timestamp – so you have proof when you call your ISP."
+msgstr ""
+
+msgid "ISP Tester – Settings"
+msgstr ""
+
+msgid "Changes are applied immediately after “Save & Apply”; the collector restarts, keeping the timeline (charts start over)."
+msgstr ""
+
+msgid "General"
+msgstr ""
+
+msgid "Enable monitoring"
+msgstr ""
+
+msgid "Turns the whole package on or off, including start at boot. Can also be switched on the overview page."
+msgstr ""
+
+msgid "Sampling interval"
+msgstr ""
+
+msgid "Seconds between measurements."
+msgstr ""
+
+msgid "Measurements kept"
+msgstr ""
+
+msgid "Rows kept in the CSV (in RAM). 8640 rows × 10 s = 24 h."
+msgstr ""
+
+msgid "Timeline entries kept"
+msgstr ""
+
+msgid "Chart points"
+msgstr ""
+
+msgid "360 points × 10 s = last hour."
+msgstr ""
+
+msgid "Stay yellow for"
+msgstr ""
+
+msgid "Seconds an area stays marked as “Warning” after a problem was logged."
+msgstr ""
+
+msgid "Dropped packets threshold"
+msgstr ""
+
+msgid "Dropped packets per interval needed to log an entry. Some drops are normal (unknown protocols)."
+msgstr ""
+
+msgid "Keep logs on"
+msgstr ""
+
+msgid "Optional folder on persistent storage, e.g. a USB stick (<code>/mnt/sda1</code>). The timeline, history and CSV are copied there regularly and on reboot, and restored after a reboot. Do not use the internal flash: frequent writes wear it out. Empty = RAM only."
+msgstr ""
+
+msgid "Copy every (s)"
+msgstr ""
+
+msgid "Write problems to the system log"
+msgstr ""
+
+msgid "Warnings and faults also go to the system log (logread) and to a remote syslog server, if one is set in System → System → Logging."
+msgstr ""
+
+msgid "Internet (WAN)"
+msgstr ""
+
+msgid "Monitor Internet"
+msgstr ""
+
+msgid "WAN interface"
+msgstr ""
+
+msgid "Used to find the WAN device and the ISP gateway."
+msgstr ""
+
+msgid "WAN device (override)"
+msgstr ""
+
+msgid "Leave empty to detect it from the interface."
+msgstr ""
+
+msgid "Ping ISP gateway"
+msgstr ""
+
+msgid "Loss to the gateway points at the line / ISP access network; loss only to far targets points at the ISP backbone."
+msgstr ""
+
+msgid "Pings per round"
+msgstr ""
+
+msgid "Loss for warning (%)"
+msgstr ""
+
+msgid "Loss for fault (%)"
+msgstr ""
+
+msgid "High latency (ms)"
+msgstr ""
+
+msgid "0 disables the latency warning."
+msgstr ""
+
+msgid "High jitter (ms)"
+msgstr ""
+
+msgid "Mean difference between consecutive ping replies. Matters for calls, games and IPTV over unicast. 0 = only measure, no warning."
+msgstr ""
+
+msgid "Check DNS"
+msgstr ""
+
+msgid "Resolves a name every interval and logs failures and slow answers. \"Internet does not work\" is often DNS only."
+msgstr ""
+
+msgid "Name to resolve"
+msgstr ""
+
+msgid "DNS server"
+msgstr ""
+
+msgid "Empty = the router's own resolver (answers are often cached). Enter the ISP's DNS server to test it directly."
+msgstr ""
+
+msgid "Slow DNS (ms)"
+msgstr ""
+
+msgid "0 disables the warning."
+msgstr ""
+
+msgid "Monitor IPTV"
+msgstr ""
+
+msgid "IPTV device"
+msgstr ""
+
+msgid "A device that carries only IPTV traffic: the IPTV VLAN (e.g. <code>eth1.236</code>) or the port the decoder is connected to. Watch TV and check that the bitrate on the overview matches."
+msgstr ""
+
+msgid "Measure"
+msgstr ""
+
+msgid "Incoming traffic (VLAN from the ISP)"
+msgstr ""
+
+msgid "Outgoing traffic (port towards the decoder)"
+msgstr ""
+
+msgid "Bridge for IGMP status"
+msgstr ""
+
+msgid "Optional. Shows whether IGMP snooping and the querier are active on this bridge."
+msgstr ""
+
+msgid "Stream threshold (kbit/s)"
+msgstr ""
+
+msgid "Below this the stream counts as stopped. An HD channel usually uses 4000–12000 kbit/s."
+msgstr ""
+
+msgid "IPTV sampling interval (s)"
+msgstr ""
+
+msgid "How often the IPTV bitrate is measured, independent of the main interval. 1 s catches freezes of a few seconds; 0 measures only once per main interval."
+msgstr ""
+
+msgid "Freeze after (s)"
+msgstr ""
+
+msgid "How long the bitrate must stay below the threshold to log a freeze. 2 s ignores single short gaps the decoder buffer hides."
+msgstr ""
+
+msgid "Decoder off after (s)"
+msgstr ""
+
+msgid "If the stream does not come back within this time, it is logged as “ended” instead of an ongoing outage."
+msgstr ""
+
+msgid "Bitrate dip warning (%)"
+msgstr ""
+
+msgid "Warn when the bitrate falls below this percentage of its usual value. 0 disables."
+msgstr ""
+
+msgid "Watch IGMP"
+msgstr ""
+
+msgid "Tracks which multicast groups (channels) are joined and whether the multicast proxy (igmpproxy, mcproxy) is running. This tells a channel change from a freeze, and an IGMP timeout from the ISP not sending."
+msgstr ""
+
+msgid "IGMP upstream device"
+msgstr ""
+
+msgid "Where the proxy joins the groups (its upstream, usually the IPTV VLAN). Empty = the IPTV device when measuring incoming traffic."
+msgstr ""
+
+msgid "Router load"
+msgstr ""
+
+msgid "An overloaded router drops packets too. Logged so it is not blamed on the ISP."
+msgstr ""
+
+msgid "Watch router load"
+msgstr ""
+
+msgid "CPU busy (%)"
+msgstr ""
+
+msgid "Busiest core, two intervals in a row. Routing often saturates a single core. 0 disables."
+msgstr ""
+
+msgid "Free RAM below (%)"
+msgstr ""
+
+msgid "0 disables."
+msgstr ""
+
+msgid "Connection table full (%)"
+msgstr ""
+
+msgid "When the table is full, new connections fail. 0 disables."
+msgstr ""
+
+msgid "Push a message to your phone when something breaks. Messages that cannot be sent during an outage are sent when the Internet is back."
+msgstr ""
+
+msgid "Send notifications"
+msgstr ""
+
+msgid "Service"
+msgstr ""
+
+msgid "ntfy (app ntfy.sh)"
+msgstr ""
+
+msgid "Telegram bot"
+msgstr ""
+
+msgid "Webhook (JSON POST)"
+msgstr ""
+
+msgid "URL"
+msgstr ""
+
+msgid "ntfy: topic URL, e.g. <code>https://ntfy.sh/my-secret-topic-123</code> (anyone who knows the name can read it, so make it hard to guess). Webhook: URL that receives <code>{\"text\": …}</code>."
+msgstr ""
+
+msgid "Bot token"
+msgstr ""
+
+msgid "From @BotFather."
+msgstr ""
+
+msgid "Chat ID"
+msgstr ""
+
+msgid "Send"
+msgstr ""
+
+msgid "Faults only (and when they end)"
+msgstr ""
+
+msgid "Faults and warnings"
+msgstr ""
+
+msgid "At most one message every (s)"
+msgstr ""
+
+msgid "Events in between are collected into one message."
+msgstr ""
+
+msgid "Message language"
+msgstr ""
+
+msgid "Test"
+msgstr ""
+
+msgid "Send test message"
+msgstr ""
+
+msgid "The test message will be sent within one interval. Save & Apply changed settings first."
+msgstr ""
+
+msgid "Monitoring is not running, nothing can be sent."
+msgstr ""
+
+msgid "Physical ports (or any devices) to watch for link drops, speed changes and errors."
+msgstr ""
+
+msgid "Enabled"
+msgstr ""
+
+msgid "Name"
+msgstr ""
+
+msgid "e.g. TV switch"
+msgstr ""
+
+msgid "Must be up"
+msgstr ""
+
+msgid "Link down counts as a fault (not just information)."
 msgstr ""
 
 msgid "ISP"
@@ -443,6 +1115,9 @@ msgstr ""
 msgid "High latency to the ISP gateway (%d×) – congestion at the ISP (or a busy router)."
 msgstr ""
 
+msgid "High jitter to the ISP gateway (%d×) – unstable line or congestion at the ISP (or a busy router)."
+msgstr ""
+
 msgid "Loss only beyond the gateway (%d×) – ISP backbone / peering."
 msgstr ""
 
@@ -461,7 +1136,55 @@ msgstr ""
 msgid "%d of %d IPTV freezes came with errors on the IPTV device – cable/port on the IPTV path."
 msgstr ""
 
+msgid "IPTV freezes repeat every ~%d s – the same as the bridge's IGMP %s interval (%d s): the membership times out. Enable the IGMP querier on the bridge or fix the proxy."
+msgstr ""
+
+msgid "membership"
+msgstr ""
+
+msgid "query"
+msgstr ""
+
 msgid "IPTV freezes repeat every ~%d s – typical IGMP membership timeout: check the IGMP querier / snooping / proxy on the router."
+msgstr ""
+
+msgid "%d of %d IPTV freezes started when the IGMP membership was dropped, then the decoder joined again – IGMP timeout on the router/switch (querier, snooping, proxy)."
+msgstr ""
+
+msgid "%d of %d IPTV freezes: the router stayed subscribed to the channel but the ISP stopped sending – ISP multicast side."
+msgstr ""
+
+msgid "%d IPTV interruptions were channel changes – ignored."
+msgstr ""
+
+msgid "%d of %d IPTV freezes happened when the multicast proxy stopped or restarted."
+msgstr ""
+
+msgid "Multicast proxy %s stopped or restarted (%d×) – router: check its configuration and the system log."
+msgstr ""
+
+msgid "No multicast proxy (igmpproxy / mcproxy) is running – fine if the IPTV VLAN is bridged, otherwise IPTV cannot work reliably."
+msgstr ""
+
+msgid "WAN session dropped/restarted %d× (PPPoE/DHCP) while the cable link stayed up – ISP side (authentication, BRAS, DHCP server)."
+msgstr ""
+
+msgid "DNS server %s failed or was slow %d× while ping worked – the ISP's DNS; consider another DNS server."
+msgstr ""
+
+msgid "DNS failed or was slow %d× while ping worked – the router's resolver or its upstream DNS servers; \"no Internet\" may be DNS only."
+msgstr ""
+
+msgid "%d problems happened while the router was overloaded (CPU / RAM / connection table) – the router itself may be dropping packets."
+msgstr ""
+
+msgid "The router was overloaded %d× (no problems at those moments)."
+msgstr ""
+
+msgid "%d of %d of your reports match a measured problem."
+msgstr ""
+
+msgid "%d of %d of your reports have nothing measured around them – the problem is not visible on this router: check the IPTV device setting, or the cause is the decoder, the TV or Wi-Fi."
 msgstr ""
 
 msgid "%d of %d IPTV freezes: the router stopped sending to the decoder while everything else was fine – IGMP snooping/querier on the router."
@@ -488,166 +1211,7 @@ msgstr ""
 msgid "Network device %s disappeared (%d×) – driver, configuration or reboot."
 msgstr ""
 
-msgid "ISP Tester – Settings"
-msgstr ""
-
-msgid "Changes are applied immediately after “Save & Apply”; the collector restarts, keeping the timeline (charts start over)."
-msgstr ""
-
-msgid "General"
-msgstr ""
-
-msgid "Enable monitoring"
-msgstr ""
-
-msgid "Sampling interval"
-msgstr ""
-
-msgid "Seconds between measurements."
-msgstr ""
-
-msgid "Measurements kept"
-msgstr ""
-
-msgid "Rows kept in the CSV (in RAM). 8640 rows × 10 s = 24 h."
-msgstr ""
-
-msgid "Timeline entries kept"
-msgstr ""
-
-msgid "Chart points"
-msgstr ""
-
-msgid "360 points × 10 s = last hour."
-msgstr ""
-
-msgid "Stay yellow for"
-msgstr ""
-
-msgid "Seconds an area stays marked as “Warning” after a problem was logged."
-msgstr ""
-
-msgid "Dropped packets threshold"
-msgstr ""
-
-msgid "Dropped packets per interval needed to log an entry. Some drops are normal (unknown protocols)."
-msgstr ""
-
-msgid "Internet (WAN)"
-msgstr ""
-
-msgid "Monitor Internet"
-msgstr ""
-
-msgid "WAN interface"
-msgstr ""
-
-msgid "Used to find the WAN device and the ISP gateway."
-msgstr ""
-
-msgid "WAN device (override)"
-msgstr ""
-
-msgid "Leave empty to detect it from the interface."
-msgstr ""
-
-msgid "Ping ISP gateway"
-msgstr ""
-
-msgid "Loss to the gateway points at the line / ISP access network; loss only to far targets points at the ISP backbone."
-msgstr ""
-
-msgid "Ping targets"
-msgstr ""
-
-msgid "Pings per round"
-msgstr ""
-
-msgid "Loss for warning (%)"
-msgstr ""
-
-msgid "Loss for fault (%)"
-msgstr ""
-
-msgid "High latency (ms)"
-msgstr ""
-
-msgid "0 disables the latency warning."
-msgstr ""
-
-msgid "Monitor IPTV"
-msgstr ""
-
-msgid "IPTV device"
-msgstr ""
-
-msgid "A device that carries only IPTV traffic: the IPTV VLAN (e.g. <code>eth1.236</code>) or the port the decoder is connected to. Watch TV and check that the bitrate on the overview matches."
-msgstr ""
-
-msgid "Measure"
-msgstr ""
-
-msgid "Incoming traffic (VLAN from the ISP)"
-msgstr ""
-
-msgid "Outgoing traffic (port towards the decoder)"
-msgstr ""
-
-msgid "Bridge for IGMP status"
-msgstr ""
-
-msgid "Optional. Shows whether IGMP snooping and the querier are active on this bridge."
-msgstr ""
-
-msgid "Stream threshold (kbit/s)"
-msgstr ""
-
-msgid "Below this the stream counts as stopped. An HD channel usually uses 4000–12000 kbit/s."
-msgstr ""
-
-msgid "IPTV sampling interval (s)"
-msgstr ""
-
-msgid "How often the IPTV bitrate is measured, independent of the main interval. 1 s catches freezes of a few seconds; 0 measures only once per main interval."
-msgstr ""
-
-msgid "Freeze after (s)"
-msgstr ""
-
-msgid "How long the bitrate must stay below the threshold to log a freeze. 2 s ignores single short gaps the decoder buffer hides."
-msgstr ""
-
-msgid "Lowest 1 s bitrate"
-msgstr ""
-
-msgid "Decoder off after (s)"
-msgstr ""
-
-msgid "If the stream does not come back within this time, it is logged as “ended” instead of an ongoing outage."
-msgstr ""
-
-msgid "Bitrate dip warning (%)"
-msgstr ""
-
-msgid "Warn when the bitrate falls below this percentage of its usual value. 0 disables."
-msgstr ""
-
-msgid "Physical ports (or any devices) to watch for link drops, speed changes and errors."
-msgstr ""
-
-msgid "Enabled"
-msgstr ""
-
-msgid "Name"
-msgstr ""
-
-msgid "e.g. TV switch"
-msgstr ""
-
-msgid "Must be up"
-msgstr ""
-
-msgid "Link down counts as a fault (not just information)."
+msgid "System"
 msgstr ""
 
 msgid "Overview"
@@ -658,28 +1222,3 @@ msgstr ""
 
 msgid "Grant access to ISP Tester"
 msgstr ""
-
-msgid "Monitoring is turned off"
-msgstr ""
-
-msgid "Nothing is measured or logged. The data collected so far stays available until reboot."
-msgstr ""
-
-msgid "Turn on"
-msgstr ""
-
-msgid "It is turned on but the collector is not running – see the system log (logread -e isp-tester)."
-msgstr ""
-
-msgid "Restart"
-msgstr ""
-
-msgid "Turn monitoring off"
-msgstr ""
-
-msgid "Unable to change monitoring state: %s"
-msgstr ""
-
-msgid "Turns the whole package on or off, including start at boot. Can also be switched on the overview page."
-msgstr ""
-

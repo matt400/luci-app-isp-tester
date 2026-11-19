@@ -30,11 +30,16 @@ Target: **OpenWrt 24.10 and 25.12** (ucode + rpcd + LuCI JS). No compiled code, 
 
 | Area | How | Logged events |
 |------|-----|---------------|
-| **Internet** | Ping to the ISP gateway (auto-detected) and to configured targets (default `1.1.1.1`, `8.8.8.8`) in every interval | packet loss, high latency, target not responding, *Internet down* (no target responds), recovery with duration |
-| **IPTV** | Bitrate on a device that carries only IPTV traffic (e.g. the IPTV VLAN `eth1.236`, or the decoder's port measured outgoing) | stream started, **stream stopped**, stream resumed after *N s*, stream lost (decoder off or long outage), bitrate dip |
+| **Internet** | Ping to the ISP gateway (auto-detected) and to configured targets (default `1.1.1.1`, `8.8.8.8`) in every interval, with jitter | packet loss, high latency, high jitter (optional), target not responding, *Internet down* (no target responds), recovery with duration |
+| **DNS** | Name lookup every interval, via the router's resolver or a chosen server (e.g. the ISP's) | lookup failed, slow answer, OK again |
+| **WAN session** | netifd status of the WAN interface | interface down/up (PPPoE/DHCP session lost), session restarted between two checks, WAN address changed |
+| **IPTV** | Bitrate on a device that carries only IPTV traffic (e.g. the IPTV VLAN `eth1.236`, or the decoder's port measured outgoing) | stream started, **stream stopped**, stream resumed after *N s* (with what IGMP did meanwhile), stream lost (decoder off or long outage), bitrate dip |
+| **IGMP** | Joined groups on the proxy's upstream (`/proc/net/igmp`), multicast proxy process (igmpproxy, mcproxy, omcproxy), bridge MDB and IGMP timers | proxy stopped / restarted; every freeze is tagged as *channel change*, *membership dropped* or *still subscribed* |
 | **Ports** | `/sys/class/net/<dev>` counters and link state | link down/up, link flapping between samples, speed change (e.g. 1 Gbit → 100 Mbit), RX/TX/CRC errors, drops |
+| **Router** | CPU per core (incl. softirq), RAM, connection tracking table | router overloaded, low RAM, connection table full |
+| **You** | **⚑ Problem now** button | your report with the time of the click and an optional note |
 
-Optionally it shows whether **IGMP snooping** and the **querier** are active on a bridge.
+Optionally it shows whether **IGMP snooping** and the **querier** are active on a bridge, and which group goes to which bridge port (needs `ip-bridge`).
 
 Gateway vs. far-target loss helps pinpoint the cause. Loss to the gateway points at the line or the ISP access network. Loss only to the far targets points further into the ISP's network.
 
@@ -47,6 +52,9 @@ Gateway vs. far-target loss helps pinpoint the cause. Loss to the gateway points
 - One card each for Internet, IPTV and Ports, with live values and the reason for any yellow or red state.
 - **History** for up to 24 h: pick 1 h / 6 h / 24 h and move back and forward with ◀ ▶ (*Now* returns to live). A green/yellow/red state strip shows when things went wrong. The charts show ping with packet-loss bands, IPTV bitrate with stall bands, and interface errors. Hover a chart to see exact values. The last hour live uses 10 s samples; older data uses 1-minute aggregates (worst loss, minimum bitrate and summed errors are kept, so short glitches are not averaged away). The IPTV bitrate is measured on its own 1 s timer, so freezes of only a few seconds are logged with their exact start and length; the chart adds a *Lowest 1 s bitrate* line when a freeze is shorter than one chart point.
 - A timeline of the selected period, filterable by area or "only problems". Click an event to zoom the charts to that moment.
+- **When do problems happen**: problems per hour of the day. An evening peak points at an overloaded ISP network.
+- **⚑ Problem now**: click it when the TV freezes or the Internet is slow. The mark goes on the timeline, and the analysis tells you whether the router measured anything at that moment. If not, the cause is probably the decoder, the TV, Wi-Fi, or the IPTV device is set wrong.
+- **Report for the ISP**: a printable summary of the selected period (outages, freezes with total/longest duration, session drops, verdict, problems by hour, event log). Print it or save it as PDF and attach it to your complaint.
 - Export buttons: measurements CSV (one row per interval) and timeline CSV.
 
 **Status → ISP Tester → Settings** holds all thresholds, ping targets, the IPTV device and the list of ports.
@@ -69,6 +77,15 @@ The panel looks at what happened **at the same time** (within 30 s) in the selec
 | IPTV freezes at a regular interval (e.g. every ~125 s or ~260 s) | IGMP timeout, i.e. router configuration (querier / snooping / proxy) |
 | IPTV freeze with nothing else happening, measured on the ISP VLAN | ISP multicast side (less often IGMP) |
 | IPTV freeze with nothing else happening, measured on the decoder port | router (IGMP snooping / querier) |
+| IPTV freeze while the router stayed subscribed to the channel | ISP multicast side |
+| IPTV freeze that started with the IGMP membership being dropped | IGMP timeout on the router / switch |
+| Freeze period matches the bridge's IGMP membership or query interval | IGMP timer, i.e. router configuration (stronger) |
+| IPTV interruption with a different group after it | channel change: ignored |
+| Multicast proxy stopped or restarted | router |
+| PPPoE/DHCP session dropped while the WAN link stayed up | ISP |
+| DNS failing while ping works | DNS server (ISP's, if you set it) |
+| Problems while the router CPU / RAM / connection table was overloaded | router |
+| Your "Problem now" reports with / without anything measured around them | context (no weight) |
 | LAN link drops, CRC errors, renegotiation to 100 Mbit/s | cabling / devices at home |
 | IGMP snooping on, querier off (with freezes) | router configuration |
 
@@ -77,6 +94,14 @@ Each finding is weighted (repeated occurrences count up to 5×). The verdict is 
 ## Data storage
 
 Everything is kept in RAM in `/tmp/isp-tester/`, so flash is never written. The data survives a collector restart (e.g. after saving settings) but is lost on reboot, so download the CSVs before restarting the router.
+
+To keep it across reboots, set **Settings → General → Keep logs on** to a folder on a USB stick (e.g. `/mnt/sda1`). The timeline, 24 h history and CSV are copied there every 15 min and when the service stops (reboot), and restored at start when `/tmp` is empty. Do not point it at the internal flash.
+
+## Notifications and syslog
+
+**Settings → Notifications** sends a push message when something breaks and when it is fixed: [ntfy](https://ntfy.sh) (topic URL), a Telegram bot (token + chat id) or any webhook (JSON POST `{"text": …}`). Events are batched (default at most one message per 5 min). Messages that cannot be sent during an outage are sent when the Internet is back. Messages are in English or Polish. It uses `uclient-fetch` (part of OpenWrt) with HTTPS support.
+
+**Write problems to the system log** sends warnings and faults to `logread` and, if configured in *System → Logging*, to a remote syslog server.
 
 | File | Content |
 |------|---------|
@@ -171,6 +196,8 @@ ISP_TESTER_RUNDIR=/tmp/t/run ISP_TESTER_SYSNET=/tmp/t/sys \
 ISP_TESTER_CONFIG=/tmp/t/cfg.json ISP_TESTER_PING=/tmp/t/ping.sh \
 ISP_TESTER_ROUTE=/tmp/t/route ucode root/usr/share/isp-tester/collector.uc
 ```
+
+Further overrides: `ISP_TESTER_PROC` (fake `/proc` with `stat`, `meminfo`, `net/igmp`, `<pid>/comm` …), `ISP_TESTER_WANSTATUS` (JSON file instead of `ubus call network.interface.wan status`), `ISP_TESTER_NSLOOKUP`, `ISP_TESTER_LOGGER`, `ISP_TESTER_FETCH`, `ISP_TESTER_BRIDGE`.
 
 `ISP_TESTER_CONFIG` is a JSON file with the same keys as the UCI config (see `default_config()` in the collector).
 
