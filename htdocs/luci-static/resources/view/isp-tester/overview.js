@@ -788,12 +788,12 @@ return view.extend({
 
 		var hasData = t.some(function(ts) { return ts >= w.from && ts <= w.to; });
 
+		/* dom.append does not flatten nested arrays: an array child would be stringified to "[object HTMLDivElement],…" */
 		return E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('History')),
-			this.renderNav(),
-			hasData ? out : E('div', { 'class': 'ispt-muted' },
-				t.length ? _('No data for this period (data is kept in RAM for up to 24 h and is lost on reboot).') : _('Collecting data…'))
-		]);
+			this.renderNav()
+		].concat(hasData ? out : [ E('div', { 'class': 'ispt-muted' },
+			t.length ? _('No data for this period (data is kept in RAM for up to 24 h and is lost on reboot).') : _('Collecting data…')) ]));
 	},
 
 	/* ---- timeline */
