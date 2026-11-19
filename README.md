@@ -165,6 +165,10 @@ apk add --allow-untrusted /tmp/isp-tester-pl.apk
 
 `--allow-untrusted` is needed because the package is not signed with an OpenWrt key.
 
+### Updating
+
+Settings → **Updates** → *Check for updates*. The newest GitHub release is looked up, and a button installs it (`opkg` or `apk` is detected automatically). The packages are downloaded from the release and verified against its `SHA256SUMS` before installing. Needs internet access from the router and `ca-bundle`.
+
 ### Build it yourself
 
 In the OpenWrt SDK:

@@ -1221,3 +1221,72 @@ msgstr "Pomiar na"
 
 msgid "VLAN %d on %s"
 msgstr "VLAN %d na %s"
+
+msgid "Updates"
+msgstr "Aktualizacje"
+
+msgid "Installs the newest release from GitHub (checksum verified)."
+msgstr "Instaluje najnowsze wydanie z GitHuba (z weryfikacją sumy kontrolnej)."
+
+msgid "Plugin update"
+msgstr "Aktualizacja wtyczki"
+
+msgid "Press the button to look for a newer release on GitHub."
+msgstr "Naciśnij przycisk, aby sprawdzić nowsze wydanie na GitHubie."
+
+msgid "Check for updates"
+msgstr "Sprawdź aktualizacje"
+
+msgid "No package manager (opkg / apk) found."
+msgstr "Nie znaleziono menedżera pakietów (opkg / apk)."
+
+msgid "Cannot reach GitHub. Check the internet connection (the ca-bundle package is needed for HTTPS)."
+msgstr "Brak połączenia z GitHubem. Sprawdź internet (do HTTPS potrzebny jest pakiet ca-bundle)."
+
+msgid "Unexpected answer from GitHub."
+msgstr "Nieoczekiwana odpowiedź GitHuba."
+
+msgid "An update is already running."
+msgstr "Aktualizacja jest już w toku."
+
+msgid "Download failed."
+msgstr "Pobieranie nie powiodło się."
+
+msgid "Checksum mismatch – the update was not installed."
+msgstr "Błędna suma kontrolna – aktualizacja nie została zainstalowana."
+
+msgid "Installation failed (see opkg / apk output on the router)."
+msgstr "Instalacja nie powiodła się (sprawdź komunikaty opkg / apk na routerze)."
+
+msgid "Unknown error"
+msgstr "Nieznany błąd"
+
+msgid "Updated to %s. Reloading…"
+msgstr "Zaktualizowano do %s. Przeładowuję…"
+
+msgid "The update takes unusually long. Reload the page later."
+msgstr "Aktualizacja trwa nietypowo długo. Przeładuj stronę później."
+
+msgid "Downloading and installing %s…"
+msgstr "Pobieranie i instalacja %s…"
+
+msgid "Checking…"
+msgstr "Sprawdzam…"
+
+msgid "You have the newest version (%s)."
+msgstr "Masz najnowszą wersję (%s)."
+
+msgid "Release %s has no package for this router."
+msgstr "Wydanie %s nie zawiera pakietu dla tego routera."
+
+msgid "New version %s is available (installed: %s)."
+msgstr "Dostępna nowa wersja %s (zainstalowana: %s)."
+
+msgid "Release page"
+msgstr "Strona wydania"
+
+msgid "Install %s"
+msgstr "Zainstaluj %s"
+
+msgid "An update is running…"
+msgstr "Aktualizacja w toku…"

@@ -52,6 +52,8 @@ var CSS = [
 	'.ispt-dot{display:inline-block;width:.8em;height:.8em;border-radius:50%;vertical-align:middle;margin-right:.35em;flex:none}',
 	'.ispt-dot.big{width:2em;height:2em;margin:0}',
 	'.ispt-ok{background:#2e9d4f}.ispt-warn{background:#e0a100}.ispt-fail{background:#d64541}.ispt-unknown{background:#999}',
+	'.ispt-dot.ispt-ok{background:url(data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2024%2024%22%3E%3Cpath%20d=%22M4%2012.5l5%205L20%206.5%22%20fill=%22none%22%20stroke=%22%232e9d4f%22%20stroke-width=%223.5%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22/%3E%3C/svg%3E) center/contain no-repeat;border-radius:0}',
+	'.ispt-dot.ispt-fail{background:url(data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2024%2024%22%3E%3Cpath%20d=%22M6%206l12%2012M18%206L6%2018%22%20fill=%22none%22%20stroke=%22%23d64541%22%20stroke-width=%223.5%22%20stroke-linecap=%22round%22/%3E%3C/svg%3E) center/contain no-repeat;border-radius:0}',
 	'.ispt-pulse{animation:ispt-pulse 1.2s ease-in-out infinite}',
 	'@keyframes ispt-pulse{0%,100%{opacity:1}50%{opacity:.35}}',
 	'.ispt-cards{display:flex;flex-wrap:wrap;gap:1em;margin-bottom:1em}',

@@ -4,6 +4,7 @@
 'require tools.widgets as widgets';
 'require rpc';
 'require ui';
+'require dom';
 
 var callTestNotify = rpc.declare({
 	object: 'luci.isp_tester',
@@ -11,12 +12,150 @@ var callTestNotify = rpc.declare({
 	expect: { '': {} }
 });
 
+var callUpdateCheck = rpc.declare({
+	object: 'luci.isp_tester',
+	method: 'update_check',
+	expect: { '': {} }
+});
+
+var callUpdateStatus = rpc.declare({
+	object: 'luci.isp_tester',
+	method: 'update_status',
+	expect: { '': {} }
+});
+
+var callUpdateApply = rpc.declare({
+	object: 'luci.isp_tester',
+	method: 'update_apply',
+	params: [ 'tag' ],
+	expect: { '': {} }
+});
+
+function updateError(code) {
+	switch (code) {
+	case 'no_pkg_manager': return _('No package manager (opkg / apk) found.');
+	case 'fetch_failed':   return _('Cannot reach GitHub. Check the internet connection (the ca-bundle package is needed for HTTPS).');
+	case 'bad_response':   return _('Unexpected answer from GitHub.');
+	case 'busy':           return _('An update is already running.');
+	case 'download':       return _('Download failed.');
+	case 'checksum':       return _('Checksum mismatch – the update was not installed.');
+	case 'install':        return _('Installation failed (see opkg / apk output on the router).');
+	default:               return code || _('Unknown error');
+	}
+}
+
+function renderUpdates() {
+	var box = E('div', { 'class': 'cbi-section-descr' });
+	var info = E('div', { 'style': 'margin:.4em 0' }, _('Press the button to look for a newer release on GitHub.'));
+	var btn = E('button', { 'class': 'cbi-button cbi-button-action' }, _('Check for updates'));
+	var tag = null;
+
+	function note(text, cls) {
+		dom.content(info, [ E('span', { 'class': cls || '' }, text) ]);
+	}
+
+	function poll(n) {
+		return callUpdateStatus().then(function(st) {
+			if (st.state == 'done') {
+				note(_('Updated to %s. Reloading…').format(st.msg), 'ispt-update-ok');
+				window.setTimeout(function() { window.location.reload(true); }, 4000);
+			}
+			else if (st.state == 'error') {
+				note(updateError(st.msg), 'ispt-update-err');
+				btn.disabled = false;
+			}
+			else if (n > 90) {
+				note(_('The update takes unusually long. Reload the page later.'), 'ispt-update-err');
+				btn.disabled = false;
+			}
+			else {
+				window.setTimeout(function() { poll(n + 1); }, 2000);
+			}
+		}).catch(function() {
+			/* rpcd restarts while the package is installed */
+			window.setTimeout(function() { poll(n + 1); }, 2000);
+		});
+	}
+
+	function apply() {
+		btn.disabled = true;
+		note(_('Downloading and installing %s…').format(tag));
+		return callUpdateApply(tag).then(function(r) {
+			if (!r.result) {
+				note(updateError(r.error), 'ispt-update-err');
+				btn.disabled = false;
+				return;
+			}
+			poll(0);
+		});
+	}
+
+	function check() {
+		btn.disabled = true;
+		note(_('Checking…'));
+		return callUpdateCheck().then(function(r) {
+			btn.disabled = false;
+			if (r.error) {
+				note(updateError(r.error), 'ispt-update-err');
+				return;
+			}
+			if (!r.available) {
+				note(_('You have the newest version (%s).').format(r.current || r.latest));
+				return;
+			}
+			if (!r.has_asset) {
+				note(_('Release %s has no package for this router.').format(r.latest), 'ispt-update-err');
+				return;
+			}
+			tag = r.tag;
+			dom.content(info, [
+				E('div', {}, _('New version %s is available (installed: %s).').format(r.latest, r.current || '?')),
+				r.notes ? E('pre', { 'style': 'white-space:pre-wrap;max-height:12em;overflow:auto;margin:.4em 0' }, r.notes) : '',
+				E('a', { 'href': r.url, 'target': '_blank', 'rel': 'noreferrer' }, _('Release page'))
+			]);
+			btn.textContent = _('Install %s').format(r.latest);
+			btn.className = 'cbi-button cbi-button-positive';
+			btn.onclick = ui.createHandlerFn(null, apply);
+		});
+	}
+
+	btn.onclick = ui.createHandlerFn(null, check);
+
+	/* pick up an update that is already running (e.g. page reloaded) */
+	callUpdateStatus().then(function(st) {
+		if (st.state == 'running' && Date.now() / 1000 - st.ts < 300) {
+			btn.disabled = true;
+			note(_('An update is running…'));
+			poll(0);
+		}
+	});
+
+	box.appendChild(info);
+	box.appendChild(btn);
+	return box;
+}
+
+var UPD_CSS = E('style', {}, '.ispt-update-ok{color:#2e9d4f;font-weight:bold}.ispt-update-err{color:#d64541;font-weight:bold}');
+
 return view.extend({
 	render: function() {
 		var m, s, o;
 
 		m = new form.Map('isp_tester', _('ISP Tester – Settings'),
 			_('Changes are applied immediately after “Save & Apply”; the collector restarts, keeping the timeline (charts start over).'));
+
+		/* ---- updates */
+		s = m.section(form.NamedSection, 'general', 'general', _('Updates'),
+			_('Installs the newest release from GitHub (checksum verified).'));
+		o = s.option(form.DummyValue, '_update', _('Plugin update'));
+		o.rawhtml = true;
+		o.cfgvalue = function() { return null; };
+		o.render = function() {
+			return E('div', { 'class': 'cbi-value' }, [
+				E('label', { 'class': 'cbi-value-title' }, _('Plugin update')),
+				E('div', { 'class': 'cbi-value-field' }, renderUpdates())
+			]);
+		};
 
 		/* ---- general */
 		s = m.section(form.NamedSection, 'general', 'general', _('General'));
@@ -277,6 +416,6 @@ return view.extend({
 		o.editable = true;
 		o.rmempty = false;
 
-		return m.render();
+		return m.render().then(function(n) { n.insertBefore(UPD_CSS, n.firstChild); return n; });
 	}
 });

@@ -14,7 +14,7 @@ LUCI_DESCRIPTION:=Logs WAN, IPTV and switch-port faults as a timeline \
 	(luci-app-statistics), session state from netifd, plus IGMP state, \
 	interface counters and the system log.
 LUCI_DEPENDS:=+luci-base +rpcd-mod-ucode +ucode +ucode-mod-fs +ucode-mod-uloop +ip-bridge \
-	+ucode-mod-uci +ucode-mod-ubus +ucode-mod-socket
+	+ucode-mod-uci +ucode-mod-ubus +ucode-mod-socket +ca-bundle
 LUCI_PKGARCH:=all
 
 define Package/luci-app-isp-tester/conffiles
