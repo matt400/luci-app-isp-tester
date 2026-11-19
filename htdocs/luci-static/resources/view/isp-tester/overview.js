@@ -5,7 +5,6 @@
 'require fs';
 'require ui';
 'require dom';
-'require uci';
 'require isp_tester.diagnose as diagnose';
 
 var callStatus = rpc.declare({
@@ -27,11 +26,11 @@ var callClear = rpc.declare({
 	expect: { result: false }
 });
 
-var callInitAction = rpc.declare({
-	object: 'luci',
-	method: 'setInitAction',
-	params: [ 'name', 'action' ],
-	expect: { result: false }
+var callSetEnabled = rpc.declare({
+	object: 'luci.isp_tester',
+	method: 'set_enabled',
+	params: [ 'enabled' ],
+	expect: { '': {} }
 });
 
 var CSS = [
@@ -440,8 +439,7 @@ return view.extend({
 	minHist: null,
 
 	load: function() {
-		return Promise.all([ callStatus(), callEvents(200, ''), readJson('/tmp/isp-tester/events.json'), readJson('/tmp/isp-tester/history.json'),
-			uci.load('isp_tester').catch(function() {}) ]);
+		return Promise.all([ callStatus(), callEvents(200, ''), readJson('/tmp/isp-tester/events.json'), readJson('/tmp/isp-tester/history.json') ]);
 	},
 
 	/* ---- time window */
@@ -544,21 +542,31 @@ return view.extend({
 	renderBanner: function(res) {
 		var st = res.state;
 
+		if (!res.enabled) {
+			return E('div', { 'class': 'ispt-banner ispt-bg-unknown' }, [
+				dot('unknown', true),
+				E('div', {}, [
+					E('div', { 'class': 'big' }, _('Monitoring is turned off')),
+					E('div', { 'class': 'sub' }, _('Nothing is measured or logged. The data collected so far stays available until reboot.'))
+				]),
+				E('div', { 'class': 'meta' }, E('button', {
+					'class': 'cbi-button cbi-button-positive',
+					'click': ui.createHandlerFn(this, 'toggleEnabled', true)
+				}, _('Turn on')))
+			]);
+		}
+
 		if (!res.running) {
 			return E('div', { 'class': 'ispt-banner ispt-bg-fail' }, [
 				dot('fail', true),
 				E('div', {}, [
 					E('div', { 'class': 'big' }, _('Monitoring is not running')),
-					E('div', { 'class': 'sub' }, _('Nothing is being logged right now.'))
+					E('div', { 'class': 'sub' }, _('It is turned on but the collector is not running – see the system log (logread -e isp-tester).'))
 				]),
 				E('div', { 'class': 'meta' }, E('button', {
 					'class': 'cbi-button cbi-button-positive',
-					'click': ui.createHandlerFn(this, function() {
-						return callInitAction('isp_tester', 'enable')
-							.then(function() { return callInitAction('isp_tester', 'start'); })
-							.then(function() { window.setTimeout(function() { location.reload(); }, 2000); });
-					})
-				}, _('Start monitoring')))
+					'click': ui.createHandlerFn(this, 'toggleEnabled', true)
+				}, _('Restart')))
 			]);
 		}
 
@@ -823,7 +831,10 @@ return view.extend({
 		return E('div', { 'class': 'ispt-actions' }, [
 			E('button', { 'class': 'cbi-button cbi-button-action', 'click': ui.createHandlerFn(this, 'exportSamples') }, _('Download measurements (CSV)')),
 			E('button', { 'class': 'cbi-button cbi-button-action', 'click': ui.createHandlerFn(this, 'exportEvents') }, _('Download timeline (CSV)')),
-			E('button', { 'class': 'cbi-button cbi-button-negative', 'click': function() { self.confirmClear(); } }, _('Clear logs'))
+			E('button', { 'class': 'cbi-button cbi-button-negative', 'click': function() { self.confirmClear(); } }, _('Clear logs')),
+			(this.last && this.last[0] && this.last[0].enabled)
+				? E('button', { 'class': 'cbi-button', 'style': 'margin-left:auto', 'click': ui.createHandlerFn(this, 'toggleEnabled', false) }, _('Turn monitoring off'))
+				: ''
 		]);
 	},
 
@@ -842,6 +853,18 @@ return view.extend({
 				lines.push([ fmtTime(e.ts), e.lvl, e.area, e.src, e.type, eventText(e) ].map(csvCell).join(','));
 			});
 			download('isp-tester-events-' + stamp() + '.csv', lines.join('\n') + '\n');
+		});
+	},
+
+	toggleEnabled: function(on) {
+		var self = this;
+		return callSetEnabled(on).then(function(r) {
+			return callStatus().then(function(st) {
+				self.last = [ st, self.last[1] ];
+				self.redraw();
+			});
+		}).catch(function(e) {
+			ui.addNotification(null, E('p', _('Unable to change monitoring state: %s').format(e.message)), 'error');
 		});
 	},
 
@@ -870,8 +893,7 @@ return view.extend({
 
 		var parts = [ this.renderBanner(res) ];
 		if (st) {
-			if (uci.get('isp_tester', 'general', 'diagnosis') !== '0')
-				parts.push(this.renderDiagnosis(st, w));
+			parts.push(this.renderDiagnosis(st, w));
 			parts.push(E('div', { 'class': 'ispt-cards' }, [ this.renderWan(st), this.renderIptv(st), this.renderPorts(st) ]));
 			parts.push(this.renderCharts(st, w));
 		}

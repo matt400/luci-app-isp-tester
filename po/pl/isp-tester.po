@@ -166,12 +166,6 @@ msgstr "Heurystyka oparta na tym, co działo się w tym samym czasie – traktuj
 msgid "Monitoring is not running"
 msgstr "Monitorowanie nie działa"
 
-msgid "Nothing is being logged right now."
-msgstr "W tej chwili nic nie jest logowane."
-
-msgid "Start monitoring"
-msgstr "Uruchom monitorowanie"
-
 msgid "Waiting for the first measurement…"
 msgstr "Czekam na pierwszy pomiar…"
 
@@ -601,9 +595,27 @@ msgstr "Ustawienia"
 msgid "Grant access to ISP Tester"
 msgstr "Dostęp do ISP Tester"
 
-msgid "Show “Probable cause” panel"
-msgstr "Pokazuj panel „Prawdopodobna przyczyna”"
+msgid "Monitoring is turned off"
+msgstr "Monitorowanie jest wyłączone"
 
-msgid "Heuristic verdict whether problems come from the ISP or from your side. Only affects the overview page."
-msgstr "Heurystyczna ocena, czy problemy są po stronie operatora, czy po Twojej. Dotyczy tylko strony przeglądu."
+msgid "Nothing is measured or logged. The data collected so far stays available until reboot."
+msgstr "Nic nie jest mierzone ani logowane. Zebrane dotąd dane są dostępne do restartu routera."
+
+msgid "Turn on"
+msgstr "Włącz"
+
+msgid "It is turned on but the collector is not running – see the system log (logread -e isp-tester)."
+msgstr "Jest włączone, ale kolektor nie działa – sprawdź log systemowy (logread -e isp-tester)."
+
+msgid "Restart"
+msgstr "Uruchom ponownie"
+
+msgid "Turn monitoring off"
+msgstr "Wyłącz monitorowanie"
+
+msgid "Unable to change monitoring state: %s"
+msgstr "Nie można zmienić stanu monitorowania: %s"
+
+msgid "Turns the whole package on or off, including start at boot. Can also be switched on the overview page."
+msgstr "Włącza lub wyłącza cały pakiet, także uruchamianie przy starcie. Można to też przełączyć na stronie przeglądu."
 

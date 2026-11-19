@@ -2,6 +2,7 @@
 'use strict';
 
 import { readfile, writefile, stat, mkdir } from 'fs';
+import { cursor } from 'uci';
 
 const RUNDIR = '/tmp/isp-tester';
 
@@ -9,6 +10,11 @@ function read_json(name, dflt) {
 	let data = readfile(`${RUNDIR}/${name}`);
 	if (data == null) return dflt;
 	try { return json(data); } catch (e) { return dflt; }
+}
+
+function is_enabled() {
+	let v = cursor().get('isp_tester', 'general', 'enabled');
+	return v == null || v == '1';
 }
 
 function service_running() {
@@ -23,6 +29,7 @@ return {
 			call: function() {
 				let st = read_json('state.json', null);
 				return {
+					enabled: is_enabled(),
 					running: service_running(),
 					state: st
 				};
@@ -43,6 +50,22 @@ return {
 						push(out, ev[i]);
 
 				return { events: out, total: length(ev) };
+			}
+		},
+
+		/* turn the whole monitor on/off; the init script honours the flag at boot too */
+		set_enabled: {
+			args: { enabled: false },
+			call: function(req) {
+				let on = !!req.args.enabled;
+				let c = cursor();
+				c.set('isp_tester', 'general', 'enabled', on ? '1' : '0');
+				c.commit('isp_tester');
+				if (on)
+					system('/etc/init.d/isp_tester enable; /etc/init.d/isp_tester restart >/dev/null 2>&1');
+				else
+					system('/etc/init.d/isp_tester stop >/dev/null 2>&1');
+				return { result: true, enabled: on, running: service_running() };
 			}
 		},
 

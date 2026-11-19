@@ -13,12 +13,8 @@ return view.extend({
 		/* ---- general */
 		s = m.section(form.NamedSection, 'general', 'general', _('General'));
 
-		o = s.option(form.Flag, 'enabled', _('Enable monitoring'));
-		o.default = '1';
-		o.rmempty = false;
-
-		o = s.option(form.Flag, 'diagnosis', _('Show “Probable cause” panel'),
-			_('Heuristic verdict whether problems come from the ISP or from your side. Only affects the overview page.'));
+		o = s.option(form.Flag, 'enabled', _('Enable monitoring'),
+			_('Turns the whole package on or off, including start at boot. Can also be switched on the overview page.'));
 		o.default = '1';
 		o.rmempty = false;
 
