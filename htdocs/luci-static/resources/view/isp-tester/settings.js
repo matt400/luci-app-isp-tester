@@ -426,6 +426,35 @@ return view.extend({
 		o.datatype = 'range(0,100)';
 		o.placeholder = '90';
 
+		/* ---- second router */
+		s = m.section(form.NamedSection, 'peer', 'peer', _('Second router'),
+			_('Two routers, one timeline: a router behind this one (e.g. an access point with a decoder, a phone or the TV behind it) sends every event it logs to the main router, which shows them on its timeline marked with the sender\'s name and uses them in the analysis. Install the package on both, choose “Send” on the second one and “Receive” on the main one, with the same key. Over UDP, signed with the key (HMAC-SHA256); events that cannot be delivered are sent again.'));
+
+		o = s.option(form.ListValue, 'role', _('This router'));
+		o.value('off', _('Works alone'));
+		o.value('send', _('Sends its events to the main router'));
+		o.value('receive', _('Receives the events of a second router'));
+		o.default = 'off';
+
+		o = s.option(form.Value, 'host', _('Address of the main router'),
+			_('IPv4 address of the router that receives, e.g. <code>192.168.1.1</code>.'));
+		o.datatype = 'ip4addr("nomask")';
+		o.depends('role', 'send');
+
+		o = s.option(form.Value, 'port', _('UDP port'),
+			_('The same on both routers. The receiver listens on it; the LAN zone of the firewall accepts it by default (input ACCEPT).'));
+		o.datatype = 'port';
+		o.placeholder = '51477';
+		o.depends('role', 'send');
+		o.depends('role', 'receive');
+
+		o = s.option(form.Value, 'key', _('Key'),
+			_('The same secret on both routers, at least 8 characters. Messages signed with another key are ignored.'));
+		o.password = true;
+		o.datatype = 'minlength(8)';
+		o.depends('role', 'send');
+		o.depends('role', 'receive');
+
 		/* ---- notifications */
 		s = m.section(form.NamedSection, 'notify', 'notify', _('Notifications'),
 			_('Push a message to your phone when something breaks. Messages that cannot be sent during an outage are sent when the Internet is back.'));

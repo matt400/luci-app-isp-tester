@@ -140,9 +140,6 @@ msgstr ""
 msgid "%s: high jitter %s (ping %s)"
 msgstr ""
 
-msgid "%s: high latency %s"
-msgstr ""
-
 msgid "%s: not responding (%d%% loss)"
 msgstr ""
 
@@ -1449,4 +1446,136 @@ msgid "the measuring helper does not respond"
 msgstr ""
 
 msgid "the measuring helper stopped, restarting"
+msgstr ""
+
+msgid "%d of %d IPTV freezes seen by %s did not happen here – the stream is lost between the routers (cable, the second router, its Wi-Fi or switch), not at the ISP."
+msgstr ""
+
+msgid "Router %s stopped reporting %d× – switched off, rebooted or the cable between the routers."
+msgstr ""
+
+msgid "Router %s has not reported for %s (switched off, rebooting or the cable between the routers)"
+msgstr ""
+
+msgid "Router %s reports: %s"
+msgstr ""
+
+msgid "Router %s stopped reporting"
+msgstr ""
+
+msgid "Router %s reports again after %s"
+msgstr ""
+
+msgid "Logged by router %s"
+msgstr ""
+
+msgid "%s: not reporting"
+msgstr ""
+
+msgid "Reports"
+msgstr ""
+
+msgid "%s ago from %s"
+msgstr ""
+
+msgid "nothing for %s (last from %s)"
+msgstr ""
+
+msgid "Monitoring for"
+msgstr ""
+
+msgid "Clock"
+msgstr ""
+
+msgid "off by %d s – its events are moved to this router's time"
+msgstr ""
+
+msgid "Router %s"
+msgstr ""
+
+msgid "Its events are on the timeline below, marked with its name."
+msgstr ""
+
+msgid "Second router"
+msgstr ""
+
+msgid "%s (its events are included, marked with its name)"
+msgstr ""
+
+msgid "All routers"
+msgstr ""
+
+msgid "This router"
+msgstr ""
+
+msgid "no key set (at least 8 characters)"
+msgstr ""
+
+msgid "the address of the main router is not a valid IPv4 address"
+msgstr ""
+
+msgid "the ucode-mod-digest package is missing"
+msgstr ""
+
+msgid "the ucode-mod-socket package is missing"
+msgstr ""
+
+msgid "cannot open a socket"
+msgstr ""
+
+msgid "UDP port %d is in use"
+msgstr ""
+
+msgid "no answer – check the address, the key and that the main router receives"
+msgstr ""
+
+msgid "sending events to %s: %s"
+msgstr ""
+
+msgid "sending events to %s (waiting for the first confirmation)"
+msgstr ""
+
+msgid "sending events to %s (last confirmed %s ago%s)"
+msgstr ""
+
+msgid "%d waiting"
+msgstr ""
+
+msgid "receiving events: %s"
+msgstr ""
+
+msgid "receiving events of the second router on UDP port %d"
+msgstr ""
+
+msgid "%d messages with a wrong key (last from %s)"
+msgstr ""
+
+msgid "Two routers, one timeline: a router behind this one (e.g. an access point with a decoder, a phone or the TV behind it) sends every event it logs to the main router, which shows them on its timeline marked with the sender's name and uses them in the analysis. Install the package on both, choose “Send” on the second one and “Receive” on the main one, with the same key. Over UDP, signed with the key (HMAC-SHA256); events that cannot be delivered are sent again."
+msgstr ""
+
+msgid "Works alone"
+msgstr ""
+
+msgid "Sends its events to the main router"
+msgstr ""
+
+msgid "Receives the events of a second router"
+msgstr ""
+
+msgid "Address of the main router"
+msgstr ""
+
+msgid "IPv4 address of the router that receives, e.g. <code>192.168.1.1</code>."
+msgstr ""
+
+msgid "UDP port"
+msgstr ""
+
+msgid "The same on both routers. The receiver listens on it; the LAN zone of the firewall accepts it by default (input ACCEPT)."
+msgstr ""
+
+msgid "Key"
+msgstr ""
+
+msgid "The same secret on both routers, at least 8 characters. Messages signed with another key are ignored."
 msgstr ""

@@ -40,6 +40,7 @@ Target: **OpenWrt 24.10 and 25.12** (ucode + rpcd + LuCI JS). No compiled code, 
 | **Ports** | `/sys/class/net/<dev>` counters and link state | link down/up, link flapping between samples, speed change (e.g. 1 Gbit → 100 Mbit), RX/TX/CRC errors, drops |
 | **Router** | `/proc`: CPU per core (incl. softirq), RAM, connection tracking table. Only read to explain problems; for graphs use *Status → Realtime Graphs* or luci-app-statistics | router overloaded, low RAM, connection table full |
 | **You** | **⚑ Problem now** button | your report with the time of the click and an optional note |
+| **Second router** (optional) | Events of a router behind this one (access point with a decoder, phone, TV), sent over UDP | everything that router logs, on the same timeline marked with its name; *router stopped reporting* / *reports again* |
 
 Optionally it shows whether **IGMP snooping** and the **querier** are active on a bridge, and which group goes to which bridge port (needs `ip-bridge`).
 
@@ -111,6 +112,22 @@ Everything is kept in RAM in `/tmp/isp-tester/`, so flash is never written. The 
 
 To keep it across reboots, mount a USB stick (*System → Mount Points*) and set **Settings → General → Keep data on** to it (e.g. `/mnt/sda1`). `/tmp/isp-tester` then becomes a link to `<folder>/isp-tester`. If the stick is not mounted at start, the data stays in RAM. Do not point it at the internal flash. The current state (`state.json`) always stays in RAM in `/var/run/isp-tester/`.
 
+## Two routers, one timeline
+
+When the decoder, the phone or the TV sit behind a second router (e.g. an access point on a LAN port of the main router), each router only sees itself: the main one sees the ISP, the second one sees the devices. Install the package on both and let the second one send its events to the main one:
+
+1. On the main router: *Settings → Second router → This router: Receives the events of a second router*, set a key (at least 8 characters).
+2. On the second router: *Sends its events to the main router*, the main router's IPv4 address and the same key.
+
+What you get on the main router:
+
+- Every event of the second router appears on the timeline with its name in front (*M477S · Ports: lan1 link DOWN*). The timeline can be filtered by router; the report for the ISP includes them.
+- A card shows the second router's state (its ports and IPTV), refreshed every interval. If it stops reporting for a minute (off, rebooting, the cable between the routers), that is logged and the banner turns yellow.
+- The analysis uses its ports and your reports there as evidence for the home side, and points out IPTV freezes that the second router saw but the main router (nearer the ISP) did not: the stream was lost between the routers.
+- Notifications of the main router include the second router's events.
+
+How it works: UDP (default port 51477), one JSON message per datagram, signed with HMAC-SHA256 of the shared key; messages with another key are ignored and counted. The receiver confirms what it stored; anything unconfirmed is sent again every interval (up to 300 events are kept), so a short outage of the main router loses nothing. If the second router's clock is off by more than 5 s, its events are moved to the main router's time. The LAN zone of the default firewall accepts the port; if the second router is in another zone, open UDP 51477 on the main router for it. Only IPv4 addresses are used, so nothing needs to be resolved at boot.
+
 ## Notifications
 
 **Settings → Notifications** sends a push message when something breaks and when it is fixed: [ntfy](https://ntfy.sh) (topic URL), a Telegram bot (token + chat id) or any webhook (JSON POST `{"text": …}`). Events are batched (default at most one message per 5 min). Messages that cannot be sent during an outage are sent when the Internet is back. Messages are in English or Polish. It uses `uclient-fetch` (part of OpenWrt) with HTTPS support.
@@ -122,6 +139,7 @@ To keep it across reboots, mount a USB stick (*System → Mount Points*) and set
 | `events.json` | timeline (ring buffer, default 1000 entries) |
 | `samples.csv` | one row per interval (ring buffer, default 8640 rows = 24 h at 10 s) |
 | `samples.prev.csv` | previous CSV after the column layout changed (config change) |
+| `/var/run/isp-tester/peers.json` | receiver: last event number stored per second router (always RAM) |
 
 ## Choosing what to measure IPTV on
 

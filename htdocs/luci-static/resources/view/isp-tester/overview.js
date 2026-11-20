@@ -110,7 +110,8 @@ var CSS = [
 	'.ispt-markbtn{font-weight:bold}',
 	'.ispt-choices{display:flex;flex-wrap:wrap;gap:.5em;margin:.6em 0}',
 	'.ispt-groups{font-family:monospace;font-size:.9em}',
-	'.ispt-warn-text{color:#d64541;font-weight:bold}'
+	'.ispt-warn-text{color:#d64541;font-weight:bold}',
+	'.ispt-host{display:inline-block;font-size:.8em;padding:0 .45em;margin-right:.35em;border-radius:1em;background:rgba(59,111,192,.18);white-space:nowrap}'
 ].join('\n');
 
 var COLORS = [ '#3b82c4', '#d4774a', '#7a59c0', '#2e9d8f', '#c44b8a', '#8a9a2e' ];
@@ -215,6 +216,8 @@ function reasonText(r) {
 	case 'ts_helper_stalled': return _('Picture quality: the measuring helper (isp-tester-tsmon) stopped, it is restarted automatically – see the system log.');
 	case 'ts_no_target':    return _('Picture quality: no IPTV interface to listen on (check the VLAN or device in Settings).');
 	case 'ts_drops':        return _('The router was too busy to count every IPTV packet in the last minutes, so some errors may be its own (see the IPTV card).');
+	case 'peer_offline':    return _('Router %s has not reported for %s (switched off, rebooting or the cable between the routers)').format(r.name, fmtDur(Date.now() / 1000 - r.since));
+	case 'peer_level':      return _('Router %s reports: %s').format(r.name, levelText(r.lvl === 'fail' ? 'fail' : 'warn').toLowerCase());
 	case 'vlan_vlan_not_found': return _('VLAN %d is not on any bridge port – check the VLAN number in Settings.').format(r.vlan);
 	case 'vlan_no_bridge_tool': return _('The bridge command is missing: install ip-bridge.');
 	case 'vlan_bridge_failed':
@@ -271,6 +274,8 @@ function eventText(e) {
 	case 'conntrack_full_ok': return _('Connection table OK again after %s').format(fmtDur(d.dur));
 	case 'user_mark':       return _('You reported: %s').format(markText(d.what)) + (d.note ? ' – „' + d.note + '”' : '');
 	case 'log':             return logText(d.kind) + ' – ' + d.prog + ': „' + d.msg + '”' + (d.n > 1 ? ' (%d×)'.format(d.n) : '');
+	case 'peer_lost':       return _('Router %s stopped reporting').format(e.src);
+	case 'peer_back':       return _('Router %s reports again after %s').format(e.src, fmtDur(d.dur));
 	default:                return e.type;
 	}
 }
@@ -303,6 +308,11 @@ function logText(k) {
 	case 'dns_limit':      return _('DNS server overloaded (query limit)');
 	default:               return _('System log');
 	}
+}
+
+/* events received from the second router carry its host name */
+function hostBadge(e) {
+	return e.host ? E('span', { 'class': 'ispt-host', 'title': _('Logged by router %s').format(e.host) }, e.host) : '';
 }
 
 /* the channel(s) being watched, stored with the event */
@@ -576,7 +586,7 @@ function readJson(path) {
 function mergeEvents(a, b) {
 	var seen = {}, out = [];
 	a.concat(b).forEach(function(e) {
-		var k = e.ts + '|' + e.type + '|' + e.src;
+		var k = e.ts + '|' + e.type + '|' + e.src + '|' + (e.host || '');
 		if (!seen[k]) { seen[k] = true; out.push(e); }
 	});
 	return out.sort(function(x, y) { return y.ts - x.ts; });
@@ -693,7 +703,8 @@ return view.extend({
 			bridge: br,
 			membership_interval: br && br.membership_interval,
 			query_interval: br && br.query_interval,
-			igmp: st.iptv && st.iptv.igmp
+			igmp: st.iptv && st.iptv.igmp,
+			iptv_on: !!st.iptv
 		});
 	},
 
@@ -741,6 +752,10 @@ return view.extend({
 		[ [ 'wan', st.wan ], [ 'iptv', st.iptv ], [ 'ports', st.ports ] ].forEach(function(a) {
 			if (a[1] && a[1].level && a[1].level !== 'ok')
 				problems.push(areaName(a[0]) + ': ' + levelText(a[1].level).toLowerCase());
+		});
+		((st.peers && st.peers.list) || []).forEach(function(p) {
+			if (!p.online && p.level === 'warn') problems.push(_('%s: not reporting').format(p.name));
+			else if (p.level === 'warn' || p.level === 'fail') problems.push(p.name + ': ' + levelText(p.level).toLowerCase());
 		});
 
 		var headline = (o === 'ok') ? _('Everything works')
@@ -959,6 +974,36 @@ return view.extend({
 		]);
 	},
 
+	/* the second router(s), from their status messages */
+	renderPeers: function(st) {
+		var pl = (st.peers && st.peers.list) || [];
+		return pl.map(function(p) {
+			var hb = p.hb || {}, kv = [];
+			kv.push(E('span', { 'class': 'k' }, _('Reports')), E('span', { 'class': p.online ? '' : 'ispt-warn-text' },
+				p.online ? _('%s ago from %s').format(fmtDur(Date.now() / 1000 - p.seen), p.addr || '?')
+					: _('nothing for %s (last from %s)').format(fmtDur(Date.now() / 1000 - p.seen), p.addr || '?')));
+			if (p.online && hb.up)
+				kv.push(E('span', { 'class': 'k' }, _('Monitoring for')), E('span', {}, fmtDur(Date.now() / 1000 - hb.up)));
+			if (p.off)
+				kv.push(E('span', { 'class': 'k' }, _('Clock')), E('span', { 'class': 'ispt-warn-text' },
+					_('off by %d s – its events are moved to this router\'s time').format(p.off)));
+			if (hb.iptv)
+				kv.push(E('span', { 'class': 'k' }, _('IPTV')), E('span', {}, [ dot(hb.iptv.lvl),
+					({ playing: _('Stream running'), stalled: _('STREAM STOPPED'), idle: _('No stream (decoder off?)') }[hb.iptv.state] || hb.iptv.state) +
+					(hb.iptv.kbps ? ' · ' + fmtRate(hb.iptv.kbps) : '') ]));
+			(hb.ports || []).forEach(function(x) {
+				kv.push(E('span', { 'class': 'k' }, x.label ? '%s (%s)'.format(x.label, x.dev) : x.dev),
+					E('span', {}, [ dot(x.lvl), x.up ? fmtSpeed(x.speed) : _('down') ]));
+			});
+			return E('div', { 'class': 'ispt-card l-' + lvl(p.level) }, [
+				E('h3', {}, [ _('Router %s').format(p.name), chip(p.level) ]),
+				E('div', { 'class': 'ispt-kv' }, kv),
+				E('div', { 'class': 'ispt-muted', 'style': 'font-size:.85em;margin-top:.4em' },
+					_('Its events are on the timeline below, marked with its name.'))
+			]);
+		});
+	},
+
 	disabledCard: function(title, hint) {
 		return E('div', { 'class': 'ispt-card l-unknown' }, [
 			E('h3', {}, [ title, chip('unknown') ]),
@@ -1010,6 +1055,8 @@ return view.extend({
 			/* stall periods come from the events: an idle decoder (0 kbit/s) is not a fault */
 			var evs = this.events().slice().sort(function(a, b) { return a.ts - b.ts; });
 			var stallBands = [];
+			/* this router's stream only (the second router measures its own) */
+			evs = evs.filter(function(e) { return !e.host; });
 			evs.forEach(function(e, i) {
 				if (e.type !== 'stream_stall') return;
 				var end = null;
@@ -1089,17 +1136,18 @@ return view.extend({
 		var w = this.win();
 		var r = this.analyze(st, w);
 		var evs = this.events().filter(function(e) { return e.ts >= w.from && e.ts <= w.to; }).sort(function(a, b) { return a.ts - b.ts; });
+		var own = evs.filter(function(e) { return !e.host; });
 
-		/* outage / freeze durations from start/end pairs */
+		/* outage / freeze durations from start/end pairs (this router's measurements) */
 		var sum = function(startType, endTypes) {
 			var n = 0, total = 0, longest = 0;
-			evs.forEach(function(e, i) {
+			own.forEach(function(e, i) {
 				if (e.type !== startType) return;
-				for (var j = i + 1; j < evs.length; j++)
-					if (endTypes.indexOf(evs[j].type) >= 0) {
+				for (var j = i + 1; j < own.length; j++)
+					if (endTypes.indexOf(own[j].type) >= 0) {
 						/* a channel change is not a freeze */
-						if (evs[j].d && evs[j].d.igmp === 'zap') return;
-						var d = (evs[j].d && evs[j].d.dur) || (evs[j].ts - e.ts);
+						if (own[j].d && own[j].d.igmp === 'zap') return;
+						var d = (own[j].d && own[j].d.dur) || (own[j].ts - e.ts);
 						total += d;
 						if (d > longest) longest = d;
 						break;
@@ -1110,7 +1158,9 @@ return view.extend({
 		};
 		var net = sum('wan_down', [ 'wan_up', 'monitor_start' ]);
 		var tv = sum('stream_stall', [ 'stream_resume', 'stream_lost', 'monitor_start' ]);
-		var count = function(f) { return evs.filter(f).length; };
+		var count = function(f) { return own.filter(f).length; };
+		var hostArea = function(e) { return (e.host ? e.host + ' · ' : '') + areaName(e.area); };
+		var peerNames = ((st.peers && st.peers.list) || []).map(function(p) { return p.name; }).join(', ');
 
 		var x = function(v) { return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
 		var row = function(k, v) { return '<tr><th>' + x(k) + '</th><td>' + x(v) + '</td></tr>'; };
@@ -1130,6 +1180,7 @@ return view.extend({
 			row(_('WAN interface / device'), (st.wan ? st.wan.interface + ' / ' + st.wan.device : '–')) +
 			(st.wan && st.wan.session ? row(_('Session'), (st.wan.session.proto || '') + ' · ' + (st.wan.session.ip || '')) : '') +
 			row(_('Ping targets'), targets || '–') +
+			(peerNames ? row(_('Second router'), _('%s (its events are included, marked with its name)').format(peerNames)) : '') +
 			(st.iptv ? row(_('IPTV measured on'), st.iptv.vlan ? _('VLAN %d on %s').format(st.iptv.vlan.id, st.iptv.vlan.bridge || '?') : st.iptv.device + ' (' + (st.iptv.direction === 'tx' ? _('outgoing') : _('incoming')) + ')') : '') +
 			'</table><h2>' + x(_('Summary')) + '</h2><table>' +
 			row(_('Internet outages'), _('%d, total %s, longest %s').format(net.n, fmtDur(net.total), fmtDur(net.longest))) +
@@ -1148,7 +1199,7 @@ return view.extend({
 			'</div><div class="hl">' + h.map(function(n, i) { return '<span>' + i + '</span>'; }).join('') + '</div>' +
 			'<h2>' + x(_('Event log (problems only)')) + '</h2><table class="ev">' +
 			evs.filter(function(e) { return e.lvl !== 'info'; }).map(function(e) {
-				return '<tr class="' + (e.lvl === 'err' ? 'err' : '') + '"><td>' + x(fmtTime(e.ts)) + '</td><td>' + x(areaName(e.area)) + '</td><td>' + x(eventText(e)) + '</td></tr>';
+				return '<tr class="' + (e.lvl === 'err' ? 'err' : '') + '"><td>' + x(fmtTime(e.ts)) + '</td><td>' + x(hostArea(e)) + '</td><td>' + x(eventText(e)) + '</td></tr>';
 			}).join('') + '</table>' +
 			'<p class="muted">' + x(_('Measured continuously on the customer\'s router. Times are local router time.')) + '</p></body></html>';
 
@@ -1168,6 +1219,11 @@ return view.extend({
 		var list = this.events().filter(function(e) { return e.ts >= w.from && e.ts <= w.to + 1; });
 		if (this.filter)
 			list = list.filter(function(e) { return e.area === self.filter; });
+		/* events of the second router: '' = all routers, '-' = this one */
+		var hosts = [];
+		this.events().forEach(function(e) { if (e.host && hosts.indexOf(e.host) < 0) hosts.push(e.host); });
+		if (this.hostFilter)
+			list = list.filter(function(e) { return self.hostFilter === '-' ? !e.host : e.host === self.hostFilter; });
 
 		var buttons = [ [ '', _('All') ], [ 'wan', _('Internet') ], [ 'iptv', _('IPTV') ], [ 'ports', _('Ports') ], [ 'system', _('Router') ], [ 'user', _('Your reports') ] ]
 			.map(function(f) {
@@ -1176,6 +1232,15 @@ return view.extend({
 					'click': function() { self.filter = f[0]; self.redraw(); }
 				}, f[1]);
 			});
+
+		if (hosts.length)
+			buttons.push(E('span', { 'style': 'margin-left:.6em;display:flex;gap:.4em;flex-wrap:wrap' },
+				[ [ '', _('All routers') ], [ '-', _('This router') ] ].concat(hosts.sort().map(function(h) { return [ h, h ]; })).map(function(f) {
+					return E('button', {
+						'class': 'cbi-button' + ((self.hostFilter || '') === f[0] ? ' active' : ''),
+						'click': function() { self.hostFilter = f[0]; self.redraw(); }
+					}, f[1]);
+				})));
 
 		var onlyProblems = E('label', { 'style': 'margin-left:auto' }, [
 			E('input', {
@@ -1190,7 +1255,7 @@ return view.extend({
 			return E('tr', { 'class': 'click lvl-' + e.lvl, 'title': _('Show this moment in the charts'),
 				'click': function() { self.setWindow(self.range > 3600 ? 3600 : self.range, e.ts + Math.min(self.range, 3600) / 2); } }, [
 				E('td', { 'class': 'when' }, fmtTime(e.ts)),
-				E('td', { 'class': 'area' }, areaName(e.area)),
+				E('td', { 'class': 'area' }, [ hostBadge(e), areaName(e.area) ]),
 				E('td', {}, eventText(e))
 			]);
 		});
@@ -1222,6 +1287,27 @@ return view.extend({
 	renderFooter: function(st) {
 		var bits = [];
 		bits.push(st.data && st.data.link ? _('Data kept in %s (survives a reboot)').format(st.data.link) : _('Data kept in RAM (lost on reboot)'));
+		if (st.peer) {
+			var pe = st.peer, perr = {
+				no_key: _('no key set (at least 8 characters)'),
+				bad_host: _('the address of the main router is not a valid IPv4 address'),
+				no_digest: _('the ucode-mod-digest package is missing'),
+				no_socket_module: _('the ucode-mod-socket package is missing'),
+				socket: _('cannot open a socket'),
+				bind: _('UDP port %d is in use').format(pe.port),
+				no_ack: _('no answer – check the address, the key and that the main router receives')
+			}[pe.err];
+			if (pe.role === 'send')
+				bits.push(E('span', { 'class': perr ? 'ispt-warn-text' : '' }, perr ? _('sending events to %s: %s').format(pe.host, perr)
+					: !pe.last_ack ? _('sending events to %s (waiting for the first confirmation)').format(pe.host)
+					: _('sending events to %s (last confirmed %s ago%s)').format(pe.host, fmtDur(Date.now() / 1000 - pe.last_ack),
+						pe.pending ? ', ' + _('%d waiting').format(pe.pending) : '')));
+			else
+				bits.push(E('span', { 'class': perr ? 'ispt-warn-text' : '' }, perr ? _('receiving events: %s').format(perr)
+					: _('receiving events of the second router on UDP port %d').format(pe.port)));
+			if (pe.bad && pe.bad_ts && Date.now() / 1000 - pe.bad_ts < 3600)
+				bits.push(E('span', { 'class': 'ispt-warn-text' }, _('%d messages with a wrong key (last from %s)').format(pe.bad, pe.bad_addr || '?')));
+		}
 		if (st.notify) {
 			var n = st.notify, failed = n.last_fail > (n.last_ok || 0);
 			bits.push(!n.fetch ? _('notifications: uclient-fetch / wget missing')
@@ -1229,7 +1315,9 @@ return view.extend({
 				: n.last_ok ? _('notifications: last sent %s ago').format(fmtDur(Date.now() / 1000 - n.last_ok))
 				: _('notifications: nothing sent yet'));
 		}
-		return E('div', { 'class': 'ispt-muted', 'style': 'font-size:.85em' }, bits.join(' · '));
+		var parts = [];
+		bits.forEach(function(b, i) { if (i) parts.push(' · '); parts.push(b); });
+		return E('div', { 'class': 'ispt-muted', 'style': 'font-size:.85em' }, parts);
 	},
 
 	exportSamples: function() {
@@ -1291,7 +1379,7 @@ return view.extend({
 		var parts = [ this.renderBanner(res) ];
 		if (st) {
 			parts.push(this.renderDiagnosis(st, w));
-			parts.push(E('div', { 'class': 'ispt-cards' }, [ this.renderWan(st), this.renderIptv(st), this.renderPorts(st) ]));
+			parts.push(E('div', { 'class': 'ispt-cards' }, [ this.renderWan(st), this.renderIptv(st), this.renderPorts(st) ].concat(this.renderPeers(st))));
 			parts.push(this.renderCharts(st, w));
 			parts.push(this.renderHours(w));
 		}

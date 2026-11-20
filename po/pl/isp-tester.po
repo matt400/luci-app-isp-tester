@@ -142,9 +142,6 @@ msgstr "%s: %d%% utraconych pakietów (śr. %s)"
 msgid "%s: high jitter %s (ping %s)"
 msgstr "%s: duży jitter %s (ping %s)"
 
-msgid "%s: high latency %s"
-msgstr "%s: wysokie opóźnienie %s"
-
 msgid "%s: not responding (%d%% loss)"
 msgstr "%s: nie odpowiada (%d%% strat)"
 
@@ -1452,3 +1449,135 @@ msgstr "program pomiarowy nie odpowiada"
 
 msgid "the measuring helper stopped, restarting"
 msgstr "program pomiarowy przestał działać, ponowne uruchamianie"
+
+msgid "%d of %d IPTV freezes seen by %s did not happen here – the stream is lost between the routers (cable, the second router, its Wi-Fi or switch), not at the ISP."
+msgstr "%d z %d zamrożeń IPTV widzianych przez %s nie wystąpiło tutaj – strumień ginie między routerami (kabel, drugi router, jego Wi-Fi lub switch), nie u operatora."
+
+msgid "Router %s stopped reporting %d× – switched off, rebooted or the cable between the routers."
+msgstr "Router %s przestał się zgłaszać %d× – wyłączony, restart albo kabel między routerami."
+
+msgid "Router %s has not reported for %s (switched off, rebooting or the cable between the routers)"
+msgstr "Router %s nie zgłasza się od %s (wyłączony, restartuje się albo kabel między routerami)"
+
+msgid "Router %s reports: %s"
+msgstr "Router %s zgłasza: %s"
+
+msgid "Router %s stopped reporting"
+msgstr "Router %s przestał się zgłaszać"
+
+msgid "Router %s reports again after %s"
+msgstr "Router %s znów się zgłasza po %s"
+
+msgid "Logged by router %s"
+msgstr "Zapisane przez router %s"
+
+msgid "%s: not reporting"
+msgstr "%s: nie zgłasza się"
+
+msgid "Reports"
+msgstr "Zgłasza się"
+
+msgid "%s ago from %s"
+msgstr "%s temu z %s"
+
+msgid "nothing for %s (last from %s)"
+msgstr "brak od %s (ostatnio z %s)"
+
+msgid "Monitoring for"
+msgstr "Monitoruje od"
+
+msgid "Clock"
+msgstr "Zegar"
+
+msgid "off by %d s – its events are moved to this router's time"
+msgstr "przesunięty o %d s – jego zdarzenia są przeliczane na czas tego routera"
+
+msgid "Router %s"
+msgstr "Router %s"
+
+msgid "Its events are on the timeline below, marked with its name."
+msgstr "Jego zdarzenia są na osi czasu poniżej, oznaczone jego nazwą."
+
+msgid "Second router"
+msgstr "Drugi router"
+
+msgid "%s (its events are included, marked with its name)"
+msgstr "%s (jego zdarzenia są uwzględnione, oznaczone jego nazwą)"
+
+msgid "All routers"
+msgstr "Wszystkie routery"
+
+msgid "This router"
+msgstr "Ten router"
+
+msgid "no key set (at least 8 characters)"
+msgstr "nie ustawiono klucza (min. 8 znaków)"
+
+msgid "the address of the main router is not a valid IPv4 address"
+msgstr "adres głównego routera nie jest poprawnym adresem IPv4"
+
+msgid "the ucode-mod-digest package is missing"
+msgstr "brak pakietu ucode-mod-digest"
+
+msgid "the ucode-mod-socket package is missing"
+msgstr "brak pakietu ucode-mod-socket"
+
+msgid "cannot open a socket"
+msgstr "nie można otworzyć gniazda"
+
+msgid "UDP port %d is in use"
+msgstr "port UDP %d jest zajęty"
+
+msgid "no answer – check the address, the key and that the main router receives"
+msgstr "brak odpowiedzi – sprawdź adres, klucz i czy główny router odbiera"
+
+msgid "sending events to %s: %s"
+msgstr "wysyłanie zdarzeń do %s: %s"
+
+msgid "sending events to %s (waiting for the first confirmation)"
+msgstr "wysyłanie zdarzeń do %s (czekam na pierwsze potwierdzenie)"
+
+msgid "sending events to %s (last confirmed %s ago%s)"
+msgstr "wysyłanie zdarzeń do %s (ostatnie potwierdzenie %s temu%s)"
+
+msgid "%d waiting"
+msgstr "%d w kolejce"
+
+msgid "receiving events: %s"
+msgstr "odbiór zdarzeń: %s"
+
+msgid "receiving events of the second router on UDP port %d"
+msgstr "odbiór zdarzeń drugiego routera na porcie UDP %d"
+
+msgid "%d messages with a wrong key (last from %s)"
+msgstr "%d wiadomości ze złym kluczem (ostatnia z %s)"
+
+msgid "Two routers, one timeline: a router behind this one (e.g. an access point with a decoder, a phone or the TV behind it) sends every event it logs to the main router, which shows them on its timeline marked with the sender's name and uses them in the analysis. Install the package on both, choose “Send” on the second one and “Receive” on the main one, with the same key. Over UDP, signed with the key (HMAC-SHA256); events that cannot be delivered are sent again."
+msgstr "Dwa routery, jedna oś czasu: router za tym (np. punkt dostępowy z dekoderem, telefonem lub telewizorem) wysyła każde swoje zdarzenie do głównego routera, który pokazuje je na swojej osi czasu z nazwą nadawcy i uwzględnia w analizie. Zainstaluj pakiet na obu, na drugim wybierz „Wysyła”, na głównym „Odbiera”, z tym samym kluczem. Przez UDP, podpisane kluczem (HMAC-SHA256); niedostarczone zdarzenia są wysyłane ponownie."
+
+msgid "Works alone"
+msgstr "Działa sam"
+
+msgid "Sends its events to the main router"
+msgstr "Wysyła swoje zdarzenia do głównego routera"
+
+msgid "Receives the events of a second router"
+msgstr "Odbiera zdarzenia drugiego routera"
+
+msgid "Address of the main router"
+msgstr "Adres głównego routera"
+
+msgid "IPv4 address of the router that receives, e.g. <code>192.168.1.1</code>."
+msgstr "Adres IPv4 routera, który odbiera, np. <code>192.168.1.1</code>."
+
+msgid "UDP port"
+msgstr "Port UDP"
+
+msgid "The same on both routers. The receiver listens on it; the LAN zone of the firewall accepts it by default (input ACCEPT)."
+msgstr "Ten sam na obu routerach. Odbiorca nasłuchuje na nim; strefa LAN firewalla domyślnie go przepuszcza (input ACCEPT)."
+
+msgid "Key"
+msgstr "Klucz"
+
+msgid "The same secret on both routers, at least 8 characters. Messages signed with another key are ignored."
+msgstr "Ten sam sekret na obu routerach, min. 8 znaków. Wiadomości podpisane innym kluczem są ignorowane."

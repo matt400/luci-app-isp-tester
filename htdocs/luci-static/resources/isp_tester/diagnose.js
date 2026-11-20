@@ -31,7 +31,12 @@ function lastTs(list) {
 
 function uniq(list, key) {
 	var seen = {}, out = [];
-	list.forEach(function(e) { var k = e[key] != null ? e[key] : (e.d && e.d[key]); if (!seen[k]) { seen[k] = true; out.push(k); } });
+	list.forEach(function(e) {
+		var k = e[key] != null ? e[key] : (e.d && e.d[key]);
+		/* a port of the second router: "M477S:lan1" */
+		if (key === 'src' && e.host) k = e.host + ':' + k;
+		if (!seen[k]) { seen[k] = true; out.push(k); }
+	});
 	return out;
 }
 
@@ -89,10 +94,19 @@ return baseclass.extend({
 	 */
 	analyze: function(events, from, to, ctx) {
 		ctx = ctx || {};
-		var ev = events.filter(function(e) { return e.ts >= from && e.ts <= to; });
+		var evAll = events.filter(function(e) { return e.ts >= from && e.ts <= to; });
+		/*
+		 * Events of the second router (e.host) are evidence for the home side
+		 * only (its ports, Wi-Fi, decoders, your reports there); Internet and
+		 * IPTV stream analysis uses what this router measured, so the same
+		 * freeze seen by both routers is not counted twice.
+		 */
+		var ev = evAll.filter(function(e) { return !e.host; });
+		var remote = evAll.filter(function(e) { return !!e.host; });
 		var by = function(f) { return ev.filter(f); };
+		var byAll = function(f) { return evAll.filter(f); };
 		/* resume / "_ok" events can come after the window end; look a bit further */
-		var sorted = events.filter(function(e) { return e.ts >= from - 3600 && e.ts <= to + 3600; })
+		var sorted = events.filter(function(e) { return !e.host && e.ts >= from - 3600 && e.ts <= to + 3600; })
 			.sort(function(a, b) { return a.ts - b.ts; });
 
 		var wanDev = ctx.wan_device;
@@ -113,10 +127,12 @@ return baseclass.extend({
 		var pppDown     = logOf([ 'ppp_down' ]);
 		var anyWan      = gwLoss.concat(farLoss, wanDown, wanLinkDown, wanDevGone, wanSess, pppEcho, pppIsp, pppDown);
 
-		var portLink    = by(function(e) { return e.area === 'ports' && (e.type === 'link_down' || e.type === 'link_flap'); });
-		var portSpeed   = by(function(e) { return e.area === 'ports' && e.type === 'speed_change' && e.d && e.d.to < e.d.from; });
-		var portErr     = by(function(e) { return e.area === 'ports' && (e.type === 'errors' || e.type === 'drops'); });
-		var portMissing = by(function(e) { return e.type === 'dev_missing' && e.area !== 'wan' && e.src !== wanDev; });
+		/* ports of both routers (a port of the second router is never the WAN of this one) */
+		var portLink    = byAll(function(e) { return e.area === 'ports' && (e.type === 'link_down' || e.type === 'link_flap'); });
+		var portSpeed   = byAll(function(e) { return e.area === 'ports' && e.type === 'speed_change' && e.d && e.d.to < e.d.from; });
+		var portErr     = byAll(function(e) { return e.area === 'ports' && (e.type === 'errors' || e.type === 'drops'); });
+		var portMissing = byAll(function(e) { return e.type === 'dev_missing' && (e.host || (e.area !== 'wan' && e.src !== wanDev)); });
+		var devName     = function(e) { return e.host ? e.host + ':' + e.src : e.src; };
 		var wanErr      = by(function(e) { return e.area === 'wan' && e.type === 'errors'; });
 		var iptvDevErr  = by(function(e) { return e.area === 'iptv' && (e.type === 'errors' || e.type === 'drops' || e.type === 'link_down'); });
 		var anyPort     = portLink.concat(portSpeed, portErr);
@@ -126,7 +142,10 @@ return baseclass.extend({
 		var tsErr       = by(function(e) { return e.type === 'ts_errors'; });
 		var proxyBad    = by(function(e) { return e.type === 'proxy_down' || e.type === 'proxy_restart' ||
 			(e.type === 'log' && e.d && e.d.kind === 'proxy_log'); });
-		var marks       = by(function(e) { return e.type === 'user_mark'; });
+		var marks       = byAll(function(e) { return e.type === 'user_mark'; });
+		/* the second router: freezes seen only there, times it did not report */
+		var remoteStalls = remote.filter(function(e) { return e.type === 'stream_stall'; });
+		var peerLost    = by(function(e) { return e.type === 'peer_lost'; });
 		var busy        = periods(sorted, [ 'cpu_high', 'mem_low', 'conntrack_full' ], to);
 		/* single moments from the system log count as short overload periods */
 		logOf([ 'conntrack_drop', 'oom', 'dns_limit' ]).forEach(function(e) { busy.push({ from: e.ts, to: e.ts }); });
@@ -241,12 +260,20 @@ return baseclass.extend({
 		if (stalls.length && ctx.igmp && ctx.igmp.dev && ctx.igmp.proxy_seen === false && ctx.iptv_direction !== 'tx')
 			findings.push({ side: 'info', code: 'no_proxy', n: 1, last: 0, weight: 0, args: {} });
 
+		/* the second router saw a freeze that this router (nearer the ISP) did not:
+		 * the stream got lost between the routers or on the second one */
+		if (ctx.iptv_on) {
+			var onlyThere = remoteStalls.filter(function(e) { return !near(allStalls, e.ts); });
+			add('home', 2, 'stall_remote_only', onlyThere, { total: remoteStalls.length, hosts: uniq(onlyThere, 'host').join(', ') });
+		}
+		add('home', 1, 'peer_lost', peerLost, { hosts: uniq(peerLost, 'src').join(', ') });
+
 		add(ctx.iptv_direction === 'tx' ? 'info' : 'isp', 0.5, 'stream_dip', dips);
 		/* counted on the stream as it arrives, before the router: lost packets are upstream */
 		add(ctx.iptv_direction === 'tx' ? 'info' : 'isp', 1.5, 'ts_errors', tsErr);
 
 		/* ---- the user's own reports: was anything measured at that moment? */
-		var measured = ev.filter(function(e) { return e.lvl !== 'info' && e.area !== 'user' && e.area !== 'system'; });
+		var measured = evAll.filter(function(e) { return e.lvl !== 'info' && e.area !== 'user' && e.area !== 'system'; });
 		var seen = [], unseen = [];
 		marks.forEach(function(m) {
 			/* people notice a problem a little after it starts */
@@ -288,7 +315,7 @@ return baseclass.extend({
 			stalls: stalls.length,
 			zaps: zaps.length,
 			marks: marks.length,
-			problems: ev.filter(function(e) { return e.lvl !== 'info'; }).length,
+			problems: evAll.filter(function(e) { return e.lvl !== 'info'; }).length,
 			findings: findings
 		};
 	},
@@ -357,6 +384,8 @@ return baseclass.extend({
 		case 'stall_upstream':  return _('%d of %d IPTV freezes: multicast stopped arriving from the ISP while Internet and ports were fine – ISP IPTV/multicast side (less often an IGMP issue on the router).').format(f.n, a.total);
 		case 'no_querier':      return _('IGMP snooping is on but the querier is off on %s – streams can time out on the switch.').format(a.bridge);
 		case 'stream_dip':      return _('IPTV bitrate dropped sharply %d× – unstable stream from the ISP.').format(f.n);
+		case 'stall_remote_only': return _('%d of %d IPTV freezes seen by %s did not happen here – the stream is lost between the routers (cable, the second router, its Wi-Fi or switch), not at the ISP.').format(f.n, a.total, a.hosts);
+		case 'peer_lost':       return _('Router %s stopped reporting %d× – switched off, rebooted or the cable between the routers.').format(a.hosts, f.n);
 		case 'ts_errors':       return _('Lost packets were counted in the IPTV stream (%d×) – the picture glitches come with the stream itself: ISP IPTV/multicast side, not your home network.').format(f.n);
 		case 'port_speed':      return _('Link renegotiated to a lower speed (%s, %d×) – damaged cable or connector (e.g. only 2 pairs working).').format(a.devs, f.n);
 		case 'port_link':       return _('Link drops on %s (%d×) – cable, connector, power of the connected device, or switch.').format(a.devs, f.n);

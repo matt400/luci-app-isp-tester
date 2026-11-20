@@ -96,6 +96,18 @@ config system 'system'
 	# connection tracking table fill (%), 0 = off
 	option conntrack_warn '90'
 
+# two routers, one timeline: a second router (e.g. an access point with a
+# decoder behind it) sends its events to the main router over UDP, signed
+# with the shared key (HMAC-SHA256)
+config peer 'peer'
+	# off | send (second router) | receive (main router)
+	option role 'off'
+	# send: IPv4 address of the main router
+	option host ''
+	option port '51477'
+	# the same secret on both routers, at least 8 characters
+	option key ''
+
 config notify 'notify'
 	option enabled '0'
 	# ntfy | telegram | webhook

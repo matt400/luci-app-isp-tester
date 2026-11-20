@@ -1,6 +1,10 @@
 #!/bin/sh
 # sections added in later versions (upgrades keep the old config file)
 uci -q get isp_tester.system >/dev/null || uci -q set isp_tester.system=system
+uci -q get isp_tester.peer >/dev/null || {
+	uci -q set isp_tester.peer=peer
+	uci -q set isp_tester.peer.role=off
+}
 uci -q get isp_tester.notify >/dev/null || {
 	uci -q set isp_tester.notify=notify
 	uci -q set isp_tester.notify.enabled=0
