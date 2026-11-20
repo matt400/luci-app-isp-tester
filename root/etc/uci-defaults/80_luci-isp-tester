@@ -5,6 +5,9 @@ uci -q get isp_tester.notify >/dev/null || {
 	uci -q set isp_tester.notify=notify
 	uci -q set isp_tester.notify.enabled=0
 }
+# options of the old sampled picture quality scan (now continuous)
+uci -q delete isp_tester.iptv.q_window
+uci -q delete isp_tester.iptv.q_interval
 uci -q commit isp_tester
 
 rm -f /tmp/luci-indexcache* /tmp/luci-modulecache/* 2>/dev/null

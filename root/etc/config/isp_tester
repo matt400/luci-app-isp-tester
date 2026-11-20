@@ -71,23 +71,18 @@ config iptv 'iptv'
 	# interface the proxy joins the groups on (its upstream); empty = the IPTV
 	# device when measuring incoming traffic
 	option igmp_device ''
-	# picture quality: count lost packets (MPEG-TS continuity errors) in short
-	# captures while the stream plays. Needs tcpdump-mini. The channel being
-	# watched is found automatically; nothing runs while the decoder is off.
+	# picture quality: count lost packets (MPEG-TS continuity errors) of the
+	# channel being watched, continuously, every packet. Needs the package
+	# isp-tester-tsmon. The channel is found automatically.
 	option quality '0'
-	# length of one capture (s) and time between captures (s); after an error
-	# the next captures run back to back for a while
-	option q_window '5'
-	option q_interval '60'
-	# lost-packet gaps per capture for a warning / a fault
+	# lost-packet gaps within one minute for a warning / a fault
 	option q_warn '1'
 	option q_fail '30'
-	# also warn when the stream pauses this long (ms) inside a capture, 0 = off
+	# also warn when the stream pauses this long (ms), 0 = off
 	option q_gap '500'
-	# channel names: when a decoder joins a channel whose name is not known
-	# yet, read it once from the stream (DVB SDT table, a 3 s capture of just
-	# that channel). Needs tcpdump-mini and 'igmp'. Names can also be set by
-	# hand in 'channel' sections, which win over the stream.
+	# channel names: read from the streams themselves (DVB SDT table) by the
+	# same helper (isp-tester-tsmon). Names can also be set by hand in
+	# 'channel' sections, which win over the stream.
 	option names '1'
 
 # router load, read from /proc only to explain problems (for graphs use

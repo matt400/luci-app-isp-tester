@@ -1304,91 +1304,13 @@ msgstr ""
 msgid "Picture errors in the incoming IPTV stream (see timeline)"
 msgstr ""
 
-msgid "Picture quality scan needs tcpdump: install tcpdump-mini."
-msgstr ""
-
-msgid "Picture quality scan: the scanner script (tsscan.uc) or ucode is missing."
-msgstr ""
-
-msgid "Picture quality scan: no IPTV interface to capture on (check the VLAN or device in Settings)."
-msgstr ""
-
-msgid "IPTV picture errors: %d lost-packet gaps (~%d packets) in %s of scans, channel %s"
-msgstr ""
-
 msgid "longest pause %d ms"
-msgstr ""
-
-msgid "needs tcpdump (install tcpdump-mini)"
-msgstr ""
-
-msgid "scanner script or ucode missing"
-msgstr ""
-
-msgid "no interface to capture on"
-msgstr ""
-
-msgid "the last scan failed"
-msgstr ""
-
-msgid "waiting for the first scan"
-msgstr ""
-
-msgid "no stream in the last scan"
-msgstr ""
-
-msgid "%d lost-packet gaps (~%d packets)"
-msgstr ""
-
-msgid "no errors"
 msgstr ""
 
 msgid "Picture quality"
 msgstr ""
 
-msgid "Last scan"
-msgstr ""
-
-msgid "%s ago · %d s every %d s"
-msgstr ""
-
-msgid "Picture quality scan"
-msgstr ""
-
-msgid "Counts lost packets (MPEG-TS continuity errors) in the IPTV stream – what a viewer sees as pixelation – in short captures while a stream is playing. The channel being watched is found automatically. Needs tcpdump-mini; nothing runs while the decoder is off."
-msgstr ""
-
-msgid "Scan length (s)"
-msgstr ""
-
-msgid "Length of one capture. Longer is more reliable and uses more CPU while it runs."
-msgstr ""
-
-msgid "Scan every (s)"
-msgstr ""
-
-msgid "Time between scans while the stream plays. After an error the next scans run back to back for a while."
-msgstr ""
-
-msgid "Warn from (errors per scan)"
-msgstr ""
-
-msgid "Lost-packet gaps in one scan that turn the status yellow and are logged."
-msgstr ""
-
-msgid "Fault from (errors per scan)"
-msgstr ""
-
-msgid "Lost-packet gaps in one scan that are logged as a fault."
-msgstr ""
-
 msgid "Pause warning (ms)"
-msgstr ""
-
-msgid "Also warn when the stream pauses this long inside a scan, even without lost packets (delivery in bursts). 0 disables."
-msgstr ""
-
-msgid "Lost packets were counted in the IPTV stream (%d scans with errors) – the picture glitches come with the stream itself: ISP IPTV/multicast side, not your home network."
 msgstr ""
 
 msgid "channel %s"
@@ -1430,9 +1352,6 @@ msgstr ""
 msgid "Identify channel names"
 msgstr ""
 
-msgid "Reads the name of each channel from the stream itself (DVB service table, sent in the clear also on encrypted channels): a 3 s capture once per new channel. Names are shown on the status page, in the timeline, the CSV and notifications. Needs tcpdump-mini."
-msgstr ""
-
 msgid "IPTV channel names"
 msgstr ""
 
@@ -1452,4 +1371,82 @@ msgid "Names read from the streams"
 msgstr ""
 
 msgid "unknown"
+msgstr ""
+
+msgid "%d lost-packet gaps (~%d packets) in the last minute"
+msgstr ""
+
+msgid "%d packets the router was too busy to count (last %s ago) – errors at that time are not logged"
+msgstr ""
+
+msgid "%d since the channel started"
+msgstr ""
+
+msgid "Also warn when the stream pauses this long, even without lost packets (delivery in bursts). 0 disables."
+msgstr ""
+
+msgid "Counts lost packets (MPEG-TS continuity errors) in the IPTV stream – what a viewer sees as pixelation – continuously, every packet of the channel being watched. Needs the isp-tester-tsmon package."
+msgstr ""
+
+msgid "Fault from (errors per minute)"
+msgstr ""
+
+msgid "IPTV picture errors: %d lost-packet gaps (~%d packets) within %s, channel %s"
+msgstr ""
+
+msgid "Lost packets were counted in the IPTV stream (%d×) – the picture glitches come with the stream itself: ISP IPTV/multicast side, not your home network."
+msgstr ""
+
+msgid "Lost-packet gaps within one minute that are logged as a fault."
+msgstr ""
+
+msgid "Lost-packet gaps within one minute that turn the status yellow and are logged."
+msgstr ""
+
+msgid "Measuring"
+msgstr ""
+
+msgid "Not counted"
+msgstr ""
+
+msgid "Picture quality needs the isp-tester-tsmon package: install it (see README)."
+msgstr ""
+
+msgid "Picture quality: no IPTV interface to listen on (check the VLAN or device in Settings)."
+msgstr ""
+
+msgid "Picture quality: the measuring helper (isp-tester-tsmon) stopped, it is restarted automatically – see the system log."
+msgstr ""
+
+msgid "Reads the name of each channel from the stream itself (DVB service table, sent in the clear also on encrypted channels), by the same helper as the picture quality. Names are shown on the status page, in the timeline, the CSV and notifications. Needs the isp-tester-tsmon package."
+msgstr ""
+
+msgid "The router was too busy to count every IPTV packet in the last minutes, so some errors may be its own (see the IPTV card)."
+msgstr ""
+
+msgid "Warn from (errors per minute)"
+msgstr ""
+
+msgid "continuously, every packet, for %s"
+msgstr ""
+
+msgid "needs the isp-tester-tsmon package"
+msgstr ""
+
+msgid "no errors in the last minute"
+msgstr ""
+
+msgid "no interface to listen on"
+msgstr ""
+
+msgid "no stream right now"
+msgstr ""
+
+msgid "starting…"
+msgstr ""
+
+msgid "the measuring helper does not respond"
+msgstr ""
+
+msgid "the measuring helper stopped, restarting"
 msgstr ""
