@@ -332,27 +332,16 @@ function groupsByPort(mdb, t) {
 	}).join(' · ');
 }
 
-/* what is being watched now: one line per joined group with its name or
- * why the name is missing */
+/* the one channel being watched now: its name, or "unknown" when the
+ * channel or its name cannot be told (all joined groups are listed under
+ * Bridge groups / Channels joined) */
 function watching(t) {
-	var c = t.channels, groups = (t.igmp && t.igmp.groups) || [];
-	if (!c || !c.enabled || !groups.length) return null;
-	var err = {
-		no_tcpdump: _('names need tcpdump (install tcpdump-mini)'),
-		no_scanner: _('scanner script or ucode missing')
-	}[c.error];
-	return groups.map(function(g) {
-		var n = c.names && c.names[g], why;
-		if (n && n.name)
-			return E('div', {}, [ E('strong', {}, n.name), ' ', E('span', { 'class': 'ispt-groups' }, g),
-				n.src === 'manual' ? ' · ' + _('name set by hand') : (n.provider ? ' · ' + n.provider : '') ]);
-		if (c.busy === g) why = _('reading the name…');
-		else if (err) why = err;
-		else if (n && n.why === 'no_sdt') why = _('the stream carries no name (set one in Settings)');
-		else if (n && n.why === 'no_service') why = _('name not found in the stream (set one in Settings)');
-		else why = _('name not known yet');
-		return E('div', {}, [ E('span', { 'class': 'ispt-groups' }, g), ' · ', E('em', {}, why) ]);
-	});
+	var c = t.channels;
+	if (!c || !c.enabled || !t.igmp || !(t.igmp.groups || []).length) return null;
+	var g = t.igmp.current, n = g && c.names && c.names[g];
+	if (!n || !n.name) return E('em', {}, _('unknown'));
+	return [ E('strong', {}, n.name), ' ', E('span', { 'class': 'ispt-groups' }, g),
+		n.src === 'manual' ? ' · ' + _('name set by hand') : (n.provider ? ' · ' + n.provider : '') ];
 }
 
 function igmpNote(ig) {
