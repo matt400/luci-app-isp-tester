@@ -234,7 +234,7 @@ function eventText(e) {
 		? _('%s: %d%% packet loss (avg %s)').format(targetName(e.src, d.host), d.loss, fmtMs(d.rtt))
 		: (d.why === 'jitter')
 		? _('%s: high jitter %s (ping %s)').format(targetName(e.src, d.host), fmtMs(d.jitter), fmtMs(d.rtt))
-		: _('%s: high latency %s (max %s)').format(targetName(e.src, d.host), fmtMs(d.rtt), fmtMs(d.rtt_max));
+		: _('%s: high latency %s').format(targetName(e.src, d.host), fmtMs(d.rtt));
 	case 'target_fail':     return _('%s: not responding (%d%% loss)').format(targetName(e.src, d.host), d.loss);
 	case 'target_ok':       return _('%s: OK again after %s (%s)').format(targetName(e.src, d.host), fmtDur(d.dur), fmtMs(d.rtt));
 	case 'wan_down':        return _('INTERNET DOWN – no target responds');

@@ -142,8 +142,8 @@ msgstr "%s: %d%% utraconych pakietów (śr. %s)"
 msgid "%s: high jitter %s (ping %s)"
 msgstr "%s: duży jitter %s (ping %s)"
 
-msgid "%s: high latency %s (max %s)"
-msgstr "%s: wysokie opóźnienie %s (maks. %s)"
+msgid "%s: high latency %s"
+msgstr "%s: wysokie opóźnienie %s"
 
 msgid "%s: not responding (%d%% loss)"
 msgstr "%s: nie odpowiada (%d%% strat)"
