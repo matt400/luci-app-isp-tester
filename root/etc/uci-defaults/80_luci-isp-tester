@@ -10,5 +10,7 @@ uci -q commit isp_tester
 rm -f /tmp/luci-indexcache* /tmp/luci-modulecache/* 2>/dev/null
 /etc/init.d/rpcd reload
 /etc/init.d/isp_tester enable
-/etc/init.d/isp_tester start
+# restart, not start: on an upgrade the old collector is still running and
+# procd would keep it (same command line), so the new code would not load
+/etc/init.d/isp_tester restart
 exit 0
