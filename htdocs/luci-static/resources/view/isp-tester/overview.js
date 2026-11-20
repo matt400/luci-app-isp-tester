@@ -209,6 +209,10 @@ function reasonText(r) {
 	case 'conntrack_full':  return _('Connection table %d%% full').format(r.pct);
 	case 'stream_stalled':  return _('Stream stopped %s ago').format(fmtDur(Date.now() / 1000 - r.since));
 	case 'stream_dip':      return _('Bitrate is much lower than usual');
+	case 'ts_errors':       return _('Picture errors in the incoming IPTV stream (see timeline)');
+	case 'ts_no_tcpdump':   return _('Picture quality scan needs tcpdump: install tcpdump-mini.');
+	case 'ts_no_scanner':   return _('Picture quality scan: the scanner script (tsscan.uc) or ucode is missing.');
+	case 'ts_no_target':    return _('Picture quality scan: no IPTV interface to capture on (check the VLAN or device in Settings).');
 	case 'vlan_vlan_not_found': return _('VLAN %d is not on any bridge port – check the VLAN number in Settings.').format(r.vlan);
 	case 'vlan_no_bridge_tool': return _('The bridge command is missing: install ip-bridge.');
 	case 'vlan_bridge_failed':
@@ -247,6 +251,8 @@ function eventText(e) {
 		? _('IPTV stream did not come back within %s (channel still subscribed: outage)').format(fmtDur(d.dur))
 		: _('IPTV stream did not come back within %s (decoder off or outage)').format(fmtDur(d.dur));
 	case 'stream_dip':      return _('IPTV bitrate dropped to %s (usual %s)').format(fmtRate(d.kbps), fmtRate(d.avg));
+	case 'ts_errors':       return _('IPTV picture errors: %d lost-packet gaps (~%d packets) in %s of scans, channel %s').format(d.cc, d.lost, fmtDur(d.win), d.grp || '?') +
+		(d.gap >= 100 ? ' · ' + _('longest pause %d ms').format(d.gap) : '');
 	case 'wan_if_down':     return _('WAN interface %s DOWN (PPPoE/DHCP session lost)').format(d.iface);
 	case 'wan_if_up':       return _('WAN interface %s up again after %s').format(d.iface, fmtDur(d.dur)) + (d.ip ? ' · ' + d.ip : '');
 	case 'wan_reconnect':   return _('WAN session restarted (previous one lasted %s)').format(fmtDur(d.prev));
@@ -819,6 +825,34 @@ return view.extend({
 			E('span', { 'class': 'k' }, _('State')), E('span', {}, stateText + ' · ' + _('for %s').format(fmtDur(Date.now() / 1000 - t.since))),
 			E('span', { 'class': 'k' }, _('Usual bitrate')), E('span', {}, t.avg ? fmtRate(t.avg) : '–'),
 			E('span', { 'class': 'k' }, _('Packets/s')), E('span', {}, t.pps != null ? String(t.pps) : '–'));
+
+		if (t.quality) {
+			var q = t.quality, qe = {
+				no_tcpdump: _('needs tcpdump (install tcpdump-mini)'),
+				no_scanner: _('scanner script or ucode missing'),
+				no_target: _('no interface to capture on'),
+				scan_failed: _('the last scan failed')
+			}[q.error], qv;
+
+			if (qe)
+				qv = [ dot('warn'), ' ', qe ];
+			else if (!q.last)
+				qv = _('waiting for the first scan');
+			else if (!q.last.groups || !q.last.groups.length)
+				qv = _('no stream in the last scan');
+			else
+				qv = q.last.groups.map(function(g) {
+					var bad = g.cc + g.tei;
+					return E('div', {}, [ dot(g.lvl === 'err' ? 'fail' : g.lvl), ' ', g.grp, ': ',
+						bad ? _('%d lost-packet gaps (~%d packets)').format(bad, g.lost) : _('no errors'),
+						g.gap >= 100 ? ' · ' + _('longest pause %d ms').format(g.gap) : '' ]);
+				});
+
+			kv.push(E('span', { 'class': 'k' }, _('Picture quality')), E('span', {}, qv));
+			if (q.last && !qe)
+				kv.push(E('span', { 'class': 'k' }, _('Last scan')),
+					E('span', {}, _('%s ago · %d s every %d s').format(fmtDur(Date.now() / 1000 - q.last.ts), q.window, q.interval)));
+		}
 
 		if (t.bridge) {
 			kv.push(E('span', { 'class': 'k' }, _('IGMP snooping (%s)').format(t.bridge.name)),

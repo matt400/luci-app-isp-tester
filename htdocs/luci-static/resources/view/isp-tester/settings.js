@@ -310,6 +310,41 @@ return view.extend({
 		o.datatype = 'range(0,100)';
 		o.placeholder = '40';
 
+		o = s.taboption('basic', form.Flag, 'quality', _('Picture quality scan'),
+			_('Counts lost packets (MPEG-TS continuity errors) in the IPTV stream – what a viewer sees as pixelation – in short captures while a stream is playing. The channel being watched is found automatically. Needs tcpdump-mini; nothing runs while the decoder is off.'));
+		o.default = '0';
+		o.rmempty = false;
+
+		o = s.taboption('advanced', form.Value, 'q_window', _('Scan length (s)'),
+			_('Length of one capture. Longer is more reliable and uses more CPU while it runs.'));
+		o.datatype = 'range(2,15)';
+		o.placeholder = '5';
+		o.depends({ quality: '1' });
+
+		o = s.taboption('advanced', form.Value, 'q_interval', _('Scan every (s)'),
+			_('Time between scans while the stream plays. After an error the next scans run back to back for a while.'));
+		o.datatype = 'range(15,3600)';
+		o.placeholder = '60';
+		o.depends({ quality: '1' });
+
+		o = s.taboption('advanced', form.Value, 'q_warn', _('Warn from (errors per scan)'),
+			_('Lost-packet gaps in one scan that turn the status yellow and are logged.'));
+		o.datatype = 'min(1)';
+		o.placeholder = '1';
+		o.depends({ quality: '1' });
+
+		o = s.taboption('advanced', form.Value, 'q_fail', _('Fault from (errors per scan)'),
+			_('Lost-packet gaps in one scan that are logged as a fault.'));
+		o.datatype = 'min(1)';
+		o.placeholder = '30';
+		o.depends({ quality: '1' });
+
+		o = s.taboption('advanced', form.Value, 'q_gap', _('Pause warning (ms)'),
+			_('Also warn when the stream pauses this long inside a scan, even without lost packets (delivery in bursts). 0 disables.'));
+		o.datatype = 'range(0,5000)';
+		o.placeholder = '500';
+		o.depends({ quality: '1' });
+
 		o = s.taboption('basic', form.Flag, 'igmp', _('Watch IGMP'),
 			_('Tracks which multicast groups (channels) are joined and whether the multicast proxy (igmpproxy, mcproxy) is running. This tells a channel change from a freeze, and an IGMP timeout from the ISP not sending.'));
 		o.default = '1';
