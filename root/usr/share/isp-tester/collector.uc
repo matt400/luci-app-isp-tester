@@ -246,8 +246,6 @@ function load_config() {
 				push(c.ports, { device: s.device, label: s.label ?? '', expect_up: bool(s.expect_up, true) });
 		});
 
-		/* WAN L3 device is resolved via ubus on every tick unless set explicitly */
-		c.wan.auto_device = !c.wan.device && !!c.wan.interface;
 	}
 
 	if (c.interval < 2) c.interval = 2;
@@ -256,6 +254,8 @@ function load_config() {
 	if (!match(c.wan.rrd_dir ?? '', /^\/[A-Za-z0-9._\/-]+$/)) c.wan.rrd_dir = '/tmp/rrd';
 	c.ports = filter(c.ports, (p) => valid_dev(p.device));
 	if (c.wan.device && !valid_dev(c.wan.device)) c.wan.device = '';
+	/* WAN L3 device is resolved via ubus on every tick unless set explicitly */
+	c.wan.auto_device = !c.wan.device && !!c.wan.interface;
 	if (c.iptv.device && !valid_dev(c.iptv.device)) c.iptv.device = '';
 	if (c.iptv.bridge && !valid_dev(c.iptv.bridge)) c.iptv.bridge = '';
 	if (c.iptv.upstream && !valid_dev(c.iptv.upstream)) c.iptv.upstream = '';
@@ -328,7 +328,7 @@ let igmp = { groups: null, hist: [], proxy: null, proxy_seen: false, proxy_since
 let tsq = { proc: null, wd: null, next: 0, boost: 0, last: null, recent: [], err: null,
 	pend: null, last_ev: 0, cc_acc: null, windows: 0 };
 let sys = { prev: null, cpu_n: 0, cpu: false, mem: false, ct: false, cpu_since: 0, mem_since: 0, ct_since: 0 };
-let notif = { pending: [], last: 0, busy: false, last_ok: null, last_fail: null, last_err: null };
+let notif = { pending: [], last: 0, busy: false, last_ok: null, last_fail: null, last_err: null, open: {} };
 let logst = { last_ts: null, last_lines: {}, kinds: {} };
 const HOSTNAME = trim(fs.readfile(`${PROC}/sys/kernel/hostname`) ?? '') || 'OpenWrt';
 
@@ -415,8 +415,11 @@ function event_msg(e, lang) {
 
 /* ------------------------------------------------------------------ notify */
 
-/* recoveries are sent too, so a "down" message is always followed by "back" */
-const RECOVERY = { wan_up: true, stream_resume: true, link_up: true, wan_if_up: true, proxy_up: true };
+/* recoveries are sent too, so a "down" message is always followed by "back";
+ * only when the fault itself was sent (same area + source), so e.g. a decoder
+ * port coming up or a target recovering from an unsent warning stays quiet */
+const RECOVERY = { wan_up: true, stream_resume: true, stream_lost: true, stream_off: true, link_up: true,
+	wan_if_up: true, proxy_up: true, target_ok: true, dev_present: true };
 
 function urlenc(s) {
 	let out = '';
@@ -432,8 +435,17 @@ function urlenc(s) {
 
 function notify_queue(e) {
 	let n = cfg.notify;
-	if (!n.enabled || e.area == 'system' && e.lvl == 'info') return;
-	let want = (e.lvl == 'err') || (e.lvl == 'warn' && (n.min_level == 'warn' || RECOVERY[e.type]));
+	if (!n.enabled) return;
+	let key = `${e.area}|${e.src}`;
+	let want;
+	if (RECOVERY[e.type]) {
+		want = notif.open[key] == true;
+		delete notif.open[key];
+	}
+	else {
+		want = (e.lvl == 'err') || (e.lvl == 'warn' && n.min_level == 'warn');
+		if (want) notif.open[key] = true;
+	}
 	if (!want) return;
 	push(notif.pending, `${substr(tstamp(e.ts), 11)} ${event_msg(e, n.lang)}`);
 	if (length(notif.pending) > 25)
@@ -680,8 +692,9 @@ function sample_device(m, dt) {
 
 		/* link state transitions */
 		if (ds.link != null && cur.up != ds.link) {
+			/* a port that may be unplugged (decoder switched on) coming up is not a problem */
 			if (cur.up)
-				emit('warn', m.area, m.dev, 'link_up', { dev: m.dev, speed: cur.speed, dur: now() - ds.since });
+				emit(m.expect_up ? 'warn' : 'info', m.area, m.dev, 'link_up', { dev: m.dev, speed: cur.speed, dur: now() - ds.since });
 			else
 				emit(m.expect_up ? 'err' : 'info', m.area, m.dev, 'link_down', { dev: m.dev });
 			ds.since = now();
@@ -1012,12 +1025,20 @@ function igmp_groups(dev) {
 	let data = fs.readfile(`${PROC}/net/igmp`);
 	if (data == null) return null;
 
+	/* the address is printed in host byte order. Every IGMP device has joined
+	 * 224.0.0.1 (all hosts), which tells little-endian (010000E0) from
+	 * big-endian (E0000001, e.g. ath79) */
+	let le = null;
+	if (match(data, /[ \t]010000E0[ \t]/)) le = true;
+	else if (match(data, /[ \t]E0000001[ \t]/)) le = false;
+
 	let cur = null, out = { found: false, ver: null, groups: [] };
 	for (let line in split(data, '\n')) {
 		let f = split(trim(line), /\s+/);
 		if (!length(f) || f[0] == '' || f[0] == 'Idx') continue;
 		if (match(f[0], /^[0-9]+$/) && length(f) >= 2) {
-			cur = f[1];
+			/* "%-10s:" - a name of 10+ characters (br-lan.236) has the colon attached */
+			cur = replace(f[1], /:$/, '');
 			if (cur == dev) {
 				out.found = true;
 				let v = f[length(f) - 1];
@@ -1027,10 +1048,10 @@ function igmp_groups(dev) {
 		}
 		if (cur != dev || !match(f[0], /^[0-9A-Fa-f]{8}$/)) continue;
 
-		/* the address is printed in host byte order: reversed on little-endian */
-		let g = hex(f[0]), le = g & 255;
-		let ip = (le >= 224 && le <= 239)
-			? sprintf('%d.%d.%d.%d', le, (g >> 8) & 255, (g >> 16) & 255, (g >> 24) & 255)
+		let g = hex(f[0]), lo = g & 255;
+		let rev = (le != null) ? le : (lo >= 224 && lo <= 239);
+		let ip = rev
+			? sprintf('%d.%d.%d.%d', lo, (g >> 8) & 255, (g >> 16) & 255, (g >> 24) & 255)
 			: sprintf('%d.%d.%d.%d', (g >> 24) & 255, (g >> 16) & 255, (g >> 8) & 255, g & 255);
 		if (match(ip, /^224\.0\.0\./) || ip == '239.255.255.250') continue;   /* link-local, SSDP */
 		push(out.groups, ip);
@@ -1354,6 +1375,9 @@ function read_log() {
 			break;
 		}
 	}
+	/* nothing readable at start (logd not up yet): only lines from now on are
+	 * new, otherwise the next read would replay the whole buffer */
+	if (first && max_ts == 0) max_ts = now();
 	logst.last_ts = max_ts;
 	logst.last_lines = last_lines;
 
@@ -1422,7 +1446,9 @@ function vlan_sample() {
 		}
 	vl.bridge = br;
 	vl.ports = filter(ports, (p) => p != br);
-	vl.upstream = cfg.iptv.upstream || filter(vl.ports, is_uplink)[0] || null;
+	/* routers where every port is a switch (DSA) port: the one named "wan" */
+	vl.upstream = cfg.iptv.upstream || filter(vl.ports, is_uplink)[0] ||
+		filter(vl.ports, (p) => match(p, /^wan/))[0] || null;
 
 	if (!length(vl.ports)) { vl.error = 'vlan_not_found'; vl.cnt = null; return; }
 
@@ -1877,6 +1903,12 @@ function tsq_start(tg) {
 		}
 	});
 
+	if (!tsq.proc) {
+		tsq.err = 'scan_failed';
+		tsq.next = now() + cfg.iptv.q_interval;
+		return;
+	}
+
 	/* a stuck scan must not block the next ones; the capture itself ends on
 	 * its own, this only frees a hung parser */
 	let pid = tsq.proc.pid();
@@ -1974,11 +2006,11 @@ function refresh_wan_device() {
 
 	wan_session(st);
 
-	if (!cfg.wan.auto_device) return;
+	if (st.up === false) return;      /* keep last known device / gateway while WAN is down */
 	let dev = st.l3_device ?? st.device ?? '';
-	if (st.up === false) return;      /* keep last known device while WAN is down */
-	if (valid_dev(dev)) cfg.wan.device = dev;
+	if (cfg.wan.auto_device && valid_dev(dev)) cfg.wan.device = dev;
 
+	/* the gateway is wanted with a device override too */
 	let gw = null;
 	for (let r in (st.route ?? []))
 		if (r.target == '0.0.0.0' && r.mask == 0 && r.nexthop && r.nexthop != '0.0.0.0') { gw = r.nexthop; break; }

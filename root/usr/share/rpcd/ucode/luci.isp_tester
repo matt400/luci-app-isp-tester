@@ -48,22 +48,29 @@ function pkg_manager() {
 
 /* installed version of a package without the "-rN" / "-N" release suffix, or null */
 function installed_version(name) {
-	let pm = pkg_manager(), out, m;
-	if (pm == 'apk') {
+	let pm = pkg_manager(), out, ver;
+	if (pm == 'apk')
 		out = run(`apk list -I ${name}`);
-		m = match(out ?? '', regexp(`(^|\\n)${name}-([0-9][^ ]*) `));
-	}
-	else if (pm == 'opkg') {
+	else if (pm == 'opkg')
 		out = run(`opkg list-installed ${name}`);
-		m = match(out ?? '', regexp(`(^|\\n)${name} - ([0-9][^ \\n]*)`));
+
+	/* line by line: "<name>-<ver> <arch> ..." (apk), "<name> - <ver>" (opkg) */
+	for (let line in split(out ?? '', '\n')) {
+		let f = split(trim(line), ' ');
+		if (pm == 'apk' && index(f[0], `${name}-`) == 0)
+			ver = substr(f[0], length(name) + 1);
+		else if (pm == 'opkg' && f[0] == name && f[1] == '-')
+			ver = f[2];
+		if (ver != null) break;
 	}
-	if (!m) return null;
-	return replace(m[2], /-r?[0-9]+$/, '');
+	if (!match(ver ?? '', /^[0-9]/)) return null;
+	return replace(ver, /-r?[0-9]+$/, '');
 }
 
 /* -1 / 0 / 1 */
 function vercmp(a, b) {
-	let x = split(a, /[.\-+_~]/), y = split(b, /[.\-+_~]/);
+	/* POSIX brackets have no escapes: "\-" would be a range and fail to compile */
+	let x = split(a, /[-.+_~]/), y = split(b, /[-.+_~]/);
 	for (let i = 0; i < max(length(x), length(y)); i++) {
 		/* "0rc1": number 0 plus a pre-release suffix, which sorts below the plain release */
 		let mx = match(x[i] ?? '0', /^([0-9]*)(.*)$/), my = match(y[i] ?? '0', /^([0-9]*)(.*)$/);
@@ -200,7 +207,9 @@ return {
 					push(script, `${dl} "$D/${n}" '${base}/${n}' || { st error download; exit 1; }`);
 				push(script, 'st running verify');
 				for (let n in names)
-					push(script, `( cd "$D" && grep " \\*\\?${n}\\$" SHA256SUMS | sha256sum -c - >/dev/null 2>&1 ) || { st error checksum; exit 1; }`);
+					/* exact name match (no regex: busybox grep has no "\?"); an empty
+					 * selection must fail, not pass */
+					push(script, `( cd "$D" && awk -v n='${n}' '$2 == n || $2 == "*" n' SHA256SUMS > "${n}.sum" && [ -s "${n}.sum" ] && sha256sum -c "${n}.sum" >/dev/null 2>&1 ) || { st error checksum; exit 1; }`);
 				push(script, 'st running install');
 				push(script, `${inst} ${join(' ', map(names, n => `"$D/${n}"`))} >"$D/install.log" 2>&1 || { st error install; exit 1; }`);
 				push(script, 'rm -f /tmp/luci-indexcache* /tmp/luci-modulecache/* 2>/dev/null');
