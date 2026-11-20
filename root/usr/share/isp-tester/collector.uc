@@ -340,7 +340,8 @@ let started = now();
 let wansess = { up: null, uptime: null, seen: null, ip: null, since: now(), reconnects: 0 };
 /* bridged IPTV VLAN (see vlan_sample) */
 let vl = { bridge: null, upstream: null, ports: [], stats: null, mdb: null, error: null, cnt: null };
-let igmp = { groups: null, hist: [], proxy: null, proxy_seen: false, proxy_since: now() };
+/* joined = group -> when it was joined (0 = already there at start) */
+let igmp = { groups: null, joined: {}, hist: [], proxy: null, proxy_seen: false, proxy_since: now() };
 /* picture quality scan: proc = running capture, next = earliest next start,
  * boost = windows still to run back-to-back after errors, pend = errors from
  * windows whose event was held back by the cooldown, cc_acc = errors since
@@ -1116,6 +1117,9 @@ function igmp_poll() {
 		if (length(igmp.hist) > 20) igmp.hist = slice(igmp.hist, -20);
 	}
 	if (length(cur)) igmp.seen = true;
+	let j = {};
+	for (let x in cur) j[x] = igmp.joined[x] ?? (igmp.groups == null ? 0 : now());
+	igmp.joined = j;
 	igmp.groups = cur;
 }
 
@@ -1583,6 +1587,47 @@ function chn_now() {
 	return join(', ', out);
 }
 
+/*
+ * The one channel being watched now (a group), null when it cannot be told.
+ * Without an IGMP querier left groups stay joined for minutes, so the list
+ * of joined groups is not the answer:
+ *   1. a group joined after the last quality scan: the newest zap
+ *   2. the group that carried the stream in a recent quality scan
+ *   3. the newest join seen since the collector started
+ *   4. the only joined group that may be a channel
+ * Groups known to carry no TS (EPG / service data) are never picked.
+ */
+function chn_current() {
+	let gs = igmp.groups ?? [];
+	if (!length(gs)) return null;
+	let notch = (g) => !cfg.iptv.channels[g] && !chn.db[g]?.name && chn.db[g]?.why == 'no_data';
+	let newest = (after) => {
+		let best = null;
+		for (let g in gs) {
+			let t = igmp.joined[g] ?? 0;
+			if (t > after && !notch(g) && (best == null || t > igmp.joined[best])) best = g;
+		}
+		return best;
+	};
+
+	let last = tsq.last;
+	let g = newest(last?.ts ?? 0);
+	if (g) return g;
+
+	if (last && now() - last.ts <= cfg.iptv.q_interval * 2 + 60) {
+		let best = null;
+		for (let e in (last.groups ?? []))
+			if (index(gs, e.grp) >= 0 && (best == null || e.kbps > best.kbps)) best = e;
+		if (best) return best.grp;
+	}
+
+	g = newest(0);
+	if (g) return g;
+
+	let c = filter(gs, (x) => !notch(x));
+	return length(c) == 1 ? c[0] : null;
+}
+
 /* names found by a capture (tsscan.uc result groups) */
 function chn_learn(groups) {
 	let changed = false, t = now();
@@ -1774,7 +1819,7 @@ function iptv_out(devres) {
 		o.igmp = {
 			dev: cfg.iptv.igmp_dev || null,
 			found: igmp.found, version: igmp.version,
-			groups: igmp.groups, last_change: igmp.last_change,
+			groups: igmp.groups, current: chn_current(), last_change: igmp.last_change,
 			proxy: igmp.proxy ?? igmp.last_name, proxy_running: igmp.proxy != null, proxy_seen: igmp.proxy_seen
 		};
 		o.channels = chn_out(o);

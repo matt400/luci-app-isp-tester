@@ -1394,22 +1394,7 @@ msgstr ""
 msgid "channel %s"
 msgstr ""
 
-msgid "names need tcpdump (install tcpdump-mini)"
-msgstr ""
-
 msgid "name set by hand"
-msgstr ""
-
-msgid "reading the name…"
-msgstr ""
-
-msgid "the stream carries no name (set one in Settings)"
-msgstr ""
-
-msgid "name not found in the stream (set one in Settings)"
-msgstr ""
-
-msgid "name not known yet"
 msgstr ""
 
 msgid "Watching"
@@ -1464,4 +1449,7 @@ msgid "e.g. TVP 1 HD"
 msgstr ""
 
 msgid "Names read from the streams"
+msgstr ""
+
+msgid "unknown"
 msgstr ""

@@ -1396,23 +1396,8 @@ msgstr "W strumieniu IPTV naliczono zgubione pakiety (%d skanów z błędami) �
 msgid "channel %s"
 msgstr "kanał %s"
 
-msgid "names need tcpdump (install tcpdump-mini)"
-msgstr "nazwy wymagają tcpdump (zainstaluj tcpdump-mini)"
-
 msgid "name set by hand"
 msgstr "nazwa ustawiona ręcznie"
-
-msgid "reading the name…"
-msgstr "odczytuję nazwę…"
-
-msgid "the stream carries no name (set one in Settings)"
-msgstr "strumień nie zawiera nazwy (ustaw ją w Ustawieniach)"
-
-msgid "name not found in the stream (set one in Settings)"
-msgstr "nie znaleziono nazwy w strumieniu (ustaw ją w Ustawieniach)"
-
-msgid "name not known yet"
-msgstr "nazwa jeszcze nieznana"
 
 msgid "Watching"
 msgstr "Oglądany kanał"
@@ -1467,3 +1452,6 @@ msgstr "np. TVP 1 HD"
 
 msgid "Names read from the streams"
 msgstr "Nazwy odczytane ze strumieni"
+
+msgid "unknown"
+msgstr "nieznany"
