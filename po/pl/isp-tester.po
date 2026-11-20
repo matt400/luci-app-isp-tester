@@ -1302,3 +1302,93 @@ msgstr "Dekoder wyłączony po (s) – bez subskrypcji"
 
 msgid "If the stream stops and no channel is subscribed any more (IGMP), for this long, it is logged as the decoder being switched off, not as a fault. 0 disables. Needs IGMP watching."
 msgstr "Jeśli strumień zniknie i przez ten czas żaden kanał nie jest już subskrybowany (IGMP), zostanie zapisany jako wyłączenie dekodera, a nie awaria. 0 wyłącza. Wymaga śledzenia IGMP."
+
+msgid "Picture errors in the incoming IPTV stream (see timeline)"
+msgstr "Błędy obrazu w przychodzącym strumieniu IPTV (patrz oś czasu)"
+
+msgid "Picture quality scan needs tcpdump: install tcpdump-mini."
+msgstr "Skanowanie jakości obrazu wymaga tcpdump: zainstaluj tcpdump-mini."
+
+msgid "Picture quality scan: the scanner script (tsscan.uc) or ucode is missing."
+msgstr "Skanowanie jakości obrazu: brakuje skryptu skanera (tsscan.uc) lub ucode."
+
+msgid "Picture quality scan: no IPTV interface to capture on (check the VLAN or device in Settings)."
+msgstr "Skanowanie jakości obrazu: brak interfejsu IPTV do przechwytywania (sprawdź VLAN lub urządzenie w Ustawieniach)."
+
+msgid "IPTV picture errors: %d lost-packet gaps (~%d packets) in %s of scans, channel %s"
+msgstr "Błędy obrazu IPTV: %d przerw w pakietach (~%d pakietów) w %s skanów, kanał %s"
+
+msgid "longest pause %d ms"
+msgstr "najdłuższa przerwa %d ms"
+
+msgid "needs tcpdump (install tcpdump-mini)"
+msgstr "wymaga tcpdump (zainstaluj tcpdump-mini)"
+
+msgid "scanner script or ucode missing"
+msgstr "brak skryptu skanera lub ucode"
+
+msgid "no interface to capture on"
+msgstr "brak interfejsu do przechwytywania"
+
+msgid "the last scan failed"
+msgstr "ostatni skan się nie powiódł"
+
+msgid "waiting for the first scan"
+msgstr "czekam na pierwszy skan"
+
+msgid "no stream in the last scan"
+msgstr "brak strumienia w ostatnim skanie"
+
+msgid "%d lost-packet gaps (~%d packets)"
+msgstr "%d przerw w pakietach (~%d pakietów)"
+
+msgid "no errors"
+msgstr "brak błędów"
+
+msgid "Picture quality"
+msgstr "Jakość obrazu"
+
+msgid "Last scan"
+msgstr "Ostatni skan"
+
+msgid "%s ago · %d s every %d s"
+msgstr "%s temu · %d s co %d s"
+
+msgid "Picture quality scan"
+msgstr "Skanowanie jakości obrazu"
+
+msgid "Counts lost packets (MPEG-TS continuity errors) in the IPTV stream – what a viewer sees as pixelation – in short captures while a stream is playing. The channel being watched is found automatically. Needs tcpdump-mini; nothing runs while the decoder is off."
+msgstr "Liczy zgubione pakiety (błędy ciągłości MPEG-TS) w strumieniu IPTV – to, co widz widzi jako kostkowanie obrazu – w krótkich przechwyceniach, gdy strumień jest odtwarzany. Oglądany kanał jest wykrywany automatycznie. Wymaga tcpdump-mini; gdy dekoder jest wyłączony, nic się nie uruchamia."
+
+msgid "Scan length (s)"
+msgstr "Długość skanu (s)"
+
+msgid "Length of one capture. Longer is more reliable and uses more CPU while it runs."
+msgstr "Długość jednego przechwycenia. Dłuższe jest pewniejsze, ale w trakcie obciąża CPU bardziej."
+
+msgid "Scan every (s)"
+msgstr "Skan co (s)"
+
+msgid "Time between scans while the stream plays. After an error the next scans run back to back for a while."
+msgstr "Odstęp między skanami podczas odtwarzania. Po błędzie kolejne skany idą jeden po drugim przez jakiś czas."
+
+msgid "Warn from (errors per scan)"
+msgstr "Ostrzegaj od (błędów na skan)"
+
+msgid "Lost-packet gaps in one scan that turn the status yellow and are logged."
+msgstr "Liczba przerw w pakietach w jednym skanie, od której status robi się żółty i zdarzenie trafia do logu."
+
+msgid "Fault from (errors per scan)"
+msgstr "Awaria od (błędów na skan)"
+
+msgid "Lost-packet gaps in one scan that are logged as a fault."
+msgstr "Liczba przerw w pakietach w jednym skanie, od której zdarzenie jest zapisywane jako awaria."
+
+msgid "Pause warning (ms)"
+msgstr "Ostrzeżenie o przerwie (ms)"
+
+msgid "Also warn when the stream pauses this long inside a scan, even without lost packets (delivery in bursts). 0 disables."
+msgstr "Ostrzegaj też, gdy strumień zatrzyma się na tak długo w trakcie skanu, nawet bez zgubionych pakietów (dostarczanie seriami). 0 wyłącza."
+
+msgid "Lost packets were counted in the IPTV stream (%d scans with errors) – the picture glitches come with the stream itself: ISP IPTV/multicast side, not your home network."
+msgstr "W strumieniu IPTV naliczono zgubione pakiety (%d skanów z błędami) – zakłócenia obrazu przychodzą razem ze strumieniem: strona IPTV/multicast operatora, nie sieć domowa."

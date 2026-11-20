@@ -123,6 +123,7 @@ return baseclass.extend({
 
 		var allStalls   = by(function(e) { return e.type === 'stream_stall'; });
 		var dips        = by(function(e) { return e.type === 'stream_dip'; });
+		var tsErr       = by(function(e) { return e.type === 'ts_errors'; });
 		var proxyBad    = by(function(e) { return e.type === 'proxy_down' || e.type === 'proxy_restart' ||
 			(e.type === 'log' && e.d && e.d.kind === 'proxy_log'); });
 		var marks       = by(function(e) { return e.type === 'user_mark'; });
@@ -241,6 +242,8 @@ return baseclass.extend({
 			findings.push({ side: 'info', code: 'no_proxy', n: 1, last: 0, weight: 0, args: {} });
 
 		add(ctx.iptv_direction === 'tx' ? 'info' : 'isp', 0.5, 'stream_dip', dips);
+		/* counted on the stream as it arrives, before the router: lost packets are upstream */
+		add(ctx.iptv_direction === 'tx' ? 'info' : 'isp', 1.5, 'ts_errors', tsErr);
 
 		/* ---- the user's own reports: was anything measured at that moment? */
 		var measured = ev.filter(function(e) { return e.lvl !== 'info' && e.area !== 'user' && e.area !== 'system'; });
@@ -354,6 +357,7 @@ return baseclass.extend({
 		case 'stall_upstream':  return _('%d of %d IPTV freezes: multicast stopped arriving from the ISP while Internet and ports were fine – ISP IPTV/multicast side (less often an IGMP issue on the router).').format(f.n, a.total);
 		case 'no_querier':      return _('IGMP snooping is on but the querier is off on %s – streams can time out on the switch.').format(a.bridge);
 		case 'stream_dip':      return _('IPTV bitrate dropped sharply %d× – unstable stream from the ISP.').format(f.n);
+		case 'ts_errors':       return _('Lost packets were counted in the IPTV stream (%d scans with errors) – the picture glitches come with the stream itself: ISP IPTV/multicast side, not your home network.').format(f.n);
 		case 'port_speed':      return _('Link renegotiated to a lower speed (%s, %d×) – damaged cable or connector (e.g. only 2 pairs working).').format(a.devs, f.n);
 		case 'port_link':       return _('Link drops on %s (%d×) – cable, connector, power of the connected device, or switch.').format(a.devs, f.n);
 		case 'port_errors':     return _('Errors/drops on %s (%d×) – cable or connector.').format(a.devs, f.n);

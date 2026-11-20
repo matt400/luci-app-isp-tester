@@ -35,13 +35,14 @@ Target: **OpenWrt 24.10 and 25.12** (ucode + rpcd + LuCI JS). No compiled code, 
 | **System log** | `logread`: pppd, udhcpc, igmpproxy/mcproxy, kernel, dnsmasq | LCP echo timeouts, PPPoE discovery/authentication failures, DHCP lease lost, proxy errors, network driver hang, connection table full, out of memory, DNS query limit |
 | **IPTV** | Bitrate of the IPTV VLAN (bridge per-VLAN counters), or of a device that carries only IPTV traffic (e.g. `eth1.387`, or the decoder's port measured outgoing) | stream started, **stream stopped**, stream resumed after *N s* (with what IGMP did meanwhile), **decoder switched off** (stream gone and no channel subscribed any more: logged as info, not a fault), stream lost (still subscribed: long outage), bitrate dip |
 | **IGMP** | Joined groups on the proxy's upstream (`/proc/net/igmp`), multicast proxy process (igmpproxy, mcproxy, omcproxy), bridge MDB and IGMP timers | proxy stopped / restarted; every freeze is tagged as *channel change*, *membership dropped* or *still subscribed* |
+| **IPTV picture quality** (optional) | Short `tcpdump` captures of the incoming stream while it plays, counted by `tsscan.uc`: MPEG-TS continuity errors (lost packets) of the channel being watched | **picture errors** (*N* lost-packet gaps, ~*M* packets, channel, longest pause); yellow for a while after errors |
 | **Ports** | `/sys/class/net/<dev>` counters and link state | link down/up, link flapping between samples, speed change (e.g. 1 Gbit → 100 Mbit), RX/TX/CRC errors, drops |
 | **Router** | `/proc`: CPU per core (incl. softirq), RAM, connection tracking table. Only read to explain problems; for graphs use *Status → Realtime Graphs* or luci-app-statistics | router overloaded, low RAM, connection table full |
 | **You** | **⚑ Problem now** button | your report with the time of the click and an optional note |
 
 Optionally it shows whether **IGMP snooping** and the **querier** are active on a bridge, and which group goes to which bridge port (needs `ip-bridge`).
 
-The package does not duplicate what OpenWrt already does: ping comes from collectd, the session from netifd, messages from the system log, persistence from a mounted USB folder. The only own measurement is the IPTV bitrate, read from the interface counters every second (collectd's 30 s average would hide freezes).
+The package does not duplicate what OpenWrt already does: ping comes from collectd, the session from netifd, messages from the system log, persistence from a mounted USB folder. The own measurements are the IPTV bitrate, read from the interface counters every second (collectd's 30 s average would hide freezes), and the optional picture quality scan (nothing in OpenWrt counts lost IPTV packets).
 
 ### Ping via collectd
 
@@ -86,6 +87,7 @@ The panel looks at what happened **at the same time** (within 30 s) in the selec
 | IPTV freeze together with a LAN port drop, error or speed downgrade | cable / switch at home |
 | IPTV freezes at a regular interval (e.g. every ~125 s or ~260 s) | IGMP timeout, i.e. router configuration (querier / snooping / proxy) |
 | IPTV freeze with nothing else happening, measured on the ISP VLAN | ISP multicast side (less often IGMP) |
+| Lost packets (continuity errors) counted in the incoming IPTV stream | ISP IPTV / multicast side, not the home network |
 | IPTV freeze with nothing else happening, measured on the decoder port | router (IGMP snooping / querier) |
 | IPTV freeze while the router stayed subscribed to the channel | ISP multicast side |
 | IPTV freeze that started with the IGMP membership being dropped | IGMP timeout on the router / switch |
@@ -137,6 +139,22 @@ Without a VLAN (under *Advanced*) you choose a device where **only IPTV** flows:
 - **Port towards the decoder**. Use *direction: outgoing*. This only works if nothing else uses that port.
 
 Switch the TV on and check that the overview shows a few Mbit/s. Then set *stream threshold* below the lowest normal bitrate (default 500 kbit/s).
+
+## IPTV picture quality (optional)
+
+A freeze is only half of what goes wrong with IPTV: more often the picture breaks into blocks for a moment because a few packets were lost. The bitrate hardly changes then, so the bitrate monitor does not see it. The quality scan counts the lost packets directly: every MPEG-TS packet carries a 4-bit continuity counter per stream, and a gap in it means packets are missing. Nothing is decoded, so it works on scrambled streams too.
+
+Enable it in Settings → IPTV → *Picture quality scan*. It needs `tcpdump-mini` (`apk add tcpdump-mini` or `opkg install tcpdump-mini`); without it the IPTV card says so.
+
+How it works, and what it costs:
+
+- It runs only while a stream is playing. A short capture (default 5 s, every 60 s) is taken on the ISP-side port of the IPTV VLAN, or on the configured device. The kernel filters the packets (only that VLAN, UDP multicast), so everything else, such as Internet traffic, never reaches `tcpdump`.
+- The capture is counted by `tsscan.uc` in a separate low-priority process, so the collector never parses packets itself. The temporary file lives in RAM and is deleted right after.
+- The channel being watched is the multicast group that carries TS in the capture, so channel changes need no setting and the log names the group. EPG/service groups are ignored. A second decoder on another channel is reported separately.
+- After an error the next scans run back to back for a while, to see how long it lasts; events are limited by the same cooldown as port errors, and what a held-back scan found is added to the next event.
+- It measures the stream **as it arrives at the router**, so lost packets found here come from the ISP side. Measured on the decoder port (direction *outgoing*), the result is only informational in the analysis.
+
+Thresholds (Settings → IPTV → Advanced): *Warn from* / *Fault from* count lost-packet gaps per scan (default 1 and 30), *Pause warning* flags a stream that pauses for that many ms inside a scan (default 500).
 
 ## Install
 
@@ -217,7 +235,7 @@ ISP_TESTER_CONFIG=/tmp/t/cfg.json ISP_TESTER_VARDIR=/tmp/t/var \
 ISP_TESTER_ROUTE=/tmp/t/route ucode root/usr/share/isp-tester/collector.uc
 ```
 
-Further overrides: `ISP_TESTER_VARDIR`, `ISP_TESTER_PROC` (fake `/proc` with `stat`, `meminfo`, `net/igmp`, `<pid>/comm` …), `ISP_TESTER_WANSTATUS` (JSON file instead of `ubus call network.interface.wan status`), `ISP_TESTER_LOGREAD`, `ISP_TESTER_RRDTOOL`, `ISP_TESTER_FETCH`, `ISP_TESTER_BRIDGE`. Ping data comes from `wan.collectd_socket` (a collectd unixsock, e.g. a small test server) or `wan.rrd_dir` in the JSON config.
+Further overrides: `ISP_TESTER_VARDIR`, `ISP_TESTER_PROC` (fake `/proc` with `stat`, `meminfo`, `net/igmp`, `<pid>/comm` …), `ISP_TESTER_WANSTATUS` (JSON file instead of `ubus call network.interface.wan status`), `ISP_TESTER_LOGREAD`, `ISP_TESTER_RRDTOOL`, `ISP_TESTER_FETCH`, `ISP_TESTER_BRIDGE`, and for the picture quality scan `ISP_TESTER_TCPDUMP` (a stub that writes a prepared pcap to the file given after `-w`), `ISP_TESTER_TSSCAN`, `ISP_TESTER_UCODE`. `tsscan.uc` can also be run on its own: `ucode tsscan.uc capture.pcap result.json` (the capture is deleted afterwards). Ping data comes from `wan.collectd_socket` (a collectd unixsock, e.g. a small test server) or `wan.rrd_dir` in the JSON config.
 
 `ISP_TESTER_CONFIG` is a JSON file with the same keys as the UCI config (see `default_config()` in the collector).
 

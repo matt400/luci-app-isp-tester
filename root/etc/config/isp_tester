@@ -71,6 +71,19 @@ config iptv 'iptv'
 	# interface the proxy joins the groups on (its upstream); empty = the IPTV
 	# device when measuring incoming traffic
 	option igmp_device ''
+	# picture quality: count lost packets (MPEG-TS continuity errors) in short
+	# captures while the stream plays. Needs tcpdump-mini. The channel being
+	# watched is found automatically; nothing runs while the decoder is off.
+	option quality '0'
+	# length of one capture (s) and time between captures (s); after an error
+	# the next captures run back to back for a while
+	option q_window '5'
+	option q_interval '60'
+	# lost-packet gaps per capture for a warning / a fault
+	option q_warn '1'
+	option q_fail '30'
+	# also warn when the stream pauses this long (ms) inside a capture, 0 = off
+	option q_gap '500'
 
 # router load, read from /proc only to explain problems (for graphs use
 # Status -> Realtime Graphs or luci-app-statistics)

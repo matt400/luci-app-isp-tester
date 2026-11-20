@@ -1300,3 +1300,93 @@ msgstr ""
 
 msgid "If the stream stops and no channel is subscribed any more (IGMP), for this long, it is logged as the decoder being switched off, not as a fault. 0 disables. Needs IGMP watching."
 msgstr ""
+
+msgid "Picture errors in the incoming IPTV stream (see timeline)"
+msgstr ""
+
+msgid "Picture quality scan needs tcpdump: install tcpdump-mini."
+msgstr ""
+
+msgid "Picture quality scan: the scanner script (tsscan.uc) or ucode is missing."
+msgstr ""
+
+msgid "Picture quality scan: no IPTV interface to capture on (check the VLAN or device in Settings)."
+msgstr ""
+
+msgid "IPTV picture errors: %d lost-packet gaps (~%d packets) in %s of scans, channel %s"
+msgstr ""
+
+msgid "longest pause %d ms"
+msgstr ""
+
+msgid "needs tcpdump (install tcpdump-mini)"
+msgstr ""
+
+msgid "scanner script or ucode missing"
+msgstr ""
+
+msgid "no interface to capture on"
+msgstr ""
+
+msgid "the last scan failed"
+msgstr ""
+
+msgid "waiting for the first scan"
+msgstr ""
+
+msgid "no stream in the last scan"
+msgstr ""
+
+msgid "%d lost-packet gaps (~%d packets)"
+msgstr ""
+
+msgid "no errors"
+msgstr ""
+
+msgid "Picture quality"
+msgstr ""
+
+msgid "Last scan"
+msgstr ""
+
+msgid "%s ago · %d s every %d s"
+msgstr ""
+
+msgid "Picture quality scan"
+msgstr ""
+
+msgid "Counts lost packets (MPEG-TS continuity errors) in the IPTV stream – what a viewer sees as pixelation – in short captures while a stream is playing. The channel being watched is found automatically. Needs tcpdump-mini; nothing runs while the decoder is off."
+msgstr ""
+
+msgid "Scan length (s)"
+msgstr ""
+
+msgid "Length of one capture. Longer is more reliable and uses more CPU while it runs."
+msgstr ""
+
+msgid "Scan every (s)"
+msgstr ""
+
+msgid "Time between scans while the stream plays. After an error the next scans run back to back for a while."
+msgstr ""
+
+msgid "Warn from (errors per scan)"
+msgstr ""
+
+msgid "Lost-packet gaps in one scan that turn the status yellow and are logged."
+msgstr ""
+
+msgid "Fault from (errors per scan)"
+msgstr ""
+
+msgid "Lost-packet gaps in one scan that are logged as a fault."
+msgstr ""
+
+msgid "Pause warning (ms)"
+msgstr ""
+
+msgid "Also warn when the stream pauses this long inside a scan, even without lost packets (delivery in bursts). 0 disables."
+msgstr ""
+
+msgid "Lost packets were counted in the IPTV stream (%d scans with errors) – the picture glitches come with the stream itself: ISP IPTV/multicast side, not your home network."
+msgstr ""

@@ -55,6 +55,10 @@ const LOGREAD = find_bin('ISP_TESTER_LOGREAD', [ '/sbin/logread', '/usr/sbin/log
 const RRDTOOL = find_bin('ISP_TESTER_RRDTOOL', [ '/usr/bin/rrdtool' ]);
 const BRIDGE = find_bin('ISP_TESTER_BRIDGE', [ '/usr/sbin/bridge', '/sbin/bridge' ]);
 const PROXIES = [ 'igmpproxy', 'mcproxy', 'omcproxy', 'improxy' ];
+/* picture quality scan (optional, needs tcpdump): capture + tsscan.uc */
+const TCPDUMP = find_bin('ISP_TESTER_TCPDUMP', [ '/usr/sbin/tcpdump', '/usr/bin/tcpdump' ]);
+const UCODE = find_bin('ISP_TESTER_UCODE', [ '/usr/bin/ucode' ]);
+const TSSCAN = getenv('ISP_TESTER_TSSCAN') || '/usr/share/isp-tester/tsscan.uc';
 
 const STAT_KEYS = [
 	'rx_bytes', 'tx_bytes', 'rx_packets', 'tx_packets',
@@ -133,7 +137,8 @@ function default_config() {
 			enabled: true, vlan: 0, upstream: '', device: '', direction: 'rx', bridge: '',
 			min_kbps: 500, idle_after: 60, off_after: 15, dip_pct: 40,
 			sample_interval: 1, stall_after: 2,
-			igmp: true, igmp_device: ''
+			igmp: true, igmp_device: '',
+			quality: false, q_window: 5, q_interval: 60, q_warn: 1, q_fail: 30, q_gap: 500
 		},
 		system: {
 			enabled: true, cpu_warn: 90, mem_warn: 10, conntrack_warn: 90
@@ -229,6 +234,12 @@ function load_config() {
 		c.iptv.dip_pct    = num(t.dip_pct, c.iptv.dip_pct);
 		c.iptv.sample_interval = num(t.sample_interval, c.iptv.sample_interval);
 		c.iptv.stall_after = num(t.stall_after, c.iptv.stall_after);
+		c.iptv.quality    = bool(t.quality, false);
+		c.iptv.q_window   = num(t.q_window, c.iptv.q_window);
+		c.iptv.q_interval = num(t.q_interval, c.iptv.q_interval);
+		c.iptv.q_warn     = num(t.q_warn, c.iptv.q_warn);
+		c.iptv.q_fail     = num(t.q_fail, c.iptv.q_fail);
+		c.iptv.q_gap      = num(t.q_gap, c.iptv.q_gap);
 
 		cur.foreach('isp_tester', 'port', (s) => {
 			if (bool(s.enabled, true) && s.device)
@@ -265,6 +276,16 @@ function load_config() {
 		/* VLAN mode has no per-tick fallback: the counters are read by the fast timer only */
 		c.iptv.sample_interval = c.iptv.vlan ? c.interval / 2 : 0;
 	if (c.iptv.stall_after < 0) c.iptv.stall_after = 0;
+	/* picture quality scan: short captures, so keep them short and rare */
+	c.iptv.q_window = int(c.iptv.q_window);
+	if (c.iptv.q_window < 2) c.iptv.q_window = 2;
+	if (c.iptv.q_window > 15) c.iptv.q_window = 15;
+	c.iptv.q_interval = int(c.iptv.q_interval);
+	if (c.iptv.q_interval < c.iptv.q_window + 10) c.iptv.q_interval = c.iptv.q_window + 10;
+	if (c.iptv.q_interval > 3600) c.iptv.q_interval = 3600;
+	if (c.iptv.q_warn < 1) c.iptv.q_warn = 1;
+	if (c.iptv.q_fail < c.iptv.q_warn) c.iptv.q_fail = c.iptv.q_warn;
+	if (c.iptv.q_gap < 0) c.iptv.q_gap = 0;
 	if (c.iptv.igmp_device && !valid_dev(c.iptv.igmp_device)) c.iptv.igmp_device = '';
 	/* IGMP memberships are joined by the multicast proxy on its upstream, which
 	 * is the IPTV VLAN when the bitrate is measured there */
@@ -300,6 +321,12 @@ let wansess = { up: null, uptime: null, seen: null, ip: null, since: now(), reco
 /* bridged IPTV VLAN (see vlan_sample) */
 let vl = { bridge: null, upstream: null, ports: [], stats: null, mdb: null, error: null, cnt: null };
 let igmp = { groups: null, hist: [], proxy: null, proxy_seen: false, proxy_since: now() };
+/* picture quality scan: proc = running capture, next = earliest next start,
+ * boost = windows still to run back-to-back after errors, pend = errors from
+ * windows whose event was held back by the cooldown, cc_acc = errors since
+ * the last tick (for the history chart) */
+let tsq = { proc: null, wd: null, next: 0, boost: 0, last: null, recent: [], err: null,
+	pend: null, last_ev: 0, cc_acc: null, windows: 0 };
 let sys = { prev: null, cpu_n: 0, cpu: false, mem: false, ct: false, cpu_since: 0, mem_since: 0, ct_since: 0 };
 let notif = { pending: [], last: 0, busy: false, last_ok: null, last_fail: null, last_err: null };
 let logst = { last_ts: null, last_lines: {}, kinds: {} };
@@ -326,6 +353,7 @@ const MSG = {
 		log: '%s: %s',
 		stream_stall: 'IPTV STREAM STOPPED', stream_resume: 'IPTV stream resumed after %s', stream_lost: 'IPTV stream did not come back within %s', stream_off: 'IPTV stream ended: decoder switched off (no channel subscribed)',
 		stream_dip: 'IPTV bitrate dropped to %d kbit/s',
+		ts_errors: 'IPTV picture errors: %d lost-packet gaps (~%d packets) in %ss, channel %s',
 		proxy_down: 'Multicast proxy %s is not running', proxy_up: 'Multicast proxy %s running again', proxy_restart: 'Multicast proxy %s restarted',
 		cpu_high: 'Router CPU busy: %d%% (softirq %d%%)', mem_low: 'Router RAM low: %d%% free', conntrack_full: 'Connection table %d%% full',
 		user_mark: 'Problem reported by user: %s', test: 'Test message - notifications work.'
@@ -341,6 +369,7 @@ const MSG = {
 		log: '%s: %s',
 		stream_stall: 'STRUMIEŃ IPTV ZATRZYMANY', stream_resume: 'Strumień IPTV wrócił po %s', stream_lost: 'Strumień IPTV nie wrócił w ciągu %s', stream_off: 'Strumień IPTV zakończony: dekoder wyłączony (brak subskrybowanego kanału)',
 		stream_dip: 'Bitrate IPTV spadł do %d kbit/s',
+		ts_errors: 'Błędy obrazu IPTV: %d przerw w pakietach (~%d pakietów) w %ss, kanał %s',
 		proxy_down: 'Proxy multicast %s nie działa', proxy_up: 'Proxy multicast %s znów działa', proxy_restart: 'Proxy multicast %s zrestartowany',
 		cpu_high: 'Router przeciążony: CPU %d%% (softirq %d%%)', mem_low: 'Mało RAM: wolne %d%%', conntrack_full: 'Tablica połączeń zajęta w %d%%',
 		user_mark: 'Problem zgłoszony ręcznie: %s', test: 'Wiadomość testowa - powiadomienia działają.'
@@ -374,6 +403,7 @@ function event_msg(e, lang) {
 	case 'wan_ip_change': return sprintf(f, d.from, d.to);
 	case 'log': return sprintf(f, d.prog, d.msg) + ((d.n > 1) ? ` (${d.n}x)` : '');
 	case 'stream_dip': return sprintf(f, d.kbps);
+	case 'ts_errors': return sprintf(f, d.cc, d.lost, d.win, d.grp ?? '?');
 	case 'proxy_down': case 'proxy_up': case 'proxy_restart': return sprintf(f, d.name);
 	case 'cpu_high': return sprintf(f, d.cpu, d.sirq);
 	case 'mem_low': return sprintf(f, d.pct);
@@ -520,7 +550,7 @@ function hist_add(h, t, vals, max) {
 
 /* 1-minute aggregates for the long (24 h) history */
 const AGG_MODE = { rtt: 'avg', rttmax: 'max', loss: 'max', jit: 'max',
-	'iptv:kbps': 'avg', 'iptv:min': 'min', err: 'sum', drop: 'sum', lvl: 'max' };
+	'iptv:kbps': 'avg', 'iptv:min': 'min', 'iptv:cc': 'sum', err: 'sum', drop: 'sum', lvl: 'max' };
 
 let agg = null;
 
@@ -1421,6 +1451,12 @@ function vlan_sample() {
 
 /* ------------------------------------------------------------------ IPTV */
 
+/* state of the picture quality scan, for the status page (see tsq_poll) */
+function tsq_out() {
+	return { error: tsq.err, running: tsq.proc != null, window: cfg.iptv.q_window, interval: cfg.iptv.q_interval,
+		warn: cfg.iptv.q_warn, fail: cfg.iptv.q_fail, windows: tsq.windows, last: tsq.last, recent: tsq.recent };
+}
+
 function iptv_on() {
 	return cfg.iptv.enabled && (cfg.iptv.device || cfg.iptv.vlan);
 }
@@ -1450,6 +1486,18 @@ function iptv_out(devres) {
 		push(reasons, { c: 'recent_events' });
 	}
 
+	/* picture quality scan: yellow for a while after errors, or when it cannot run */
+	if (cfg.iptv.quality) {
+		if (tsq.err == 'no_tcpdump' || tsq.err == 'no_scanner' || tsq.err == 'no_target') {
+			level = worst(level, 'warn');
+			push(reasons, { c: 'ts_' + tsq.err });
+		}
+		else if (recent_level('iptv', 'quality') != 'ok') {
+			level = worst(level, 'warn');
+			push(reasons, { c: 'ts_errors' });
+		}
+	}
+
 	let o = {
 		level, reasons, state: iptv.state, since: iptv.state == 'stalled' ? iptv.stall_since : iptv.since,
 		kbps: iptv.kbps, pps: iptv.pps, avg: round(iptv.avg, 0),
@@ -1458,6 +1506,7 @@ function iptv_out(devres) {
 		sample_interval: iptv_fast() ? cfg.iptv.sample_interval : cfg.interval,
 		min: iptv.tick?.min, stall_s: iptv.tick?.stall_s
 	};
+	if (cfg.iptv.quality) o.quality = tsq_out();
 
 	if (cfg.iptv.vlan) {
 		o.vlan = { id: cfg.iptv.vlan, bridge: vl.bridge, upstream: vl.upstream, ports: vl.ports, error: vl.error };
@@ -1717,6 +1766,139 @@ function sample_iptv(devres) {
 	return iptv_out(devres);
 }
 
+/* ----------------------------------------------- IPTV picture quality */
+
+/*
+ * MPEG-TS continuity errors: what a viewer sees as pixelation. Nothing in
+ * OpenWrt counts them, so this is the second own measurement. A short capture
+ * (q_window s, every q_interval s, only while the stream plays) is taken by
+ * tcpdump with the kernel doing the filtering, and counted by tsscan.uc in a
+ * separate low-priority process, so the collector itself never parses
+ * packets. After an error the next windows run back-to-back for a while.
+ * The measured channel is whichever group carries TS in the capture, i.e. the
+ * one being watched; no group is picked from IGMP.
+ */
+
+function tsq_target() {
+	if (cfg.iptv.vlan) {
+		if (!vl.upstream) return null;
+		return { dev: vl.upstream,
+			filter: `vlan ${cfg.iptv.vlan} and udp and ip multicast and not net 224.0.0.0/24` };
+	}
+	if (!cfg.iptv.device) return null;
+	return { dev: cfg.iptv.device, filter: 'udp and ip multicast and not net 224.0.0.0/24' };
+}
+
+function tsq_done(resfile) {
+	tsq.wd?.cancel();
+	tsq.wd = null;
+	tsq.proc = null;
+
+	let r;
+	try { r = json(fs.readfile(resfile) || 'null'); } catch (e) { r = null; }
+	fs.unlink(resfile);
+
+	let t = now();
+	if (type(r?.groups) != 'array') {
+		tsq.err = 'scan_failed';
+		tsq.boost = 0;
+		tsq.next = t + cfg.iptv.q_interval;
+		return;
+	}
+	tsq.err = null;
+	tsq.windows++;
+
+	/* only groups that carry a real stream (EPG / service data is not TS) */
+	let w = { ts: t, dur: r.dur, groups: [], lvl: 'ok', cc: 0 };
+	let main = null;
+	for (let g in r.groups) {
+		if ((g.kbps ?? 0) < cfg.iptv.min_kbps) continue;
+		let bad = g.cc_err + g.tei;
+		let lvl = 'ok';
+		if (bad >= cfg.iptv.q_fail) lvl = 'err';
+		else if (bad >= cfg.iptv.q_warn || (cfg.iptv.q_gap > 0 && g.max_gap_ms >= cfg.iptv.q_gap)) lvl = 'warn';
+		let o = { grp: g.grp, kbps: g.kbps, pps: g.pps, cc: g.cc_err, lost: g.lost, tei: g.tei,
+			gap: g.max_gap_ms, rtp_lost: g.rtp ? g.rtp_lost : null, lvl };
+		push(w.groups, o);
+		w.cc += bad;
+		w.lvl = worst(w.lvl, lvl);
+		if (lvl != 'ok' && (!main || bad > main.cc + main.tei)) main = o;
+	}
+
+	tsq.last = w;
+	push(tsq.recent, { ts: t, cc: w.cc, lvl: w.lvl });
+	if (length(tsq.recent) > 30) tsq.recent = slice(tsq.recent, -30);
+	tsq.cc_acc = (tsq.cc_acc ?? 0) + w.cc;
+
+	if (main) {
+		/* events are limited by the cooldown; what a held-back window found
+		 * is added to the next event of the same fault */
+		let p = tsq.pend ??= { cc: 0, lost: 0, win: 0 };
+		p.cc += main.cc;
+		p.lost += main.lost;
+		p.win += r.dur ?? cfg.iptv.q_window;
+		if (t - tsq.last_ev >= cfg.err_cooldown || LEVEL[w.lvl] > LEVEL[tsq.last_lvl ?? 'ok']) {
+			emit(w.lvl, 'iptv', 'quality', 'ts_errors', { grp: main.grp, cc: p.cc, lost: p.lost,
+				tei: main.tei, gap: main.gap, win: round(p.win, 0), kbps: main.kbps }, t);
+			tsq.pend = null;
+			tsq.last_ev = t;
+			tsq.last_lvl = w.lvl;
+		}
+		tsq.boost = 5;
+	}
+	else {
+		tsq.pend = null;
+		if (tsq.boost > 0) tsq.boost--;
+	}
+	tsq.next = t + (tsq.boost > 0 ? 1 : cfg.iptv.q_interval);
+}
+
+function tsq_start(tg) {
+	let pcap = `${VARDIR}/ts.pcap`, res = `${VARDIR}/ts.json`;
+	let win = cfg.iptv.q_window;
+	fs.unlink(res);
+	fs.unlink(pcap);
+
+	/* tcpdump stops after win seconds (or a packet cap as a safety net),
+	 * then tsscan.uc takes over the same process (exec) */
+	let cmd = `N=; command -v nice >/dev/null 2>&1 && N='nice -n 10'; ` +
+		`$N ${TCPDUMP} -i ${tg.dev} -nn -q -s 0 -c ${win * 8000} -w ${pcap} '${tg.filter}' 2>/dev/null & p=$!; ` +
+		`sleep ${win}; kill $p 2>/dev/null; wait $p 2>/dev/null; ` +
+		`exec $N ${UCODE} ${TSSCAN} ${pcap} ${res}`;
+
+	tsq.proc = uloop.process('/bin/sh', [ '-c', cmd ], null, (code) => {
+		try {
+			tsq_done(res);
+		}
+		catch (e) {
+			warn(`isp-tester: quality scan failed: ${e}\n`);
+			tsq.proc = null;
+			tsq.next = now() + cfg.iptv.q_interval;
+		}
+	});
+
+	/* a stuck scan must not block the next ones; the capture itself ends on
+	 * its own, this only frees a hung parser */
+	let pid = tsq.proc.pid();
+	tsq.wd = uloop.timer((win + 30) * 1000, () => {
+		if (tsq.proc != null && tsq.proc.pid() == pid)
+			system([ '/bin/sh', '-c', `kill ${int(pid)} 2>/dev/null` ]);
+	});
+}
+
+function tsq_poll() {
+	if (!cfg.iptv.quality || !iptv_on() || tsq.proc) return;
+	if (!TCPDUMP) { tsq.err = 'no_tcpdump'; return; }
+	if (!UCODE || !fs.stat(TSSCAN)) { tsq.err = 'no_scanner'; return; }
+	/* only while a stream is really flowing */
+	if (iptv.state != 'playing' || iptv.held || iptv.kbps < cfg.iptv.min_kbps) return;
+	if (now() < tsq.next) return;
+	let tg = tsq_target();
+	if (!tg) { tsq.err = 'no_target'; return; }
+	if (tsq.err == 'no_tcpdump' || tsq.err == 'no_scanner' || tsq.err == 'no_target') tsq.err = null;
+	tsq_start(tg);
+}
+
 /* ------------------------------------------------------------------- CSV */
 
 function csv_columns(devs, tlist) {
@@ -1891,6 +2073,7 @@ function tick() {
 	/* ---- IPTV */
 	let iptv_dev = cfg.iptv.vlan ? vl.upstream : cfg.iptv.device;
 	let iptv_res = sample_iptv(iptv_dev ? res[iptv_dev] : null);
+	tsq_poll();
 
 	/* ---- ports */
 	let ports = [];
@@ -1927,6 +2110,11 @@ function tick() {
 			hv['iptv:kbps'] = iptv_res.kbps;
 			/* lowest 1 s bitrate in this interval, so short freezes show on the chart */
 			if (iptv_res.min != null) hv['iptv:min'] = iptv_res.min;
+			/* picture errors found by the quality scan since the last tick */
+			if (cfg.iptv.quality) {
+				hv['iptv:cc'] = tsq.cc_acc;
+				tsq.cc_acc = null;
+			}
 		}
 		for (let d in devs) {
 			let r = res[d.dev];
