@@ -29,6 +29,14 @@ function service_running() {
 const REPO = 'matt400/luci-app-isp-tester';
 const PKG = 'luci-app-isp-tester';
 const PKG_I18N = 'luci-i18n-isp-tester-pl';
+const PKG_TSMON = 'isp-tester-tsmon';
+
+/* package architecture of this router, for the helper package (built per
+ * architecture, released as isp-tester-tsmon_<arch>.<ext>) */
+function pkg_arch() {
+	let m = match(readfile('/etc/os-release') ?? '', /OPENWRT_ARCH="?([A-Za-z0-9_.+-]+)"?/);
+	return m ? m[1] : null;
+}
 const UPDDIR = '/tmp/isp-tester-update';
 const UPDSTATE = `${VARDIR}/update.json`;
 
@@ -203,15 +211,27 @@ return {
 					'st running download',
 					`${dl} "$D/SHA256SUMS" '${base}/SHA256SUMS' || { st error download; exit 1; }`
 				];
+				/* the helper for this architecture, when the release has one
+				 * (older releases and unknown architectures: skipped) */
+				let arch = pkg_arch();
+				if (arch) {
+					let tn = `${PKG_TSMON}_${arch}.${ext}`;
+					push(script, `awk -v n='${tn}' '$2 == n || $2 == "*" n' "$D/SHA256SUMS" | grep -q . && T='${tn}' || T=`);
+				}
+				else
+					push(script, 'T=');
 				for (let n in names)
 					push(script, `${dl} "$D/${n}" '${base}/${n}' || { st error download; exit 1; }`);
+				push(script, `[ -z "$T" ] || ${dl} "$D/$T" "${base}/$T" || { st error download; exit 1; }`);
 				push(script, 'st running verify');
+				/* exact name match (no regex: busybox grep has no "\?"); an empty
+				 * selection must fail, not pass */
+				push(script, `chk() { ( cd "$D" && awk -v n="$1" '$2 == n || $2 == "*" n' SHA256SUMS > "$1.sum" && [ -s "$1.sum" ] && sha256sum -c "$1.sum" >/dev/null 2>&1 ) || { st error checksum; exit 1; }; }`);
 				for (let n in names)
-					/* exact name match (no regex: busybox grep has no "\?"); an empty
-					 * selection must fail, not pass */
-					push(script, `( cd "$D" && awk -v n='${n}' '$2 == n || $2 == "*" n' SHA256SUMS > "${n}.sum" && [ -s "${n}.sum" ] && sha256sum -c "${n}.sum" >/dev/null 2>&1 ) || { st error checksum; exit 1; }`);
+					push(script, `chk '${n}'`);
+				push(script, '[ -z "$T" ] || chk "$T"');
 				push(script, 'st running install');
-				push(script, `${inst} ${join(' ', map(names, n => `"$D/${n}"`))} >"$D/install.log" 2>&1 || { st error install; exit 1; }`);
+				push(script, `${inst} ${join(' ', map(names, n => `"$D/${n}"`))} \${T:+"$D/$T"} >"$D/install.log" 2>&1 || { st error install; exit 1; }`);
 				push(script, 'rm -f /tmp/luci-indexcache* /tmp/luci-modulecache/* 2>/dev/null');
 				push(script, `st done ${tag}`);
 				push(script, 'rm -rf "$D"');

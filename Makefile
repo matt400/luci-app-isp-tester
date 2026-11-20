@@ -12,7 +12,8 @@ LUCI_TITLE:=ISP / IPTV / port fault logger
 LUCI_DESCRIPTION:=Logs WAN, IPTV and switch-port faults as a timeline \
 	with a probable-cause analysis. Ping data comes from collectd \
 	(luci-app-statistics), session state from netifd, plus IGMP state, \
-	interface counters and the system log.
+	interface counters and the system log. IPTV picture quality and \
+	channel names need the isp-tester-tsmon package.
 LUCI_DEPENDS:=+luci-base +rpcd-mod-ucode +ucode +ucode-mod-fs +ucode-mod-uloop +ip-bridge \
 	+ucode-mod-uci +ucode-mod-ubus +ucode-mod-socket +ca-bundle
 LUCI_PKGARCH:=all

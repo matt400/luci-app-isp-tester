@@ -35,8 +35,8 @@ Target: **OpenWrt 24.10 and 25.12** (ucode + rpcd + LuCI JS). No compiled code, 
 | **System log** | `logread`: pppd, udhcpc, igmpproxy/mcproxy, kernel, dnsmasq | LCP echo timeouts, PPPoE discovery/authentication failures, DHCP lease lost, proxy errors, network driver hang, connection table full, out of memory, DNS query limit |
 | **IPTV** | Bitrate of the IPTV VLAN (bridge per-VLAN counters), or of a device that carries only IPTV traffic (e.g. `eth1.387`, or the decoder's port measured outgoing) | stream started, **stream stopped**, stream resumed after *N s* (with what IGMP did meanwhile), **decoder switched off** (stream gone and no channel subscribed any more: logged as info, not a fault), stream lost (still subscribed: long outage), bitrate dip |
 | **IGMP** | Joined groups on the proxy's upstream (`/proc/net/igmp`), multicast proxy process (igmpproxy, mcproxy, omcproxy), bridge MDB and IGMP timers | proxy stopped / restarted; every freeze is tagged as *channel change*, *membership dropped* or *still subscribed* |
-| **IPTV picture quality** (optional) | Short `tcpdump` captures of the incoming stream while it plays, counted by `tsscan.uc`: MPEG-TS continuity errors (lost packets) of the channel being watched | **picture errors** (*N* lost-packet gaps, ~*M* packets, channel, longest pause); yellow for a while after errors |
-| **Channel names** | Read from the stream itself (DVB SDT/PAT tables, `tsscan.uc`): one 3 s capture per new channel, or names set by hand | the channel being watched is named on the status page, in timeline events, the measurements CSV and notifications |
+| **IPTV picture quality** (optional) | The helper `isp-tester-tsmon` counts every packet of the incoming stream, continuously: MPEG-TS continuity errors (lost packets) of the channel being watched | **picture errors** (*N* lost-packet gaps, ~*M* packets, channel, longest pause); yellow for a while after errors |
+| **Channel names** | Read from the stream itself (DVB SDT/PAT tables) by the same helper, or names set by hand | the channel being watched is named on the status page, in timeline events, the measurements CSV and notifications |
 | **Ports** | `/sys/class/net/<dev>` counters and link state | link down/up, link flapping between samples, speed change (e.g. 1 Gbit → 100 Mbit), RX/TX/CRC errors, drops |
 | **Router** | `/proc`: CPU per core (incl. softirq), RAM, connection tracking table. Only read to explain problems; for graphs use *Status → Realtime Graphs* or luci-app-statistics | router overloaded, low RAM, connection table full |
 | **You** | **⚑ Problem now** button | your report with the time of the click and an optional note |
@@ -143,41 +143,47 @@ Switch the TV on and check that the overview shows a few Mbit/s. Then set *strea
 
 ## IPTV picture quality (optional)
 
-A freeze is only half of what goes wrong with IPTV: more often the picture breaks into blocks for a moment because a few packets were lost. The bitrate hardly changes then, so the bitrate monitor does not see it. The quality scan counts the lost packets directly: every MPEG-TS packet carries a 4-bit continuity counter per stream, and a gap in it means packets are missing. Nothing is decoded, so it works on scrambled streams too.
+A freeze is only half of what goes wrong with IPTV: more often the picture breaks into blocks for a moment because a few packets were lost. The bitrate hardly changes then, so the bitrate monitor does not see it. The quality measurement counts the lost packets directly: every MPEG-TS packet carries a 4-bit continuity counter per stream, and a gap in it means packets are missing. Nothing is decoded, so it works on scrambled streams too.
 
-Enable it in Settings → IPTV → *Picture quality scan*. It needs `tcpdump-mini` (`apk add tcpdump-mini` or `opkg install tcpdump-mini`); without it the IPTV card says so.
+Enable it in Settings → IPTV → *Picture quality*. It needs the package **`isp-tester-tsmon`** (see [Install](#install)); without it the IPTV card says so.
 
 How it works, and what it costs:
 
-- It runs only while a stream is playing. A short capture (default 5 s, every 60 s) is taken on the ISP-side port of the IPTV VLAN, or on the configured device. The kernel filters the packets (only that VLAN, UDP multicast), so everything else, such as Internet traffic, never reaches `tcpdump`.
-- The capture is counted by `tsscan.uc` in a separate low-priority process, so the collector never parses packets itself. The temporary file lives in RAM and is deleted right after.
-- The channel being watched is the multicast group that carries TS in the capture, so channel changes need no setting and the log names the group. EPG/service groups are ignored. A second decoder on another channel is reported separately.
-- After an error the next scans run back to back for a while, to see how long it lasts; events are limited by the same cooldown as port errors, and what a held-back scan found is added to the next event.
+- A small helper written in C (`/usr/sbin/isp-tester-tsmon`) listens on the ISP-side port of the IPTV VLAN, or on the configured device. The kernel filters the packets (only that VLAN, UDP multicast), so everything else, such as Internet traffic, never reaches it.
+- It counts **every packet, all the time**, as it arrives: continuity errors, transport error flags, RTP gaps and pauses. Nothing is stored and no file is written except a small status file in RAM once a second. A HD stream is about 1000 packets/s and the work per packet is a few counter checks, so it is light even on small routers (`top` shows it after enabling).
+- The collector reads the counters every interval. The thresholds count the errors **of the last minute**, so short glitches that happen once an hour or less are caught too, which short sampled captures would usually miss.
+- If the router itself is too busy to take every packet (its socket buffer overflows), those packets are reported as *not counted*, and errors at that time are not logged as the ISP's fault.
+- The channel being watched is the multicast group that carries TS, so channel changes need no setting and the log names the group. EPG/service groups are ignored. A second decoder on another channel is reported separately.
+- Events are limited by the same cooldown as port errors; errors held back by it are added to the next event.
 - It measures the stream **as it arrives at the router**, so lost packets found here come from the ISP side. Measured on the decoder port (direction *outgoing*), the result is only informational in the analysis.
+- The helper is started by the collector, ends with it, and is restarted (with a growing pause) if it stops.
 
-Thresholds (Settings → IPTV → Advanced): *Warn from* / *Fault from* count lost-packet gaps per scan (default 1 and 30), *Pause warning* flags a stream that pauses for that many ms inside a scan (default 500).
+Thresholds (Settings → IPTV → Advanced): *Warn from* / *Fault from* count lost-packet gaps per minute (default 1 and 30), *Pause warning* flags a stream that pauses for that many ms (default 500).
 
 ## IPTV channel names
 
 The status page, the timeline, the CSV and notifications name the channel being watched (*TVP 1 HD (239.1.1.1)*) instead of only its multicast group. The name comes from the stream: every DVB stream carries a Service Description Table with the service and provider name, and a PAT that says which service the stream is. Both are sent in the clear about every 1–2 s, also on encrypted channels.
 
-- When a decoder joins a channel whose name is not known yet (IGMP / bridge MDB), one capture of 3 s of **only that group** is taken and read by `tsscan.uc` (same low-priority process as the quality scan, never both at once). Known channels cost nothing; the quality scan refreshes the names on the side.
+- The same helper as the picture quality reads them from every channel that flows, so a new channel is named within a few seconds and known channels cost nothing extra. It runs for names alone too, when the picture quality is off.
 - Learned names are kept in `channels.json` next to the timeline (so with *Keep data on* a USB folder they survive a reboot). Settings → *Names read from the streams* lists them and can forget them.
 - Some operators send no names. Then the IPTV card says so, and names can be set by hand in Settings → *IPTV channel names* (multicast group → name); those always win.
 - Text in DVB's own character sets (ISO 6937, ISO 8859-x, UTF-8, UCS-2) is converted to UTF-8, so Polish letters show correctly.
-- Needs `tcpdump-mini` and *Watch IGMP*; can be switched off with *Identify channel names*.
+- Needs `isp-tester-tsmon`; can be switched off with *Identify channel names*.
 
 ## Install
 
 ### Package (recommended)
 
-Ready-made packages are attached to every [release](https://github.com/matt400/luci-app-isp-tester/releases). They are architecture-independent, so the same file works on every router.
+Ready-made packages are attached to every [release](https://github.com/matt400/luci-app-isp-tester/releases). `luci-app-isp-tester` is architecture-independent, so the same file works on every router. The helper for the picture quality and channel names, `isp-tester-tsmon`, is compiled, so there is one file per architecture: `isp-tester-tsmon_<arch>`, where `<arch>` is `OPENWRT_ARCH` from `/etc/os-release` (the commands below pick it automatically). Released architectures: `aarch64_cortex-a53`, `aarch64_cortex-a72`, `aarch64_generic`, `arm_cortex-a7_neon-vfpv4`, `arm_cortex-a9_vfpv3-d16`, `arm_cortex-a15_neon-vfpv4`, `mipsel_24kc`, `mips_24kc`, `x86_64`. For another one, build it yourself (below); everything else works without it.
 
 **OpenWrt 24.10 (opkg):**
 
 ```sh
 opkg update
 opkg install https://github.com/matt400/luci-app-isp-tester/releases/latest/download/luci-app-isp-tester.ipk
+# picture quality and channel names (optional, per architecture)
+. /etc/os-release
+opkg install https://github.com/matt400/luci-app-isp-tester/releases/latest/download/isp-tester-tsmon_${OPENWRT_ARCH}.ipk
 # Polish translation (optional)
 opkg install https://github.com/matt400/luci-app-isp-tester/releases/latest/download/luci-i18n-isp-tester-pl.ipk
 ```
@@ -188,6 +194,10 @@ opkg install https://github.com/matt400/luci-app-isp-tester/releases/latest/down
 apk update
 wget -O /tmp/isp-tester.apk https://github.com/matt400/luci-app-isp-tester/releases/latest/download/luci-app-isp-tester.apk
 apk add --allow-untrusted /tmp/isp-tester.apk
+# picture quality and channel names (optional, per architecture)
+. /etc/os-release
+wget -O /tmp/isp-tester-tsmon.apk https://github.com/matt400/luci-app-isp-tester/releases/latest/download/isp-tester-tsmon_${OPENWRT_ARCH}.apk
+apk add --allow-untrusted /tmp/isp-tester-tsmon.apk
 # Polish translation (optional)
 wget -O /tmp/isp-tester-pl.apk https://github.com/matt400/luci-app-isp-tester/releases/latest/download/luci-i18n-isp-tester-pl.apk
 apk add --allow-untrusted /tmp/isp-tester-pl.apk
@@ -197,7 +207,7 @@ apk add --allow-untrusted /tmp/isp-tester-pl.apk
 
 ### Updating
 
-Settings → **Updates** → *Check for updates*. The newest GitHub release is looked up, and a button installs it (`opkg` or `apk` is detected automatically). The packages are downloaded from the release and verified against its `SHA256SUMS` before installing. Needs internet access from the router and `ca-bundle`.
+Settings → **Updates** → *Check for updates*. The newest GitHub release is looked up, and a button installs it (`opkg` or `apk` is detected automatically), together with `isp-tester-tsmon` for the router's architecture when the release has it. The packages are downloaded from the release and verified against its `SHA256SUMS` before installing. Needs internet access from the router and `ca-bundle`.
 
 ### Build it yourself
 
@@ -207,13 +217,16 @@ In the OpenWrt SDK:
 git clone https://github.com/matt400/luci-app-isp-tester package/luci-app-isp-tester
 ./scripts/feeds update -a && ./scripts/feeds install -a
 make package/luci-app-isp-tester/compile V=s
+# the helper: its own package in tsmon/
+cp -r package/luci-app-isp-tester/tsmon package/isp-tester-tsmon
+make package/isp-tester-tsmon/compile V=s
 ```
 
 The packages end up in `bin/packages/*/base/`.
 
 ### Making a release
 
-Push a tag like `v0.2.0`. GitHub Actions builds the `.ipk` (24.10) and `.apk` (25.12) and attaches them to the release. The version is taken from the tag.
+Push a tag like `v0.2.0`. GitHub Actions builds the `.ipk` (24.10) and `.apk` (25.12), the helper for each architecture listed above, and attaches them to the release. The version is taken from the tag.
 
 ### Quick test (copy files)
 
@@ -225,7 +238,7 @@ scp -O -r htdocs/luci-static/resources/* $ROUTER:/www/luci-static/resources/
 ssh $ROUTER 'chmod +x /etc/init.d/isp_tester && sh /etc/uci-defaults/80_luci-isp-tester'
 ```
 
-This overwrites `/etc/config/isp_tester` and installs no translations.
+This overwrites `/etc/config/isp_tester` and installs no translations. The helper is not included; build it with the SDK (or for a quick try with the toolchain: `$CC -O2 -o isp-tester-tsmon tsmon/src/tsmon.c`) and copy it to `/usr/sbin/`.
 
 ## Command line
 
@@ -246,7 +259,7 @@ ISP_TESTER_CONFIG=/tmp/t/cfg.json ISP_TESTER_VARDIR=/tmp/t/var \
 ISP_TESTER_ROUTE=/tmp/t/route ucode root/usr/share/isp-tester/collector.uc
 ```
 
-Further overrides: `ISP_TESTER_VARDIR`, `ISP_TESTER_PROC` (fake `/proc` with `stat`, `meminfo`, `net/igmp`, `<pid>/comm` …), `ISP_TESTER_WANSTATUS` (JSON file instead of `ubus call network.interface.wan status`), `ISP_TESTER_LOGREAD`, `ISP_TESTER_RRDTOOL`, `ISP_TESTER_FETCH`, `ISP_TESTER_BRIDGE`, and for the picture quality scan `ISP_TESTER_TCPDUMP` (a stub that writes a prepared pcap to the file given after `-w`), `ISP_TESTER_TSSCAN`, `ISP_TESTER_UCODE`. `tsscan.uc` can also be run on its own: `ucode tsscan.uc capture.pcap result.json` (the capture is deleted afterwards). Ping data comes from `wan.collectd_socket` (a collectd unixsock, e.g. a small test server) or `wan.rrd_dir` in the JSON config.
+Further overrides: `ISP_TESTER_VARDIR`, `ISP_TESTER_PROC` (fake `/proc` with `stat`, `meminfo`, `net/igmp`, `<pid>/comm` …), `ISP_TESTER_WANSTATUS` (JSON file instead of `ubus call network.interface.wan status`), `ISP_TESTER_LOGREAD`, `ISP_TESTER_RRDTOOL`, `ISP_TESTER_FETCH`, `ISP_TESTER_BRIDGE`, and `ISP_TESTER_TSMON` (path of the helper; built with `cc -O2 -o tsmon tsmon/src/tsmon.c` it runs on any Linux, e.g. on `lo`, needs root). The helper also reads a capture: `isp-tester-tsmon -r capture.pcap` prints the same counters and names as JSON, handy to check a `tcpdump -w` recording from the router. Ping data comes from `wan.collectd_socket` (a collectd unixsock, e.g. a small test server) or `wan.rrd_dir` in the JSON config.
 
 `ISP_TESTER_CONFIG` is a JSON file with the same keys as the UCI config (see `default_config()` in the collector).
 

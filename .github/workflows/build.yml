@@ -29,8 +29,8 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           ver="${GITHUB_REF_NAME#v}"
-          sed -i "s/^PKG_VERSION:=.*/PKG_VERSION:=${ver}/" src/Makefile
-          grep '^PKG_VERSION' src/Makefile
+          sed -i "s/^PKG_VERSION:=.*/PKG_VERSION:=${ver}/" src/Makefile src/tsmon/Makefile
+          grep '^PKG_VERSION' src/Makefile src/tsmon/Makefile
 
       - name: Build in OpenWrt SDK
         run: |
@@ -42,7 +42,7 @@ jobs:
             bash -ec '
               [ -f setup.sh ] && bash setup.sh
               cp -r /src package/luci-app-isp-tester
-              rm -rf package/luci-app-isp-tester/.git package/luci-app-isp-tester/docs
+              rm -rf package/luci-app-isp-tester/.git package/luci-app-isp-tester/docs package/luci-app-isp-tester/tsmon
               ./scripts/feeds update base luci packages
               ./scripts/feeds install -a -p base >/dev/null
               ./scripts/feeds install -a -p luci >/dev/null
@@ -71,8 +71,75 @@ jobs:
           name: packages-${{ matrix.ext }}
           path: out/*.${{ matrix.ext }}
 
+  # the helper (isp-tester-tsmon) is compiled, so one package per architecture
+  tsmon:
+    name: tsmon ${{ matrix.arch }} (${{ matrix.ext }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - aarch64_cortex-a53
+          - aarch64_cortex-a72
+          - aarch64_generic
+          - arm_cortex-a7_neon-vfpv4
+          - arm_cortex-a9_vfpv3-d16
+          - arm_cortex-a15_neon-vfpv4
+          - mipsel_24kc
+          - mips_24kc
+          - x86_64
+        release: ['24.10', '25.12']
+        include:
+          - release: '24.10'
+            ext: ipk
+          - release: '25.12'
+            ext: apk
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: src
+
+      - name: Set version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          sed -i "s/^PKG_VERSION:=.*/PKG_VERSION:=${ver}/" src/tsmon/Makefile
+          grep '^PKG_VERSION' src/tsmon/Makefile
+
+      - name: Build in OpenWrt SDK
+        run: |
+          mkdir -p out && chmod 777 out
+          docker run --rm \
+            -v "$PWD/src:/src:ro" \
+            -v "$PWD/out:/out" \
+            ghcr.io/openwrt/sdk:${{ matrix.arch }}-openwrt-${{ matrix.release }} \
+            bash -ec '
+              [ -f setup.sh ] && bash setup.sh
+              cp -r /src/tsmon package/isp-tester-tsmon
+              make defconfig
+              sed -i "s/^CONFIG_SIGNED_PACKAGES=y/# CONFIG_SIGNED_PACKAGES is not set/" .config
+              make package/isp-tester-tsmon/compile -j"$(nproc)" V=s
+              find bin/packages -name "isp-tester-tsmon*.${{ matrix.ext }}" -exec cp -v {} /out/ \;
+            '
+          ls -l out
+          test -n "$(ls out/*.${{ matrix.ext }} 2>/dev/null)"
+
+      - name: Give files stable names
+        # the router picks its file by the architecture in /etc/os-release
+        run: |
+          cd out
+          for f in isp-tester-tsmon*.${{ matrix.ext }}; do
+            mv -v "$f" "isp-tester-tsmon_${{ matrix.arch }}.${{ matrix.ext }}"
+          done
+          ls -l
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tsmon-${{ matrix.arch }}-${{ matrix.ext }}
+          path: out/*.${{ matrix.ext }}
+
   release:
-    needs: build
+    needs: [build, tsmon]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:

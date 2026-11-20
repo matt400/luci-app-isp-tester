@@ -12,8 +12,10 @@
  *   - IGMP groups: /proc/net/igmp, multicast proxy from /proc, bridge MDB
  *   - router load: /proc (only to explain problems, no graphs)
  *   - system log (logread): pppd, udhcpc, igmpproxy, kernel, dnsmasq messages
- * The IPTV bitrate is the one own measurement: read from the interface
- * counters every second, which nothing in OpenWrt does. When the IPTV VLAN
+ * The IPTV bitrate is one own measurement: read from the interface
+ * counters every second, which nothing in OpenWrt does. The other is the
+ * picture quality (lost MPEG-TS packets), counted continuously by the small
+ * helper isp-tester-tsmon (C, separate package). When the IPTV VLAN
  * is only bridged (no eth1.236 / br-lan.236 device on the router), it is read
  * from the bridge's per-VLAN counters instead (`bridge -s vlan`), and the
  * channels from the bridge's multicast database (`bridge mdb`).
@@ -56,10 +58,8 @@ const LOGREAD = find_bin('ISP_TESTER_LOGREAD', [ '/sbin/logread', '/usr/sbin/log
 const RRDTOOL = find_bin('ISP_TESTER_RRDTOOL', [ '/usr/bin/rrdtool' ]);
 const BRIDGE = find_bin('ISP_TESTER_BRIDGE', [ '/usr/sbin/bridge', '/sbin/bridge' ]);
 const PROXIES = [ 'igmpproxy', 'mcproxy', 'omcproxy', 'improxy' ];
-/* picture quality scan (optional, needs tcpdump): capture + tsscan.uc */
-const TCPDUMP = find_bin('ISP_TESTER_TCPDUMP', [ '/usr/sbin/tcpdump', '/usr/bin/tcpdump' ]);
-const UCODE = find_bin('ISP_TESTER_UCODE', [ '/usr/bin/ucode' ]);
-const TSSCAN = getenv('ISP_TESTER_TSSCAN') || '/usr/share/isp-tester/tsscan.uc';
+/* picture quality and channel names: the helper of package isp-tester-tsmon */
+const TSMON = find_bin('ISP_TESTER_TSMON', [ '/usr/sbin/isp-tester-tsmon' ]);
 
 const STAT_KEYS = [
 	'rx_bytes', 'tx_bytes', 'rx_packets', 'tx_packets',
@@ -145,7 +145,7 @@ function default_config() {
 			min_kbps: 500, idle_after: 60, off_after: 15, dip_pct: 40,
 			sample_interval: 1, stall_after: 2,
 			igmp: true, igmp_device: '',
-			quality: false, q_window: 5, q_interval: 60, q_warn: 1, q_fail: 30, q_gap: 500,
+			quality: false, q_warn: 1, q_fail: 30, q_gap: 500,
 			names: true, channels: {}
 		},
 		system: {
@@ -243,8 +243,6 @@ function load_config() {
 		c.iptv.sample_interval = num(t.sample_interval, c.iptv.sample_interval);
 		c.iptv.stall_after = num(t.stall_after, c.iptv.stall_after);
 		c.iptv.quality    = bool(t.quality, false);
-		c.iptv.q_window   = num(t.q_window, c.iptv.q_window);
-		c.iptv.q_interval = num(t.q_interval, c.iptv.q_interval);
 		c.iptv.q_warn     = num(t.q_warn, c.iptv.q_warn);
 		c.iptv.q_fail     = num(t.q_fail, c.iptv.q_fail);
 		c.iptv.q_gap      = num(t.q_gap, c.iptv.q_gap);
@@ -290,13 +288,8 @@ function load_config() {
 		/* VLAN mode has no per-tick fallback: the counters are read by the fast timer only */
 		c.iptv.sample_interval = c.iptv.vlan ? c.interval / 2 : 0;
 	if (c.iptv.stall_after < 0) c.iptv.stall_after = 0;
-	/* picture quality scan: short captures, so keep them short and rare */
-	c.iptv.q_window = int(c.iptv.q_window);
-	if (c.iptv.q_window < 2) c.iptv.q_window = 2;
-	if (c.iptv.q_window > 15) c.iptv.q_window = 15;
-	c.iptv.q_interval = int(c.iptv.q_interval);
-	if (c.iptv.q_interval < c.iptv.q_window + 10) c.iptv.q_interval = c.iptv.q_window + 10;
-	if (c.iptv.q_interval > 3600) c.iptv.q_interval = 3600;
+	/* picture quality: thresholds are lost-packet gaps per minute */
+	c.iptv.q_gap = int(c.iptv.q_gap);
 	if (c.iptv.q_warn < 1) c.iptv.q_warn = 1;
 	if (c.iptv.q_fail < c.iptv.q_warn) c.iptv.q_fail = c.iptv.q_warn;
 	if (c.iptv.q_gap < 0) c.iptv.q_gap = 0;
@@ -342,16 +335,18 @@ let wansess = { up: null, uptime: null, seen: null, ip: null, since: now(), reco
 let vl = { bridge: null, upstream: null, ports: [], stats: null, mdb: null, error: null, cnt: null };
 /* joined = group -> when it was joined (0 = already there at start) */
 let igmp = { groups: null, joined: {}, hist: [], proxy: null, proxy_seen: false, proxy_since: now() };
-/* picture quality scan: proc = running capture, next = earliest next start,
- * boost = windows still to run back-to-back after errors, pend = errors from
- * windows whose event was held back by the cooldown, cc_acc = errors since
- * the last tick (for the history chart) */
-let tsq = { proc: null, wd: null, next: 0, boost: 0, last: null, recent: [], err: null,
-	pend: null, last_ev: 0, cc_acc: null, windows: 0 };
+/* picture quality (see tsm_poll): proc/args = the running helper and its
+ * arguments, fails/next = restart backoff, seen = last counters per group
+ * ("<pid>:<id>"), drops = the helper's socket drop counter, flow = groups
+ * carrying TS in the last read, win = errors of the last TSQ_WIN s,
+ * pend/last_ev/last_lvl = per group, errors whose event is held back by the
+ * cooldown, cc_acc = errors since the last tick (history chart),
+ * dropped/drop_ts = packets the router could not count */
+let tsq = { proc: null, args: null, started: 0, fails: 0, next: 0, err: null, seen: {}, drops: null, flow: null,
+	win: [], last: null, pend: {}, last_ev: {}, last_lvl: {}, cc_acc: null, dropped: 0, drop_ts: 0 };
 /* channel names: db = group -> { name, provider, sid, ts } learned from the
- * streams (or { name: null, tries, last_try } while not found), proc = a
- * running name capture, grp = the group it is for */
-let chn = { db: {}, proc: null, wd: null, grp: null, next: 0, err: null };
+ * streams (or { name: null, why, ts } when a stream carries none) */
+let chn = { db: {}, err: null };
 let sys = { prev: null, cpu_n: 0, cpu: false, mem: false, ct: false, cpu_since: 0, mem_since: 0, ct_since: 0 };
 let notif = { pending: [], last: 0, busy: false, last_ok: null, last_fail: null, last_err: null, open: {} };
 let logst = { last_ts: null, last_lines: {}, kinds: {} };
@@ -428,7 +423,7 @@ function event_text(e, lang) {
 	case 'wan_ip_change': return sprintf(f, d.from, d.to);
 	case 'log': return sprintf(f, d.prog, d.msg) + ((d.n > 1) ? ` (${d.n}x)` : '');
 	case 'stream_dip': return sprintf(f, d.kbps);
-	case 'ts_errors': return sprintf(f, d.cc, d.lost, d.win, d.ch ? `${d.ch} (${d.grp})` : (d.grp ?? '?'));
+	case 'ts_errors': return sprintf(f, d.cc + (d.tei ?? 0), d.lost, d.win, d.ch ? `${d.ch} (${d.grp})` : (d.grp ?? '?'));
 	case 'proxy_down': case 'proxy_up': case 'proxy_restart': return sprintf(f, d.name);
 	case 'cpu_high': return sprintf(f, d.cpu, d.sirq);
 	case 'mem_low': return sprintf(f, d.pct);
@@ -1512,10 +1507,15 @@ function vlan_sample() {
 
 /* ------------------------------------------------------------------ IPTV */
 
-/* state of the picture quality scan, for the status page (see tsq_poll) */
+const TSQ_STATE = `${VARDIR}/tsmon.json`;
+const TSQ_WIN = 60;          /* s: thresholds count the errors of the last minute */
+const TSQ_DROP_SHOW = 600;   /* s: how long packets the router dropped are shown */
+
+/* state of the picture quality measurement, for the status page */
 function tsq_out() {
-	return { error: tsq.err, running: tsq.proc != null, window: cfg.iptv.q_window, interval: cfg.iptv.q_interval,
-		warn: cfg.iptv.q_warn, fail: cfg.iptv.q_fail, windows: tsq.windows, last: tsq.last, recent: tsq.recent };
+	return { error: tsq.err, running: tsq.proc != null, since: tsq.proc ? tsq.started : null,
+		window: TSQ_WIN, warn: cfg.iptv.q_warn, fail: cfg.iptv.q_fail, last: tsq.last,
+		dropped: tsq.dropped, drop_ts: tsq.drop_ts || null };
 }
 
 function iptv_on() {
@@ -1528,28 +1528,23 @@ function iptv_fast() {
 
 /* ------------------------------------------------- IPTV channel names */
 
-/* where the IPTV multicast can be captured (also used by the quality scan) */
+/* where the helper listens: the ISP-side port of the IPTV VLAN, or the
+ * configured device (the decoder port is measured outgoing) */
 function tsq_target() {
 	if (cfg.iptv.vlan) {
-		if (!vl.upstream) return null;
-		return { dev: vl.upstream,
-			filter: `vlan ${cfg.iptv.vlan} and udp and ip multicast and not net 224.0.0.0/24` };
+		if (!valid_dev(vl.upstream)) return null;
+		return { dev: vl.upstream, vid: cfg.iptv.vlan, dir: 'in' };
 	}
-	if (!cfg.iptv.device) return null;
-	return { dev: cfg.iptv.device, filter: 'udp and ip multicast and not net 224.0.0.0/24' };
+	if (!valid_dev(cfg.iptv.device)) return null;
+	return { dev: cfg.iptv.device, vid: 0, dir: cfg.iptv.direction == 'tx' ? 'out' : 'in' };
 }
 
 /*
  * The name of each channel is in the stream itself (DVB SDT table, read by
- * tsscan.uc). When a decoder joins a group whose name is not known yet, a
- * short capture of just that group is taken once (CHN_WIN s, same tcpdump +
- * tsscan.uc as the quality scan, never both at a time). The quality scan
- * refreshes the names too, for free. Names set by hand in the settings win.
- * Learned names are kept in RUNDIR, so with data_dir they survive a reboot.
+ * the helper for every group that flows, see tsm_poll). Names set by hand in
+ * the settings win. Learned names are kept in RUNDIR, so with data_dir they
+ * survive a reboot.
  */
-const CHN_WIN = 3;          /* SDT is repeated at least every 2 s */
-const CHN_TRIES = 3;        /* captures without a name before giving up on a group */
-const CHN_RETRY = 1800;     /* ... and the wait between them (s) */
 const CHN_MAX = 500;        /* groups remembered */
 
 function chn_load() {
@@ -1565,7 +1560,7 @@ function chn_save() {
 	let ks = keys(chn.db);
 	if (length(ks) > CHN_MAX) {
 		/* forget the groups seen longest ago */
-		sort(ks, (a, b) => (chn.db[a].ts ?? chn.db[a].last_try ?? 0) - (chn.db[b].ts ?? chn.db[b].last_try ?? 0));
+		sort(ks, (a, b) => (chn.db[a].ts ?? 0) - (chn.db[b].ts ?? 0));
 		for (let i = 0; i < length(ks) - CHN_MAX; i++) delete chn.db[ks[i]];
 	}
 	write_atomic(`${RUNDIR}/channels.json`, sprintf('%J', chn.db));
@@ -1591,44 +1586,33 @@ function chn_now() {
  * The one channel being watched now (a group), null when it cannot be told.
  * Without an IGMP querier left groups stay joined for minutes, so the list
  * of joined groups is not the answer:
- *   1. a group joined after the last quality scan: the newest zap
- *   2. the group that carried the stream in a recent quality scan
- *   3. the newest join seen since the collector started
- *   4. the only joined group that may be a channel
- * Groups known to carry no TS (EPG / service data) are never picked.
+ *   1. the joined group the helper sees carrying the stream right now (the
+ *      busiest one, when two decoders watch)
+ *   2. without the helper: the newest join seen since the collector started
+ *   3. the only joined group
  */
 function chn_current() {
 	let gs = igmp.groups ?? [];
 	if (!length(gs)) return null;
-	let notch = (g) => !cfg.iptv.channels[g] && !chn.db[g]?.name && chn.db[g]?.why == 'no_data';
-	let newest = (after) => {
-		let best = null;
-		for (let g in gs) {
-			let t = igmp.joined[g] ?? 0;
-			if (t > after && !notch(g) && (best == null || t > igmp.joined[best])) best = g;
-		}
-		return best;
-	};
 
-	let last = tsq.last;
-	let g = newest(last?.ts ?? 0);
-	if (g) return g;
-
-	if (last && now() - last.ts <= cfg.iptv.q_interval * 2 + 60) {
+	let f = tsq.flow;
+	if (f && now() - f.ts <= 30) {
 		let best = null;
-		for (let e in (last.groups ?? []))
-			if (index(gs, e.grp) >= 0 && (best == null || e.kbps > best.kbps)) best = e;
+		for (let e in f.groups)
+			if ((e.idle ?? 0) <= 5 && index(gs, e.grp) >= 0 && (best == null || (e.kbps ?? 0) > (best.kbps ?? 0))) best = e;
 		if (best) return best.grp;
 	}
 
-	g = newest(0);
-	if (g) return g;
-
-	let c = filter(gs, (x) => !notch(x));
-	return length(c) == 1 ? c[0] : null;
+	let best = null;
+	for (let g in gs) {
+		let t = igmp.joined[g] ?? 0;
+		if (t > 0 && (best == null || t > igmp.joined[best])) best = g;
+	}
+	if (best) return best;
+	return length(gs) == 1 ? gs[0] : null;
 }
 
-/* names found by a capture (tsscan.uc result groups) */
+/* names found in the streams (helper groups with .svc) */
 function chn_learn(groups) {
 	let changed = false, t = now();
 	for (let g in (groups ?? [])) {
@@ -1643,83 +1627,12 @@ function chn_learn(groups) {
 	if (changed) chn_save();
 }
 
-/* next joined group that needs its name looked up */
-function chn_pending() {
-	let t = now();
-	for (let g in (igmp.groups ?? [])) {
-		if (!valid_group(g) || cfg.iptv.channels[g]) continue;
-		let e = chn.db[g];
-		if (!e) return g;
-		if (e.name == null && (e.tries ?? 0) < CHN_TRIES && t - (e.last_try ?? 0) >= CHN_RETRY) return g;
-	}
-	return null;
-}
-
-function chn_done(grp, resfile) {
-	chn.wd?.cancel();
-	chn.wd = null;
-	chn.proc = null;
-	chn.grp = null;
-
-	let r;
-	try { r = json(fs.readfile(resfile) || 'null'); } catch (e) { r = null; }
-	fs.unlink(resfile);
-	let t = now();
-	chn.next = t + 5;
-	if (type(r?.groups) != 'array') { chn.err = 'scan_failed'; return; }
-	chn.err = null;
-
-	chn_learn(r.groups);
-	if (chn.db[grp]?.name == null) {
-		let g = filter(r.groups, (x) => x.grp == grp)[0];
-		let o = chn.db[grp] ?? {};
-		/* no data at all = not playing during the capture (e.g. zapped
-		 * away): does not count, try again in a minute */
-		chn.db[grp] = { name: null, tries: (o.tries ?? 0) + (g ? 1 : 0), last_try: g ? t : t - CHN_RETRY + 60,
-			why: !g ? 'no_data' : (g.psi?.sdt ? 'no_service' : 'no_sdt') };
-		chn_save();
-	}
-}
-
-function chn_poll() {
-	if (!cfg.iptv.names || !cfg.iptv.igmp || !iptv_on() || chn.proc || tsq.proc) return;
-	if (!TCPDUMP) { chn.err = 'no_tcpdump'; return; }
-	if (!UCODE || !fs.stat(TSSCAN)) { chn.err = 'no_scanner'; return; }
-	if (iptv.state != 'playing' || iptv.held || iptv.kbps < cfg.iptv.min_kbps) return;
-	if (now() < chn.next) return;
-	let grp = chn_pending();
-	if (!grp) return;
-	let tg = tsq_target();
-	if (!tg) return;
-
-	let pcap = `${VARDIR}/chn.pcap`, res = `${VARDIR}/chn.json`;
-	fs.unlink(res);
-	fs.unlink(pcap);
-	/* valid_group() keeps the filter free of shell characters */
-	let cmd = `N=; command -v nice >/dev/null 2>&1 && N='nice -n 10'; ` +
-		`$N ${TCPDUMP} -i ${tg.dev} -nn -q -s 0 -c ${CHN_WIN * 4000} -w ${pcap} '${tg.filter} and dst host ${grp}' 2>/dev/null & p=$!; ` +
-		`sleep ${CHN_WIN}; kill $p 2>/dev/null; wait $p 2>/dev/null; ` +
-		`exec $N ${UCODE} ${TSSCAN} ${pcap} ${res}`;
-
-	chn.grp = grp;
-	chn.proc = uloop.process('/bin/sh', [ '-c', cmd ], null, (code) => {
-		try {
-			chn_done(grp, res);
-		}
-		catch (e) {
-			warn(`isp-tester: channel name lookup failed: ${e}\n`);
-			chn.proc = null;
-			chn.grp = null;
-			chn.next = now() + 60;
-		}
-	});
-	if (!chn.proc) { chn.grp = null; chn.next = now() + 60; return; }
-
-	let pid = chn.proc.pid();
-	chn.wd = uloop.timer((CHN_WIN + 30) * 1000, () => {
-		if (chn.proc != null && chn.proc.pid() == pid)
-			system([ '/bin/sh', '-c', `kill ${int(pid)} 2>/dev/null` ]);
-	});
+/* a stream that has played a while without a name: remember why */
+function chn_missing(grp, why) {
+	let e = chn.db[grp];
+	if (e?.name || e?.why == why) return;
+	chn.db[grp] = { name: null, why, ts: now() };
+	chn_save();
 }
 
 /* names for the groups shown on the status page */
@@ -1727,15 +1640,15 @@ function chn_out(o) {
 	let want = {};
 	for (let g in (igmp.groups ?? [])) want[g] = true;
 	for (let e in (o.bridge?.mdb ?? [])) want[e.grp] = true;
-	for (let e in (tsq.last?.groups ?? [])) want[e.grp] = true;
+	for (let e in (tsq.flow?.groups ?? [])) want[e.grp] = true;
 	let names = {};
 	for (let g in want) {
 		let man = cfg.iptv.channels[g], e = chn.db[g];
 		if (man) names[g] = { name: man, src: 'manual' };
 		else if (e?.name) names[g] = { name: e.name, provider: e.provider, src: 'sdt' };
-		else if (e) names[g] = { name: null, why: e.why, tries: e.tries };
+		else if (e) names[g] = { name: null, why: e.why };
 	}
-	return { enabled: cfg.iptv.names && cfg.iptv.igmp, error: chn.err, busy: chn.grp, names };
+	return { enabled: cfg.iptv.names, error: chn.err, names };
 }
 
 /* request from the web UI: forget the learned names */
@@ -1768,15 +1681,19 @@ function iptv_out(devres) {
 		push(reasons, { c: 'recent_events' });
 	}
 
-	/* picture quality scan: yellow for a while after errors, or when it cannot run */
+	/* picture quality: yellow for a while after errors, or when it cannot run */
 	if (cfg.iptv.quality) {
-		if (tsq.err == 'no_tcpdump' || tsq.err == 'no_scanner' || tsq.err == 'no_target') {
+		if (tsq.err) {
 			level = worst(level, 'warn');
 			push(reasons, { c: 'ts_' + tsq.err });
 		}
 		else if (recent_level('iptv', 'quality') != 'ok') {
 			level = worst(level, 'warn');
 			push(reasons, { c: 'ts_errors' });
+		}
+		if (tsq.drop_ts && now() - tsq.drop_ts < TSQ_DROP_SHOW) {
+			level = worst(level, 'warn');
+			push(reasons, { c: 'ts_drops' });
 		}
 	}
 
@@ -1822,13 +1739,13 @@ function iptv_out(devres) {
 			groups: igmp.groups, current: chn_current(), last_change: igmp.last_change,
 			proxy: igmp.proxy ?? igmp.last_name, proxy_running: igmp.proxy != null, proxy_seen: igmp.proxy_seen
 		};
-		o.channels = chn_out(o);
 		if (igmp.proxy == null && igmp.proxy_seen) {
 			level = worst(level, 'warn');
 			push(reasons, { c: 'proxy_down', name: igmp.last_name });
 			o.level = level;
 		}
 	}
+	o.channels = chn_out(o);
 	return o;
 }
 
@@ -1983,9 +1900,6 @@ function iptv_fast_sample() {
 		if (a.min == null || kbps < a.min) a.min = kbps;
 		iptv_update(kbps, m, w, iptv.prev_m, iptv.prev_w);
 	}
-	/* a new channel gets its name within seconds, not at the next tick */
-	chn_poll();
-
 	iptv.prev = c;
 	iptv.prev_m = m;
 	iptv.prev_w = w;
@@ -2055,130 +1969,218 @@ function sample_iptv(devres) {
 
 /*
  * MPEG-TS continuity errors: what a viewer sees as pixelation. Nothing in
- * OpenWrt counts them, so this is the second own measurement. A short capture
- * (q_window s, every q_interval s, only while the stream plays) is taken by
- * tcpdump with the kernel doing the filtering, and counted by tsscan.uc in a
- * separate low-priority process, so the collector itself never parses
- * packets. After an error the next windows run back-to-back for a while.
- * The measured channel is whichever group carries TS in the capture, i.e. the
- * one being watched; no group is picked from IGMP.
+ * OpenWrt counts them, so this is the second own measurement. The helper
+ * isp-tester-tsmon (C) listens on the IPTV port all the time, with a kernel
+ * filter that passes only the IPTV multicast, counts every packet as it
+ * arrives and writes cumulative counters per group to TSQ_STATE once a
+ * second. Here the counters are read every tick: what changed since the last
+ * read are the new errors, the thresholds count those of the last minute.
+ * The measured channel is whichever group carries TS, i.e. the one being
+ * watched; no group is picked from IGMP. The same helper reads the channel
+ * names (DVB SDT) of every group that flows.
+ * Packets the router itself dropped before the helper saw them (busy CPU) are
+ * reported separately and never counted as errors of the ISP.
  */
 
-function tsq_done(resfile) {
-	tsq.wd?.cancel();
-	tsq.wd = null;
+function tsm_want() {
+	return iptv_on() && (cfg.iptv.quality || cfg.iptv.names);
+}
+
+function tsm_args(tg) {
+	let a = [ '-i', tg.dev, '-d', tg.dir, '-g', `${max(0, cfg.iptv.q_gap)}`, '-o', TSQ_STATE ];
+	if (tg.vid) push(a, '-v', `${int(tg.vid)}`);
+	return join(' ', a);
+}
+
+function tsm_stop() {
+	let p = tsq.proc;
 	tsq.proc = null;
+	tsq.args = null;
+	tsq.seen = {};
+	tsq.drops = null;
+	tsq.flow = null;
+	if (p) system([ '/bin/sh', '-c', `kill ${int(p.pid())} 2>/dev/null` ]);
+	fs.unlink(TSQ_STATE);
+}
 
+function tsm_start(tg) {
+	let args = tsm_args(tg);
+	fs.unlink(TSQ_STATE);
+	/* valid_dev() keeps the arguments free of shell characters; the helper
+	 * ends by itself when the collector ends */
+	let cmd = `N=; command -v nice >/dev/null 2>&1 && N='nice -n 5'; exec $N ${TSMON} ${args}`;
+	let p;
+	p = uloop.process('/bin/sh', [ '-c', cmd ], null, (code) => {
+		if (tsq.proc != p) return;
+		tsq.proc = null;
+		tsq.args = null;
+		tsq.seen = {};
+		tsq.drops = null;
+		tsq.fails++;
+		tsq.err = 'helper_failed';
+		/* 10 s, 20 s, 40 s ... at most 5 min between restarts */
+		let wait = min(300, 10 * (2 ** min(tsq.fails - 1, 5)));
+		tsq.next = now() + wait;
+		warn(`isp-tester: ${TSMON} ended (exit ${code}), starting again in ${wait} s\n`);
+	});
+	if (!p) {
+		tsq.err = 'helper_failed';
+		tsq.next = now() + 60;
+		return;
+	}
+	tsq.proc = p;
+	tsq.args = args;
+	tsq.started = now();
+	tsq.drops = 0;
+}
+
+/* level of one group from its errors in the last minute */
+function tsq_level(s) {
+	let bad = s.cc + s.tei;
+	if (bad >= cfg.iptv.q_fail) return 'err';
+	if (bad >= cfg.iptv.q_warn || (cfg.iptv.q_gap > 0 && s.gaps > 0)) return 'warn';
+	return 'ok';
+}
+
+function tsm_read() {
 	let r;
-	try { r = json(fs.readfile(resfile) || 'null'); } catch (e) { r = null; }
-	fs.unlink(resfile);
-
+	try { r = json(fs.readfile(TSQ_STATE) || 'null'); } catch (e) { r = null; }
 	let t = now();
-	if (type(r?.groups) != 'array') {
-		tsq.err = 'scan_failed';
-		tsq.boost = 0;
-		tsq.next = t + cfg.iptv.q_interval;
+	/* not written yet, by an old helper, or not updated any more: a hung
+	 * helper is stopped and started again */
+	let ours = type(r?.groups) == 'array' && r.pid == tsq.proc.pid();
+	let age = t - max(ours ? (r.ts ?? 0) : 0, tsq.started);
+	if (age > 90) {
+		warn(`isp-tester: ${TSMON} does not update ${TSQ_STATE}, restarting it\n`);
+		tsm_stop();
+		tsq.err = 'helper_stalled';
+		tsq.next = t + 10;
 		return;
 	}
+	if (age > 30) tsq.err = 'helper_stalled';
+	if (!ours || age > 30) return;
 	tsq.err = null;
-	tsq.windows++;
-	chn_learn(r.groups);
+	if (t - tsq.started > 120) tsq.fails = 0;
 
-	/* only groups that carry a real stream (EPG / service data is not TS) */
-	let w = { ts: t, dur: r.dur, groups: [], lvl: 'ok', cc: 0 };
-	let main = null;
+	/* the socket overflowed: this router could not keep up, so lost packets
+	 * in this interval may be its own, not the ISP's */
+	let ddrop = (tsq.drops != null && r.drops >= tsq.drops) ? r.drops - tsq.drops : 0;
+	tsq.drops = r.drops;
+	if (ddrop > 0) {
+		tsq.dropped += ddrop;
+		tsq.drop_ts = t;
+	}
+
+	/* what flows now, for the current channel (also without the quality) */
+	tsq.flow = { ts: t, groups: map(filter(r.groups, (g) => valid_group(g?.grp)),
+		(g) => ({ grp: g.grp, kbps: g.kbps, idle: g.idle })) };
+
+	let seen = {}, list = [], fresh = [];
+	tsq.win = filter(tsq.win, (e) => t - e.ts < TSQ_WIN);
 	for (let g in r.groups) {
-		if ((g.kbps ?? 0) < cfg.iptv.min_kbps) continue;
-		let bad = g.cc_err + g.tei;
-		let lvl = 'ok';
-		if (bad >= cfg.iptv.q_fail) lvl = 'err';
-		else if (bad >= cfg.iptv.q_warn || (cfg.iptv.q_gap > 0 && g.max_gap_ms >= cfg.iptv.q_gap)) lvl = 'warn';
-		let o = { grp: g.grp, ch: chn_name(g.grp), kbps: g.kbps, pps: g.pps, cc: g.cc_err, lost: g.lost, tei: g.tei,
-			gap: g.max_gap_ms, rtp_lost: g.rtp ? g.rtp_lost : null, lvl };
-		push(w.groups, o);
-		w.cc += bad;
-		w.lvl = worst(w.lvl, lvl);
-		if (lvl != 'ok' && (!main || bad > main.cc + main.tei)) main = o;
-	}
-
-	tsq.last = w;
-	push(tsq.recent, { ts: t, cc: w.cc, lvl: w.lvl });
-	if (length(tsq.recent) > 30) tsq.recent = slice(tsq.recent, -30);
-	tsq.cc_acc = (tsq.cc_acc ?? 0) + w.cc;
-
-	if (main) {
-		/* events are limited by the cooldown; what a held-back window found
-		 * is added to the next event of the same fault */
-		let p = tsq.pend ??= { cc: 0, lost: 0, win: 0 };
-		p.cc += main.cc;
-		p.lost += main.lost;
-		p.win += r.dur ?? cfg.iptv.q_window;
-		if (t - tsq.last_ev >= cfg.err_cooldown || LEVEL[w.lvl] > LEVEL[tsq.last_lvl ?? 'ok']) {
-			emit(w.lvl, 'iptv', 'quality', 'ts_errors', { grp: main.grp, ch: main.ch, cc: p.cc, lost: p.lost,
-				tei: main.tei, gap: main.gap, win: round(p.win, 0), kbps: main.kbps }, t);
-			tsq.pend = null;
-			tsq.last_ev = t;
-			tsq.last_lvl = w.lvl;
+		if (!valid_group(g?.grp)) continue;
+		let key = `${r.pid}:${g.id}`;
+		let p = tsq.seen[key] ?? { cc: 0, lost: 0, tei: 0, gaps: 0, rtp_lost: 0 };
+		let d = {}, c = {};
+		for (let k in [ 'cc', 'lost', 'tei', 'gaps', 'rtp_lost' ]) {
+			c[k] = g[k] ?? 0;
+			d[k] = max(0, c[k] - p[k]);
 		}
-		tsq.boost = 5;
+		seen[key] = c;
+
+		if (cfg.iptv.names) {
+			if (g.svc?.name) chn_learn([ g ]);
+			else if ((g.age ?? 0) >= 15) chn_missing(g.grp, g.psi?.sdt ? 'no_service' : 'no_sdt');
+		}
+		if (!cfg.iptv.quality) continue;
+
+		push(list, g);
+		if (ddrop == 0 && (d.cc + d.tei + (cfg.iptv.q_gap > 0 ? d.gaps : 0)) > 0) {
+			push(tsq.win, { ts: t, grp: g.grp, cc: d.cc, tei: d.tei, lost: d.lost, gaps: d.gaps,
+				gap: d.gaps ? (g.gap_last_ms ?? 0) : 0 });
+			push(fresh, { g, d });
+			tsq.cc_acc = (tsq.cc_acc ?? 0) + d.cc + d.tei;
+		}
 	}
-	else {
-		tsq.pend = null;
-		if (tsq.boost > 0) tsq.boost--;
+	tsq.seen = seen;
+	if (!cfg.iptv.quality) return;
+
+	/* the last minute per group */
+	let sum = {};
+	for (let e in tsq.win) {
+		let s = sum[e.grp] ??= { cc: 0, tei: 0, lost: 0, gaps: 0, gap: 0 };
+		s.cc += e.cc; s.tei += e.tei; s.lost += e.lost; s.gaps += e.gaps;
+		if (e.gap > s.gap) s.gap = e.gap;
 	}
-	tsq.next = t + (tsq.boost > 0 ? 1 : cfg.iptv.q_interval);
+
+	let out = [];
+	for (let g in list) {
+		let s = sum[g.grp] ?? { cc: 0, tei: 0, lost: 0, gaps: 0, gap: 0 };
+		/* streams that stopped (zapped away) are only kept while they have errors */
+		if ((g.idle ?? 0) > 5 && !(s.cc + s.tei + s.gaps)) continue;
+		push(out, { grp: g.grp, ch: chn_name(g.grp), kbps: g.kbps, pps: g.pps, cc: s.cc, tei: s.tei, lost: s.lost,
+			gap: s.gap, gap_max: g.gap_max_ms, rtp_lost: g.rtp ? g.rtp_lost : null, total: (g.cc ?? 0) + (g.tei ?? 0),
+			age: g.age, lvl: tsq_level(s) });
+	}
+	tsq.last = { ts: t, up: r.up, groups: out };
+
+	/* events: new errors join the group's pending event; it is written when
+	 * the cooldown allows it, or at once when the level gets worse */
+	for (let x in fresh) {
+		let g = x.g, d = x.d, s = sum[g.grp];
+		let lvl = tsq_level(s);
+		if (lvl == 'ok') continue;
+		let p = tsq.pend[g.grp] ??= { cc: 0, lost: 0, tei: 0, gaps: 0, gap: 0, since: t - cfg.interval, lvl: 'ok' };
+		p.cc += d.cc;
+		p.tei += d.tei;
+		p.lost += d.lost;
+		p.gaps += d.gaps;
+		if (s.gap > p.gap) p.gap = s.gap;
+		p.lvl = worst(p.lvl, lvl);
+		p.kbps = g.kbps;
+	}
+	for (let grp, p in tsq.pend) {
+		if (t - (tsq.last_ev[grp] ?? 0) < cfg.err_cooldown && LEVEL[p.lvl] <= LEVEL[tsq.last_lvl[grp] ?? 'ok'])
+			continue;
+		/* the event's own level comes from what it reports (the minute's
+		 * level only decides when it is written) */
+		emit(worst('warn', tsq_level(p)), 'iptv', 'quality', 'ts_errors', { grp, ch: chn_name(grp), cc: p.cc, lost: p.lost, tei: p.tei,
+			gap: p.gap, win: round(t - p.since, 0), kbps: p.kbps }, t);
+		tsq.last_ev[grp] = t;
+		tsq.last_lvl[grp] = p.lvl;
+		delete tsq.pend[grp];
+	}
+	/* a level reached long ago does not hold back the next event */
+	for (let grp in keys(tsq.last_lvl))
+		if (t - tsq.last_ev[grp] >= cfg.err_cooldown) { delete tsq.last_lvl[grp]; delete tsq.last_ev[grp]; }
 }
 
-function tsq_start(tg) {
-	let pcap = `${VARDIR}/ts.pcap`, res = `${VARDIR}/ts.json`;
-	let win = cfg.iptv.q_window;
-	fs.unlink(res);
-	fs.unlink(pcap);
-
-	/* tcpdump stops after win seconds (or a packet cap as a safety net),
-	 * then tsscan.uc takes over the same process (exec) */
-	let cmd = `N=; command -v nice >/dev/null 2>&1 && N='nice -n 10'; ` +
-		`$N ${TCPDUMP} -i ${tg.dev} -nn -q -s 0 -c ${win * 8000} -w ${pcap} '${tg.filter}' 2>/dev/null & p=$!; ` +
-		`sleep ${win}; kill $p 2>/dev/null; wait $p 2>/dev/null; ` +
-		`exec $N ${UCODE} ${TSSCAN} ${pcap} ${res}`;
-
-	tsq.proc = uloop.process('/bin/sh', [ '-c', cmd ], null, (code) => {
-		try {
-			tsq_done(res);
-		}
-		catch (e) {
-			warn(`isp-tester: quality scan failed: ${e}\n`);
-			tsq.proc = null;
-			tsq.next = now() + cfg.iptv.q_interval;
-		}
-	});
-
-	if (!tsq.proc) {
-		tsq.err = 'scan_failed';
-		tsq.next = now() + cfg.iptv.q_interval;
+/* every tick: keep the helper running where it should, and read it */
+function tsm_poll() {
+	if (!tsm_want()) {
+		if (tsq.proc) tsm_stop();
+		tsq.err = chn.err = null;
 		return;
 	}
-
-	/* a stuck scan must not block the next ones; the capture itself ends on
-	 * its own, this only frees a hung parser */
-	let pid = tsq.proc.pid();
-	tsq.wd = uloop.timer((win + 30) * 1000, () => {
-		if (tsq.proc != null && tsq.proc.pid() == pid)
-			system([ '/bin/sh', '-c', `kill ${int(pid)} 2>/dev/null` ]);
-	});
-}
-
-function tsq_poll() {
-	if (!cfg.iptv.quality || !iptv_on() || tsq.proc || chn.proc) return;
-	if (!TCPDUMP) { tsq.err = 'no_tcpdump'; return; }
-	if (!UCODE || !fs.stat(TSSCAN)) { tsq.err = 'no_scanner'; return; }
-	/* only while a stream is really flowing */
-	if (iptv.state != 'playing' || iptv.held || iptv.kbps < cfg.iptv.min_kbps) return;
-	if (now() < tsq.next) return;
+	if (!TSMON) {
+		tsq.err = chn.err = 'no_helper';
+		return;
+	}
 	let tg = tsq_target();
-	if (!tg) { tsq.err = 'no_target'; return; }
-	if (tsq.err == 'no_tcpdump' || tsq.err == 'no_scanner' || tsq.err == 'no_target') tsq.err = null;
-	tsq_start(tg);
+	if (!tg) {
+		if (tsq.proc) tsm_stop();
+		tsq.err = chn.err = 'no_target';
+		return;
+	}
+	/* the ISP-side port of the VLAN changed */
+	if (tsq.proc && tsq.args != tsm_args(tg)) tsm_stop();
+	if (!tsq.proc) {
+		if (now() >= tsq.next) tsm_start(tg);
+		chn.err = (tsq.err == 'helper_failed') ? tsq.err : null;
+		return;
+	}
+	tsm_read();
+	chn.err = tsq.err;
 }
 
 /* ------------------------------------------------------------------- CSV */
@@ -2356,8 +2358,7 @@ function tick() {
 	/* ---- IPTV */
 	let iptv_dev = cfg.iptv.vlan ? vl.upstream : cfg.iptv.device;
 	let iptv_res = sample_iptv(iptv_dev ? res[iptv_dev] : null);
-	tsq_poll();
-	chn_poll();
+	tsm_poll();
 
 	/* ---- ports */
 	let ports = [];
