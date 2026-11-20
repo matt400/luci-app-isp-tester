@@ -275,6 +275,23 @@ return {
 			}
 		},
 
+		/* IPTV channel names learned from the streams */
+		channels: {
+			call: function() {
+				let db = read_json('channels.json', {});
+				return { channels: (type(db) == 'object') ? db : {} };
+			}
+		},
+
+		/* forget the learned channel names (on the collector's next tick) */
+		channels_forget: {
+			call: function() {
+				mkdir(VARDIR);
+				writefile(`${VARDIR}/channels_forget`, '1');
+				return { result: true, running: service_running() };
+			}
+		},
+
 		/* send a test push notification (on the collector's next tick) */
 		test_notify: {
 			call: function() {

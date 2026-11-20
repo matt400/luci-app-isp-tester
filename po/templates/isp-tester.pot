@@ -1390,3 +1390,78 @@ msgstr ""
 
 msgid "Lost packets were counted in the IPTV stream (%d scans with errors) – the picture glitches come with the stream itself: ISP IPTV/multicast side, not your home network."
 msgstr ""
+
+msgid "channel %s"
+msgstr ""
+
+msgid "names need tcpdump (install tcpdump-mini)"
+msgstr ""
+
+msgid "name set by hand"
+msgstr ""
+
+msgid "reading the name…"
+msgstr ""
+
+msgid "the stream carries no name (set one in Settings)"
+msgstr ""
+
+msgid "name not found in the stream (set one in Settings)"
+msgstr ""
+
+msgid "name not known yet"
+msgstr ""
+
+msgid "Watching"
+msgstr ""
+
+msgid "No names found yet. They appear after a channel has been watched for a few seconds."
+msgstr ""
+
+msgid "no name in the stream"
+msgstr ""
+
+msgid "not found"
+msgstr ""
+
+msgid "Group"
+msgstr ""
+
+msgid "Provider"
+msgstr ""
+
+msgid "Service ID"
+msgstr ""
+
+msgid "Learned names will be forgotten within one interval and read again from the streams."
+msgstr ""
+
+msgid "Monitoring is not running."
+msgstr ""
+
+msgid "Forget learned names"
+msgstr ""
+
+msgid "Identify channel names"
+msgstr ""
+
+msgid "Reads the name of each channel from the stream itself (DVB service table, sent in the clear also on encrypted channels): a 3 s capture once per new channel. Names are shown on the status page, in the timeline, the CSV and notifications. Needs tcpdump-mini."
+msgstr ""
+
+msgid "IPTV channel names"
+msgstr ""
+
+msgid "Names set here win over the names read from the stream. Use them when the operator sends no names or a different one is wanted."
+msgstr ""
+
+msgid "Multicast group"
+msgstr ""
+
+msgid "Expecting a multicast address (224.0.0.0 – 239.255.255.255)"
+msgstr ""
+
+msgid "e.g. TVP 1 HD"
+msgstr ""
+
+msgid "Names read from the streams"
+msgstr ""

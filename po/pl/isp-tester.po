@@ -1392,3 +1392,78 @@ msgstr "Ostrzegaj też, gdy strumień zatrzyma się na tak długo w trakcie skan
 
 msgid "Lost packets were counted in the IPTV stream (%d scans with errors) – the picture glitches come with the stream itself: ISP IPTV/multicast side, not your home network."
 msgstr "W strumieniu IPTV naliczono zgubione pakiety (%d skanów z błędami) – zakłócenia obrazu przychodzą razem ze strumieniem: strona IPTV/multicast operatora, nie sieć domowa."
+
+msgid "channel %s"
+msgstr "kanał %s"
+
+msgid "names need tcpdump (install tcpdump-mini)"
+msgstr "nazwy wymagają tcpdump (zainstaluj tcpdump-mini)"
+
+msgid "name set by hand"
+msgstr "nazwa ustawiona ręcznie"
+
+msgid "reading the name…"
+msgstr "odczytuję nazwę…"
+
+msgid "the stream carries no name (set one in Settings)"
+msgstr "strumień nie zawiera nazwy (ustaw ją w Ustawieniach)"
+
+msgid "name not found in the stream (set one in Settings)"
+msgstr "nie znaleziono nazwy w strumieniu (ustaw ją w Ustawieniach)"
+
+msgid "name not known yet"
+msgstr "nazwa jeszcze nieznana"
+
+msgid "Watching"
+msgstr "Oglądany kanał"
+
+msgid "No names found yet. They appear after a channel has been watched for a few seconds."
+msgstr "Nie znaleziono jeszcze nazw. Pojawią się, gdy kanał będzie oglądany przez kilka sekund."
+
+msgid "no name in the stream"
+msgstr "brak nazwy w strumieniu"
+
+msgid "not found"
+msgstr "nie znaleziono"
+
+msgid "Group"
+msgstr "Grupa"
+
+msgid "Provider"
+msgstr "Nadawca"
+
+msgid "Service ID"
+msgstr "ID usługi"
+
+msgid "Learned names will be forgotten within one interval and read again from the streams."
+msgstr "Odczytane nazwy zostaną zapomniane w ciągu jednego interwału i odczytane ze strumieni na nowo."
+
+msgid "Monitoring is not running."
+msgstr "Monitorowanie nie działa."
+
+msgid "Forget learned names"
+msgstr "Zapomnij odczytane nazwy"
+
+msgid "Identify channel names"
+msgstr "Rozpoznawaj nazwy kanałów"
+
+msgid "Reads the name of each channel from the stream itself (DVB service table, sent in the clear also on encrypted channels): a 3 s capture once per new channel. Names are shown on the status page, in the timeline, the CSV and notifications. Needs tcpdump-mini."
+msgstr "Odczytuje nazwę każdego kanału z samego strumienia (tabela usług DVB, wysyłana jawnie także na kanałach kodowanych): 3-sekundowy zrzut raz na każdy nowy kanał. Nazwy są widoczne na stronie stanu, na osi czasu, w CSV i w powiadomieniach. Wymaga tcpdump-mini."
+
+msgid "IPTV channel names"
+msgstr "Nazwy kanałów IPTV"
+
+msgid "Names set here win over the names read from the stream. Use them when the operator sends no names or a different one is wanted."
+msgstr "Nazwy ustawione tutaj mają pierwszeństwo przed odczytanymi ze strumienia. Przydatne, gdy operator nie wysyła nazw albo chcesz inną."
+
+msgid "Multicast group"
+msgstr "Grupa multicast"
+
+msgid "Expecting a multicast address (224.0.0.0 – 239.255.255.255)"
+msgstr "Oczekiwany adres multicast (224.0.0.0 – 239.255.255.255)"
+
+msgid "e.g. TVP 1 HD"
+msgstr "np. TVP 1 HD"
+
+msgid "Names read from the streams"
+msgstr "Nazwy odczytane ze strumieni"

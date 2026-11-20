@@ -243,15 +243,16 @@ function eventText(e) {
 	case 'target_ok':       return _('%s: OK again after %s (%s)').format(targetName(e.src, d.host), fmtDur(d.dur), fmtMs(d.rtt));
 	case 'wan_down':        return _('INTERNET DOWN – no target responds');
 	case 'wan_up':          return _('Internet back after %s').format(fmtDur(d.dur));
-	case 'stream_start':    return _('IPTV stream started (%s)').format(fmtRate(d.kbps));
-	case 'stream_stall':    return _('IPTV STREAM STOPPED (was %s)').format(fmtRate(d.avg));
-	case 'stream_resume':   return _('IPTV stream resumed after %s').format(fmtDur(d.dur)) + igmpNote(d.igmp);
+	case 'stream_start':    return _('IPTV stream started (%s)').format(fmtRate(d.kbps)) + chNote(d.ch);
+	case 'stream_stall':    return _('IPTV STREAM STOPPED (was %s)').format(fmtRate(d.avg)) + chNote(d.ch);
+	case 'stream_resume':   return _('IPTV stream resumed after %s').format(fmtDur(d.dur)) + igmpNote(d.igmp) + chNote(d.ch);
 	case 'stream_off':      return _('IPTV stream ended: decoder switched off (no channel subscribed)');
-	case 'stream_lost':     return (d.groups > 0)
+	case 'stream_lost':     return ((d.groups > 0)
 		? _('IPTV stream did not come back within %s (channel still subscribed: outage)').format(fmtDur(d.dur))
-		: _('IPTV stream did not come back within %s (decoder off or outage)').format(fmtDur(d.dur));
-	case 'stream_dip':      return _('IPTV bitrate dropped to %s (usual %s)').format(fmtRate(d.kbps), fmtRate(d.avg));
-	case 'ts_errors':       return _('IPTV picture errors: %d lost-packet gaps (~%d packets) in %s of scans, channel %s').format(d.cc, d.lost, fmtDur(d.win), d.grp || '?') +
+		: _('IPTV stream did not come back within %s (decoder off or outage)').format(fmtDur(d.dur))) + chNote(d.ch);
+	case 'stream_dip':      return _('IPTV bitrate dropped to %s (usual %s)').format(fmtRate(d.kbps), fmtRate(d.avg)) + chNote(d.ch);
+	case 'ts_errors':       return _('IPTV picture errors: %d lost-packet gaps (~%d packets) in %s of scans, channel %s').format(d.cc, d.lost, fmtDur(d.win),
+			d.ch ? '%s (%s)'.format(d.ch, d.grp) : (d.grp || '?')) +
 		(d.gap >= 100 ? ' · ' + _('longest pause %d ms').format(d.gap) : '');
 	case 'wan_if_down':     return _('WAN interface %s DOWN (PPPoE/DHCP session lost)').format(d.iface);
 	case 'wan_if_up':       return _('WAN interface %s up again after %s').format(d.iface, fmtDur(d.dur)) + (d.ip ? ' · ' + d.ip : '');
@@ -302,14 +303,56 @@ function logText(k) {
 	}
 }
 
-/* "lan1: 239.0.0.1, 239.0.0.2 · lan2: …" – one entry per decoder port */
-function groupsByPort(mdb) {
+/* the channel(s) being watched, stored with the event */
+function chNote(ch) {
+	return ch ? ' · ' + _('channel %s').format(ch) : '';
+}
+
+/* channel name of a multicast group, from the status (null = not known) */
+function chName(t, grp) {
+	var n = t && t.channels && t.channels.names && t.channels.names[grp];
+	return (n && n.name) ? n.name : null;
+}
+
+/* "TVP 1 (239.0.0.1)", or just the group */
+function chLabel(t, grp) {
+	var n = chName(t, grp);
+	return n ? '%s (%s)'.format(n, grp) : grp;
+}
+
+/* "lan1: TVP 1 (239.0.0.1), 239.0.0.2 · lan2: …" – one entry per decoder port */
+function groupsByPort(mdb, t) {
 	var by = {}, order = [];
 	mdb.forEach(function(m) {
 		if (!by[m.port]) { by[m.port] = []; order.push(m.port); }
 		if (by[m.port].indexOf(m.grp) < 0) by[m.port].push(m.grp);
 	});
-	return order.sort().map(function(p) { return p + ': ' + by[p].join(', '); }).join(' · ');
+	return order.sort().map(function(p) {
+		return p + ': ' + by[p].map(function(g) { return chLabel(t, g); }).join(', ');
+	}).join(' · ');
+}
+
+/* what is being watched now: one line per joined group with its name or
+ * why the name is missing */
+function watching(t) {
+	var c = t.channels, groups = (t.igmp && t.igmp.groups) || [];
+	if (!c || !c.enabled || !groups.length) return null;
+	var err = {
+		no_tcpdump: _('names need tcpdump (install tcpdump-mini)'),
+		no_scanner: _('scanner script or ucode missing')
+	}[c.error];
+	return groups.map(function(g) {
+		var n = c.names && c.names[g], why;
+		if (n && n.name)
+			return E('div', {}, [ E('strong', {}, n.name), ' ', E('span', { 'class': 'ispt-groups' }, g),
+				n.src === 'manual' ? ' · ' + _('name set by hand') : (n.provider ? ' · ' + n.provider : '') ]);
+		if (c.busy === g) why = _('reading the name…');
+		else if (err) why = err;
+		else if (n && n.why === 'no_sdt') why = _('the stream carries no name (set one in Settings)');
+		else if (n && n.why === 'no_service') why = _('name not found in the stream (set one in Settings)');
+		else why = _('name not known yet');
+		return E('div', {}, [ E('span', { 'class': 'ispt-groups' }, g), ' · ', E('em', {}, why) ]);
+	});
 }
 
 function igmpNote(ig) {
@@ -826,6 +869,10 @@ return view.extend({
 			E('span', { 'class': 'k' }, _('Usual bitrate')), E('span', {}, t.avg ? fmtRate(t.avg) : '–'),
 			E('span', { 'class': 'k' }, _('Packets/s')), E('span', {}, t.pps != null ? String(t.pps) : '–'));
 
+		var wv = watching(t);
+		if (wv)
+			kv.push(E('span', { 'class': 'k' }, _('Watching')), E('span', {}, wv));
+
 		if (t.quality) {
 			var q = t.quality, qe = {
 				no_tcpdump: _('needs tcpdump (install tcpdump-mini)'),
@@ -843,7 +890,7 @@ return view.extend({
 			else
 				qv = q.last.groups.map(function(g) {
 					var bad = g.cc + g.tei;
-					return E('div', {}, [ dot(g.lvl === 'err' ? 'fail' : g.lvl), ' ', g.grp, ': ',
+					return E('div', {}, [ dot(g.lvl === 'err' ? 'fail' : g.lvl), ' ', chLabel(t, g.grp), ': ',
 						bad ? _('%d lost-packet gaps (~%d packets)').format(bad, g.lost) : _('no errors'),
 						g.gap >= 100 ? ' · ' + _('longest pause %d ms').format(g.gap) : '' ]);
 				});
@@ -866,7 +913,7 @@ return view.extend({
 				_('membership %d s, query %d s').format(t.bridge.membership_interval, t.bridge.query_interval || 0)));
 		if (t.bridge && t.bridge.mdb)
 			kv.push(E('span', { 'class': 'k' }, _('Bridge groups')), E('span', { 'class': 'ispt-groups' },
-				t.bridge.mdb.length ? groupsByPort(t.bridge.mdb) : _('none')));
+				t.bridge.mdb.length ? groupsByPort(t.bridge.mdb, t) : _('none')));
 		if (t.igmp) {
 			var ig = t.igmp;
 			if (!v || ig.proxy_seen) kv.push(E('span', { 'class': 'k' }, _('Multicast proxy')), E('span', {},
@@ -874,7 +921,7 @@ return view.extend({
 			if (ig.dev && !v)
 				kv.push(E('span', { 'class': 'k' }, _('Channels joined (%s)').format(ig.dev)), E('span', { 'class': 'ispt-groups' },
 					!ig.found ? _('device not in IGMP table') :
-					(ig.groups && ig.groups.length ? ig.groups.join(', ') : _('none')) + (ig.version ? ' · IGMP' + ig.version.replace('V', 'v') : '') +
+					(ig.groups && ig.groups.length ? ig.groups.map(function(g) { return chLabel(t, g); }).join(', ') : _('none')) + (ig.version ? ' · IGMP' + ig.version.replace('V', 'v') : '') +
 					(ig.last_change ? ' · ' + _('changed %s ago').format(fmtDur(Date.now() / 1000 - ig.last_change)) : '')));
 		}
 

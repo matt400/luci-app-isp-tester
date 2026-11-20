@@ -84,6 +84,11 @@ config iptv 'iptv'
 	option q_fail '30'
 	# also warn when the stream pauses this long (ms) inside a capture, 0 = off
 	option q_gap '500'
+	# channel names: when a decoder joins a channel whose name is not known
+	# yet, read it once from the stream (DVB SDT table, a 3 s capture of just
+	# that channel). Needs tcpdump-mini and 'igmp'. Names can also be set by
+	# hand in 'channel' sections, which win over the stream.
+	option names '1'
 
 # router load, read from /proc only to explain problems (for graphs use
 # Status -> Realtime Graphs or luci-app-statistics)
@@ -111,6 +116,11 @@ config notify 'notify'
 	option cooldown '300'
 	# en | pl
 	option lang 'en'
+
+# a channel name set by hand (multicast group -> name)
+#config channel
+#	option group '239.1.1.1'
+#	option name 'TVP 1 HD'
 
 config port
 	option device 'lan1'
