@@ -36,6 +36,7 @@ Target: **OpenWrt 24.10 and 25.12** (ucode + rpcd + LuCI JS). No compiled code, 
 | **IPTV** | Bitrate of the IPTV VLAN (bridge per-VLAN counters), or of a device that carries only IPTV traffic (e.g. `eth1.387`, or the decoder's port measured outgoing) | stream started, **stream stopped**, stream resumed after *N s* (with what IGMP did meanwhile), **decoder switched off** (stream gone and no channel subscribed any more: logged as info, not a fault), stream lost (still subscribed: long outage), bitrate dip |
 | **IGMP** | Joined groups on the proxy's upstream (`/proc/net/igmp`), multicast proxy process (igmpproxy, mcproxy, omcproxy), bridge MDB and IGMP timers | proxy stopped / restarted; every freeze is tagged as *channel change*, *membership dropped* or *still subscribed* |
 | **IPTV picture quality** (optional) | Short `tcpdump` captures of the incoming stream while it plays, counted by `tsscan.uc`: MPEG-TS continuity errors (lost packets) of the channel being watched | **picture errors** (*N* lost-packet gaps, ~*M* packets, channel, longest pause); yellow for a while after errors |
+| **Channel names** | Read from the stream itself (DVB SDT/PAT tables, `tsscan.uc`): one 3 s capture per new channel, or names set by hand | the channel being watched is named on the status page, in timeline events, the measurements CSV and notifications |
 | **Ports** | `/sys/class/net/<dev>` counters and link state | link down/up, link flapping between samples, speed change (e.g. 1 Gbit → 100 Mbit), RX/TX/CRC errors, drops |
 | **Router** | `/proc`: CPU per core (incl. softirq), RAM, connection tracking table. Only read to explain problems; for graphs use *Status → Realtime Graphs* or luci-app-statistics | router overloaded, low RAM, connection table full |
 | **You** | **⚑ Problem now** button | your report with the time of the click and an optional note |
@@ -155,6 +156,16 @@ How it works, and what it costs:
 - It measures the stream **as it arrives at the router**, so lost packets found here come from the ISP side. Measured on the decoder port (direction *outgoing*), the result is only informational in the analysis.
 
 Thresholds (Settings → IPTV → Advanced): *Warn from* / *Fault from* count lost-packet gaps per scan (default 1 and 30), *Pause warning* flags a stream that pauses for that many ms inside a scan (default 500).
+
+## IPTV channel names
+
+The status page, the timeline, the CSV and notifications name the channel being watched (*TVP 1 HD (239.1.1.1)*) instead of only its multicast group. The name comes from the stream: every DVB stream carries a Service Description Table with the service and provider name, and a PAT that says which service the stream is. Both are sent in the clear about every 1–2 s, also on encrypted channels.
+
+- When a decoder joins a channel whose name is not known yet (IGMP / bridge MDB), one capture of 3 s of **only that group** is taken and read by `tsscan.uc` (same low-priority process as the quality scan, never both at once). Known channels cost nothing; the quality scan refreshes the names on the side.
+- Learned names are kept in `channels.json` next to the timeline (so with *Keep data on* a USB folder they survive a reboot). Settings → *Names read from the streams* lists them and can forget them.
+- Some operators send no names. Then the IPTV card says so, and names can be set by hand in Settings → *IPTV channel names* (multicast group → name); those always win.
+- Text in DVB's own character sets (ISO 6937, ISO 8859-x, UTF-8, UCS-2) is converted to UTF-8, so Polish letters show correctly.
+- Needs `tcpdump-mini` and *Watch IGMP*; can be switched off with *Identify channel names*.
 
 ## Install
 

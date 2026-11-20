@@ -12,6 +12,57 @@ var callTestNotify = rpc.declare({
 	expect: { '': {} }
 });
 
+var callChannels = rpc.declare({
+	object: 'luci.isp_tester',
+	method: 'channels',
+	expect: { channels: {} }
+});
+
+var callChannelsForget = rpc.declare({
+	object: 'luci.isp_tester',
+	method: 'channels_forget',
+	expect: { '': {} }
+});
+
+/* sort "239.1.1.10" after "239.1.1.9" */
+function ipKey(g) {
+	return (g || '').split('.').map(function(x) { return ('00' + x).slice(-3); }).join('.');
+}
+
+/* table of the names learned from the streams, with a button to forget them */
+function renderLearned(db) {
+	var groups = Object.keys(db || {}).sort(function(a, b) { return ipKey(a) < ipKey(b) ? -1 : 1; });
+	var box = E('div', {});
+	if (!groups.length) {
+		box.appendChild(E('em', {}, _('No names found yet. They appear after a channel has been watched for a few seconds.')));
+		return box;
+	}
+	var rows = groups.map(function(g) {
+		var e = db[g];
+		return E('tr', { 'class': 'tr' }, [
+			E('td', { 'class': 'td', 'style': 'font-family:monospace' }, g),
+			E('td', { 'class': 'td' }, e.name ? e.name : E('em', {},
+				e.why === 'no_sdt' ? _('no name in the stream') : _('not found'))),
+			E('td', { 'class': 'td' }, e.provider || ''),
+			E('td', { 'class': 'td' }, e.sid != null ? String(e.sid) : '')
+		]);
+	});
+	box.appendChild(E('table', { 'class': 'table' }, [
+		E('tr', { 'class': 'tr table-titles' }, [
+			E('th', { 'class': 'th' }, _('Group')), E('th', { 'class': 'th' }, _('Name')),
+			E('th', { 'class': 'th' }, _('Provider')), E('th', { 'class': 'th' }, _('Service ID'))
+		])
+	].concat(rows)));
+	box.appendChild(E('button', { 'class': 'cbi-button cbi-button-reset', 'click': ui.createHandlerFn(null, function() {
+		return callChannelsForget().then(function(r) {
+			ui.addNotification(null, E('p', r && r.running
+				? _('Learned names will be forgotten within one interval and read again from the streams.')
+				: _('Monitoring is not running.')), 'info');
+		});
+	}) }, _('Forget learned names')));
+	return box;
+}
+
 var callUpdateCheck = rpc.declare({
 	object: 'luci.isp_tester',
 	method: 'update_check',
@@ -138,7 +189,11 @@ function renderUpdates() {
 var UPD_CSS = E('style', {}, '.ispt-update-ok{color:#2e9d4f;font-weight:bold}.ispt-update-err{color:#d64541;font-weight:bold}');
 
 return view.extend({
-	render: function() {
+	load: function() {
+		return callChannels().catch(function() { return {}; });
+	},
+
+	render: function(learned) {
 		var m, s, o;
 
 		m = new form.Map('isp_tester', _('ISP Tester – Settings'),
@@ -350,6 +405,12 @@ return view.extend({
 		o.default = '1';
 		o.rmempty = false;
 
+		o = s.taboption('basic', form.Flag, 'names', _('Identify channel names'),
+			_('Reads the name of each channel from the stream itself (DVB service table, sent in the clear also on encrypted channels): a 3 s capture once per new channel. Names are shown on the status page, in the timeline, the CSV and notifications. Needs tcpdump-mini.'));
+		o.default = '1';
+		o.rmempty = false;
+		o.depends({ igmp: '1' });
+
 		o = s.taboption('advanced', widgets.DeviceSelect, 'igmp_device', _('IGMP upstream device'),
 			_('Where the proxy joins the groups (its upstream, usually the IPTV VLAN). Empty = the IPTV device when measuring incoming traffic.'));
 		o.noaliases = true;
@@ -429,6 +490,32 @@ return view.extend({
 					? _('The test message will be sent within one interval. Save & Apply changed settings first.')
 					: _('Monitoring is not running, nothing can be sent.')), r && r.running ? 'info' : 'warning');
 			});
+		};
+
+		/* ---- channel names */
+		s = m.section(form.GridSection, 'channel', _('IPTV channel names'),
+			_('Names set here win over the names read from the stream. Use them when the operator sends no names or a different one is wanted.'));
+		s.addremove = true;
+		s.anonymous = true;
+		s.sortable = true;
+
+		o = s.option(form.Value, 'group', _('Multicast group'));
+		o.datatype = 'ip4addr("nomask")';
+		o.placeholder = '239.1.1.1';
+		o.rmempty = false;
+		o.validate = function(id, v) {
+			if (v && !/^2(2[4-9]|3[0-9])\./.test(v)) return _('Expecting a multicast address (224.0.0.0 – 239.255.255.255)');
+			return true;
+		};
+
+		o = s.option(form.Value, 'name', _('Name'));
+		o.placeholder = _('e.g. TVP 1 HD');
+		o.rmempty = false;
+
+		s = m.section(form.NamedSection, 'iptv', 'iptv', _('Names read from the streams'));
+		o = s.option(form.DummyValue, '_learned');
+		o.render = function() {
+			return E('div', { 'class': 'cbi-section-node' }, renderLearned(learned));
 		};
 
 		/* ---- ports */

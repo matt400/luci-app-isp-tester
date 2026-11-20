@@ -3,7 +3,7 @@
 		"description": "Grant access to ISP Tester",
 		"read": {
 			"ubus": {
-				"luci.isp_tester": [ "status", "events", "update_check", "update_status" ]
+				"luci.isp_tester": [ "status", "events", "update_check", "update_status", "channels" ]
 			},
 			"file": {
 				"/tmp/isp-tester/samples.csv": [ "read" ],
@@ -15,7 +15,7 @@
 		},
 		"write": {
 			"ubus": {
-				"luci.isp_tester": [ "clear", "set_enabled", "mark", "test_notify", "update_apply" ]
+				"luci.isp_tester": [ "clear", "set_enabled", "mark", "test_notify", "update_apply", "channels_forget" ]
 			},
 			"uci": [ "isp_tester" ]
 		}
