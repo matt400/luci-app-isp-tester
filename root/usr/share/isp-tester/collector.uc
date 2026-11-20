@@ -261,7 +261,9 @@ function load_config() {
 	/* 0 (or >= interval) = sample IPTV only on the main tick, like before */
 	if (c.iptv.sample_interval < 0) c.iptv.sample_interval = 0;
 	if (c.iptv.sample_interval > 0 && c.iptv.sample_interval < 0.5) c.iptv.sample_interval = 0.5;
-	if (c.iptv.sample_interval >= c.interval) c.iptv.sample_interval = 0;
+	if (c.iptv.sample_interval >= c.interval)
+		/* VLAN mode has no per-tick fallback: the counters are read by the fast timer only */
+		c.iptv.sample_interval = c.iptv.vlan ? c.interval / 2 : 0;
 	if (c.iptv.stall_after < 0) c.iptv.stall_after = 0;
 	if (c.iptv.igmp_device && !valid_dev(c.iptv.igmp_device)) c.iptv.igmp_device = '';
 	/* IGMP memberships are joined by the multicast proxy on its upstream, which
@@ -324,7 +326,7 @@ const MSG = {
 		log: '%s: %s',
 		stream_stall: 'IPTV STREAM STOPPED', stream_resume: 'IPTV stream resumed after %s', stream_lost: 'IPTV stream did not come back within %s', stream_off: 'IPTV stream ended: decoder switched off (no channel subscribed)',
 		stream_dip: 'IPTV bitrate dropped to %d kbit/s',
-		proxy_down: 'Multicast proxy %s is not running', proxy_up: 'Multicast proxy %s running again',
+		proxy_down: 'Multicast proxy %s is not running', proxy_up: 'Multicast proxy %s running again', proxy_restart: 'Multicast proxy %s restarted',
 		cpu_high: 'Router CPU busy: %d%% (softirq %d%%)', mem_low: 'Router RAM low: %d%% free', conntrack_full: 'Connection table %d%% full',
 		user_mark: 'Problem reported by user: %s', test: 'Test message - notifications work.'
 	},
@@ -339,7 +341,7 @@ const MSG = {
 		log: '%s: %s',
 		stream_stall: 'STRUMIEŃ IPTV ZATRZYMANY', stream_resume: 'Strumień IPTV wrócił po %s', stream_lost: 'Strumień IPTV nie wrócił w ciągu %s', stream_off: 'Strumień IPTV zakończony: dekoder wyłączony (brak subskrybowanego kanału)',
 		stream_dip: 'Bitrate IPTV spadł do %d kbit/s',
-		proxy_down: 'Proxy multicast %s nie działa', proxy_up: 'Proxy multicast %s znów działa',
+		proxy_down: 'Proxy multicast %s nie działa', proxy_up: 'Proxy multicast %s znów działa', proxy_restart: 'Proxy multicast %s zrestartowany',
 		cpu_high: 'Router przeciążony: CPU %d%% (softirq %d%%)', mem_low: 'Mało RAM: wolne %d%%', conntrack_full: 'Tablica połączeń zajęta w %d%%',
 		user_mark: 'Problem zgłoszony ręcznie: %s', test: 'Wiadomość testowa - powiadomienia działają.'
 	}
@@ -372,7 +374,7 @@ function event_msg(e, lang) {
 	case 'wan_ip_change': return sprintf(f, d.from, d.to);
 	case 'log': return sprintf(f, d.prog, d.msg) + ((d.n > 1) ? ` (${d.n}x)` : '');
 	case 'stream_dip': return sprintf(f, d.kbps);
-	case 'proxy_down': case 'proxy_up': return sprintf(f, d.name);
+	case 'proxy_down': case 'proxy_up': case 'proxy_restart': return sprintf(f, d.name);
 	case 'cpu_high': return sprintf(f, d.cpu, d.sirq);
 	case 'mem_low': return sprintf(f, d.pct);
 	case 'conntrack_full': return sprintf(f, d.pct);
@@ -415,7 +417,7 @@ function notify_flush(force) {
 
 	let count = length(notif.pending);
 	let text = `ISP Tester (${HOSTNAME})\n` + join('\n', notif.pending);
-	let url, body;
+	let url, body, extra = [];
 
 	if (n.service == 'telegram') {
 		if (!n.token || !n.chat_id) return;
@@ -425,6 +427,8 @@ function notify_flush(force) {
 	else if (n.service == 'webhook') {
 		url = n.url;
 		body = sprintf('%J', { text, host: HOSTNAME, events: notif.pending });
+		/* without it the receiver gets the JSON as a form-encoded body */
+		push(extra, '--header=Content-Type: application/json');
 	}
 	else {
 		url = n.url;
@@ -434,7 +438,7 @@ function notify_flush(force) {
 
 	notif.busy = true;
 	notif.last = now();
-	let proc = uloop.process(FETCH, [ '-q', '-T', '15', '-O', '/dev/null', `--post-data=${body}`, url ], null, (code) => {
+	let proc = uloop.process(FETCH, [ '-q', '-T', '15', '-O', '/dev/null', ...extra, `--post-data=${body}`, url ], null, (code) => {
 		notif.busy = false;
 		if (code == 0) {
 			notif.pending = slice(notif.pending, count);
@@ -855,6 +859,7 @@ function cd_rrd(dir) {
 	if (!RRDTOOL) return { error: 'no_rrdtool' };
 	let out = {};
 	for (let host in (fs.lsdir(dir) ?? [])) {
+		if (!valid_host(host)) continue;     /* the path goes into a shell command */
 		let pdir = `${dir}/${host}/ping`;
 		for (let f in (fs.lsdir(pdir) ?? [])) {
 			let m = match(f, /^(ping|ping_droprate|ping_stddev)-(.+)\.rrd$/);
@@ -1234,6 +1239,8 @@ function handle_notify_test() {
 	let f = `${VARDIR}/notify_test`;
 	if (!fs.stat(f)) return;
 	fs.unlink(f);
+	/* notifications off: do not leave a test message queued for later */
+	if (!cfg.notify.enabled) return;
 	push(notif.pending, (MSG[cfg.notify.lang] ?? MSG.en).test);
 	notify_flush(true);
 }
@@ -1846,7 +1853,7 @@ function tick() {
 			let r = t.res;
 			push(tl, {
 				label: t.label, host: t.host, level: r ? target_level(r) : 'unknown',
-				loss: r?.loss, rtt: r?.rtt, rtt_max: r?.rtt_max, jitter: r?.jitter, since: t.since
+				loss: r?.loss, rtt: r?.rtt, jitter: r?.jitter, since: t.since
 			});
 			if (!r) continue;
 			n_active++;

@@ -140,7 +140,7 @@ msgstr ""
 msgid "%s: high jitter %s (ping %s)"
 msgstr ""
 
-msgid "%s: high latency %s (max %s)"
+msgid "%s: high latency %s"
 msgstr ""
 
 msgid "%s: not responding (%d%% loss)"
