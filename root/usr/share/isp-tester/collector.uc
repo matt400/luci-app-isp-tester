@@ -164,6 +164,9 @@ function default_config() {
 			bloat: true, bloat_ms: 30, bloat_load: 70, down_mbit: 0, up_mbit: 0,
 			/* who fills the link: hosts of the traffic while it is full (nlbwmon or the conntrack table) */
 			hogs: true, hogs_cooldown: 600,
+			/* optical signal of the SFP / ONT module (ethtool -m), when the WAN goes through one:
+			 * device '' = the WAN's physical port; drop_db below the usual level = a fault; rx_min dBm, '' = the module's own warning */
+			sfp: true, sfp_device: '', sfp_interval: 30, sfp_drop_db: 3, sfp_rx_min: null,
 			/* IPv6: netifd status of the DHCPv6 interface (odhcp6c), '' = wan6 / <wan>_6 */
 			ipv6: true, interface6: '', ra_after: 60
 		},
@@ -257,6 +260,11 @@ function load_config() {
 		c.wan.up_mbit        = num(w.up_mbit, c.wan.up_mbit);
 		c.wan.hogs           = bool(w.hogs, true);
 		c.wan.hogs_cooldown  = num(w.hogs_cooldown, c.wan.hogs_cooldown);
+		c.wan.sfp            = bool(w.sfp, true);
+		c.wan.sfp_device     = w.sfp_device ?? '';
+		c.wan.sfp_interval   = num(w.sfp_interval, c.wan.sfp_interval);
+		c.wan.sfp_drop_db    = num(w.sfp_drop_db, c.wan.sfp_drop_db);
+		c.wan.sfp_rx_min     = num(w.sfp_rx_min, null);
 		c.wan.ipv6           = bool(w.ipv6, true);
 		c.wan.interface6     = w.interface6 ?? '';
 		c.wan.ra_after       = num(w.ra_after, c.wan.ra_after);
@@ -419,6 +427,10 @@ function load_config() {
 	if (!(c.wan.down_mbit >= 0)) c.wan.down_mbit = 0;
 	if (!(c.wan.up_mbit >= 0)) c.wan.up_mbit = 0;
 	if (c.wan.hogs_cooldown < 60) c.wan.hogs_cooldown = 60;
+	if (c.wan.sfp_device && !valid_dev(c.wan.sfp_device)) c.wan.sfp_device = '';
+	if (c.wan.sfp_interval < 10) c.wan.sfp_interval = 10;
+	if (!(c.wan.sfp_drop_db >= 1)) c.wan.sfp_drop_db = 3;
+	if (c.wan.sfp_rx_min != null && !(c.wan.sfp_rx_min < 0 && c.wan.sfp_rx_min > -50)) c.wan.sfp_rx_min = null;
 
 	c.peer.port = int(c.peer.port);
 	if (c.peer.port < 1 || c.peer.port > 65535) c.peer.port = 51477;
@@ -509,6 +521,8 @@ const MSG = {
 		proxy_down: 'Multicast proxy %s is not running', proxy_up: 'Multicast proxy %s running again', proxy_restart: 'Multicast proxy %s restarted',
 		cpu_high: 'Router CPU busy: %d%% (softirq %d%%)', mem_low: 'Router RAM low: %d%% free', conntrack_full: 'Connection table %d%% full',
 		link_hogs: 'Link %d%% full (%s) for %s, heaviest: %s',
+		sfp_rx_drop: 'Optical signal weak: RX %s dBm (usually %s dBm)', sfp_los: 'NO LIGHT from the line on %s (SFP RX)',
+		sfp_alarm: 'SFP module alarm: %s', sfp_gone: 'SFP module on %s does not answer any more',
 		temp_high: 'Router hot: %s %s C (limit %s C)', throttle: 'Router CPU throttled by heat: %s MHz instead of %s MHz (%s C)',
 		user_mark: 'Problem reported by user: %s', test: 'Test message - notifications work.',
 		peer_lost: 'Router %s does not report any more', peer_back: 'Router %s reports again after %s',
@@ -548,6 +562,8 @@ const MSG = {
 		proxy_down: 'Proxy multicast %s nie działa', proxy_up: 'Proxy multicast %s znów działa', proxy_restart: 'Proxy multicast %s zrestartowany',
 		cpu_high: 'Router przeciążony: CPU %d%% (softirq %d%%)', mem_low: 'Mało RAM: wolne %d%%', conntrack_full: 'Tablica połączeń zajęta w %d%%',
 		link_hogs: 'Łącze zajęte w %d%% (%s) przez %s, najwięcej: %s',
+		sfp_rx_drop: 'Słaby sygnał optyczny: RX %s dBm (zwykle %s dBm)', sfp_los: 'BRAK ŚWIATŁA z linii na %s (RX SFP)',
+		sfp_alarm: 'Alarm modułu SFP: %s', sfp_gone: 'Moduł SFP na %s przestał odpowiadać',
 		temp_high: 'Router przegrzany: %s %s C (próg %s C)', throttle: 'Procesor routera dławiony przez temperaturę: %s MHz zamiast %s MHz (%s C)',
 		user_mark: 'Problem zgłoszony ręcznie: %s', test: 'Wiadomość testowa - powiadomienia działają.',
 		peer_lost: 'Router %s przestał się zgłaszać', peer_back: 'Router %s znów się zgłasza po %s',
@@ -610,6 +626,9 @@ function event_text(e, lang) {
 	case 'proxy_down': case 'proxy_up': case 'proxy_restart': return sprintf(f, d.name);
 	case 'cpu_high': return sprintf(f, d.cpu, d.sirq);
 	case 'mem_low': return sprintf(f, d.pct);
+	case 'sfp_rx_drop': return sprintf(f, d.rx, d.base ?? '?');
+	case 'sfp_los': case 'sfp_gone': return sprintf(f, d.dev);
+	case 'sfp_alarm': return sprintf(f, join(', ', d.flags ?? []));
 	case 'link_hogs': return sprintf(f, d.load, d.dir == 'up' ? (lang == 'pl' ? 'wysyłanie' : 'upload') : (lang == 'pl' ? 'pobieranie' : 'download'),
 		dur_txt(d.win), join(', ', map(slice(d.hosts ?? [], 0, 3), (h) => sprintf('%s %d%%', h.name ?? h.id, h.share))) || '-');
 	case 'temp_high': return sprintf(f, d.zone, d.temp, d.warn);
@@ -1074,7 +1093,8 @@ function hist_add(h, t, vals, max) {
 
 /* 1-minute aggregates for the long (24 h) history */
 const AGG_MODE = { rtt: 'avg', rttmax: 'max', loss: 'max', jit: 'max',
-	'iptv:kbps': 'avg', 'iptv:min': 'min', 'iptv:cc': 'sum', err: 'sum', drop: 'sum', lvl: 'max', maint: 'max', 'self:cpu': 'max', temp: 'max', thr: 'max' };
+	'iptv:kbps': 'avg', 'iptv:min': 'min', 'iptv:cc': 'sum', err: 'sum', drop: 'sum', lvl: 'max', maint: 'max', 'self:cpu': 'max', temp: 'max', thr: 'max',
+	'sfp:rx': 'min', 'sfp:tx': 'min', 'sfp:temp': 'max' };
 
 let agg = null;
 let agg10 = null;     /* 10-minute aggregates for the archive */
@@ -1921,6 +1941,186 @@ function hogs_tick(t, rx, tx) {
 function hogs_out() {
 	if (!cfg.wan.hogs || !cfg.wan.bloat) return null;
 	return { source: hogs_source(), err: hogs.err, last: hogs.last, cooldown: cfg.wan.hogs_cooldown, nlbw: !!NLBW };
+}
+
+/* ----------------------------------------------- optical signal (SFP / ONT) */
+
+/*
+ * "Is the light from the line weaker?": when the WAN goes through an SFP
+ * module (or an ONT in an SFP cage) the router can read the module's own
+ * measurements - `ethtool -m <port>`: RX / TX power (dBm), temperature,
+ * voltage, laser current and the module's alarm flags. A fall in the received
+ * power is a hard proof of a fault in the line (fibre, connector, splitter,
+ * the ISP's side) that no ping can give. Read every sfp_interval s (the
+ * EEPROM is slow); without a module (ethtool says so) it is asked again
+ * every 10 minutes and nothing is shown. Only reads.
+ *   no light (RX at the noise floor)            -> sfp_los
+ *   RX sfp_drop_db below its usual level, or below the module's low-power
+ *   warning / sfp_rx_min                         -> sfp_rx_drop
+ *   any other alarm/warning flag of the module  -> sfp_alarm
+ *   the module stopped answering                 -> sfp_gone
+ */
+const ETHTOOL = find_bin('ISP_TESTER_ETHTOOL', [ '/usr/sbin/ethtool', '/sbin/ethtool', '/usr/bin/ethtool' ]);
+const SFP_RING = 20;         /* readings behind "its usual level" */
+const SFP_NOLIGHT = -40;     /* dBm: at or below it there is no light */
+let sfp = { dev: null, ok: null, err: null, next: 0, last: null, ts: null, ring: [], fails: 0,
+	los: false, los_since: 0, los_n: 0, drop: false, drop_since: 0, drop_n: 0, drop_min: null, base: null,
+	alarm: false, alarm_since: 0, gone: false, gone_since: 0, min_rx: null, max_temp: null };
+
+/* "0.5412 mW / -2.67 dBm" -> -2.67; "-inf dBm" -> null */
+function sfp_dbm(v) {
+	let m = match(v, /(-?[0-9.]+|-?inf)\s*dBm/);
+	return (m && m[1] != '-inf' && m[1] != 'inf') ? num(m[1], null) : null;
+}
+
+function sfp_num(v) {
+	let m = match(v, /^(-?[0-9.]+)/);
+	return m ? num(m[1], null) : null;
+}
+
+function sfp_parse(txt) {
+	let r = { rx: null, tx: null, temp: null, vcc: null, bias: null, has_rx: false, flags: [] };
+	for (let l in split(txt, '\n')) {
+		let k = index(l, ':');
+		if (k < 0) continue;
+		let key = trim(substr(l, 0, k)), val = trim(substr(l, k + 1));
+		if (key == 'Laser output power') r.tx = sfp_dbm(val);
+		else if (match(key, /^Receiver signal (average optical power|OMA)$/)) { r.rx = sfp_dbm(val); r.has_rx = true; }
+		else if (key == 'Module temperature') r.temp = sfp_num(val);
+		else if (key == 'Module voltage') r.vcc = sfp_num(val);
+		else if (key == 'Laser bias current') r.bias = sfp_num(val);
+		else if (match(key, /(alarm|warning)$/) && val == 'On') push(r.flags, key);
+	}
+	return r;
+}
+
+function sfp_device() {
+	let d = cfg.wan.sfp_device || wansess.phys;
+	return valid_dev(d) ? d : null;
+}
+
+function sfp_read(dev) {
+	let f = fs.popen(`${TIMEOUT ? TIMEOUT + ' 5 ' : ''}${ETHTOOL} -m ${dev} 2>&1`, 'r');
+	if (!f) return { err: 'run' };
+	let out = f.read('all') ?? '';
+	f.close();
+	let r = sfp_parse(out);
+	if (!r.has_rx) {
+		/* "Cannot get module EEPROM information: Operation not supported" - no module, or none with diagnostics */
+		let first = trim(split(out, '\n')[0] ?? '');
+		return { err: (first != '' && !match(first, /^Identifier/)) ? substr(first, 0, 80) : 'no_diag' };
+	}
+	return r;
+}
+
+function sfp_median(a) {
+	let m = median(a);
+	return (m == null) ? null : round(m, 2);
+}
+
+function sample_sfp() {
+	if (!cfg.wan.enabled || !cfg.wan.sfp || !ETHTOOL) return;
+	let t = mono(), dev = sfp_device();
+	if (!dev) return;
+	if (dev != sfp.dev) { sfp.dev = dev; sfp.next = 0; sfp.ok = null; }
+	if (t < sfp.next) return;
+
+	let r = sfp_read(dev), tn = now();
+	if (r.err) {
+		sfp.err = r.err;
+		sfp.fails++;
+		/* a module that was there stopped answering; one without any is asked again later */
+		if (sfp.ok) {
+			if (sfp.fails >= 2 && !sfp.gone) {
+				sfp.gone = true;
+				sfp.gone_since = tn;
+				emit('warn', 'wan', 'sfp', 'sfp_gone', { dev });
+			}
+			sfp.next = t + cfg.wan.sfp_interval;
+		}
+		else
+			sfp.next = t + 600;
+		return;
+	}
+	sfp.next = t + cfg.wan.sfp_interval;
+	sfp.fails = 0;
+	sfp.err = null;
+	if (sfp.gone) {
+		sfp.gone = false;
+		emit('info', 'wan', 'sfp', 'sfp_gone_ok', { dev, dur: tn - sfp.gone_since });
+	}
+	sfp.ok = true;
+	sfp.last = r;
+	sfp.ts = tn;
+	if (r.temp != null && (sfp.max_temp == null || r.temp > sfp.max_temp)) sfp.max_temp = r.temp;
+
+	/* no light */
+	let nolight = (r.rx == null) || r.rx <= SFP_NOLIGHT;
+	if (nolight) sfp.los_n++; else sfp.los_n = 0;
+	if (!sfp.los && sfp.los_n >= 2) {
+		sfp.los = true;
+		sfp.los_since = tn - cfg.wan.sfp_interval;
+		emit('err', 'wan', 'sfp', 'sfp_los', { dev, tx: r.tx }, sfp.los_since);
+	}
+	else if (sfp.los && !nolight) {
+		sfp.los = false;
+		emit('info', 'wan', 'sfp', 'sfp_los_ok', { dev, dur: tn - sfp.los_since, rx: r.rx });
+	}
+
+	/* weaker light: against its usual level (median of the last readings, frozen during a drop) */
+	if (!nolight) {
+		let base = (length(sfp.ring) >= 5) ? sfp_median(sfp.ring) : null;
+		let low = false, why = null;
+		if (base != null && r.rx <= base - cfg.wan.sfp_drop_db) { low = true; why = 'drop'; }
+		else if (cfg.wan.sfp_rx_min != null && r.rx < cfg.wan.sfp_rx_min) { low = true; why = 'min'; }
+		else for (let fl in r.flags) if (match(fl, /rx power low/i)) { low = true; why = 'module'; }
+		let recovered = !low && (base == null || r.rx > base - cfg.wan.sfp_drop_db / 2);
+
+		if (low) sfp.drop_n++; else sfp.drop_n = 0;
+		if (sfp.drop && (sfp.drop_min == null || r.rx < sfp.drop_min)) sfp.drop_min = r.rx;
+		if (!sfp.drop && sfp.drop_n >= 2) {
+			sfp.drop = true;
+			sfp.drop_since = tn - cfg.wan.sfp_interval;
+			sfp.drop_min = r.rx;
+			sfp.base = base ?? sfp.base;
+			emit('warn', 'wan', 'sfp', 'sfp_rx_drop', { dev, rx: r.rx, base: sfp.base, why, tx: r.tx }, sfp.drop_since);
+		}
+		else if (sfp.drop && recovered) {
+			sfp.drop = false;
+			emit('info', 'wan', 'sfp', 'sfp_rx_drop_ok', { dev, dur: tn - sfp.drop_since, min: sfp.drop_min, rx: r.rx });
+			sfp.drop_min = null;
+			sfp.ring = [];
+		}
+		if (!sfp.drop && !low) {
+			push(sfp.ring, r.rx);
+			if (length(sfp.ring) > SFP_RING) shift(sfp.ring);
+			sfp.base = sfp_median(sfp.ring);
+		}
+		if (sfp.min_rx == null || r.rx < sfp.min_rx) sfp.min_rx = r.rx;
+	}
+
+	/* other alarms of the module (temperature, laser current, voltage, TX power, RX too strong) */
+	let other = filter(r.flags, (fl) => !match(fl, /rx power low/i));
+	if (!sfp.alarm && length(other)) {
+		sfp.alarm = true;
+		sfp.alarm_since = tn;
+		emit('warn', 'wan', 'sfp', 'sfp_alarm', { dev, flags: other, temp: r.temp, rx: r.rx, tx: r.tx });
+	}
+	else if (sfp.alarm && !length(other)) {
+		sfp.alarm = false;
+		emit('info', 'wan', 'sfp', 'sfp_alarm_ok', { dev, dur: tn - sfp.alarm_since });
+	}
+}
+
+function sfp_out() {
+	if (!cfg.wan.sfp) return null;
+	/* nothing to show without a module (most routers have none), unless a device was set by hand */
+	if (!sfp.ok && !cfg.wan.sfp_device) return null;
+	let r = sfp.last ?? {};
+	return { dev: sfp.dev, ok: sfp.ok && !sfp.gone, err: sfp.err, ethtool: !!ETHTOOL, ts: sfp.ts,
+		rx: r.rx, tx: r.tx, temp: r.temp, vcc: r.vcc, bias: r.bias, flags: r.flags,
+		base: sfp.base, drop: sfp.drop, los: sfp.los, alarm: sfp.alarm, min_rx: sfp.min_rx, max_temp: sfp.max_temp,
+		drop_db: cfg.wan.sfp_drop_db };
 }
 
 /* responding / all targets of one address family */
@@ -4351,6 +4551,9 @@ function refresh_wan_device() {
 
 	wan_session(st);
 
+	/* the physical port (for ethtool -m): without the VLAN, not pppoe-* */
+	if (valid_dev(st.device)) wansess.phys = replace(st.device, /\.[0-9]+$/, '');
+
 	if (st.up === false) return;      /* keep last known device / gateway while WAN is down */
 	let dev = st.l3_device ?? st.device ?? '';
 	if (cfg.wan.auto_device && valid_dev(dev)) cfg.wan.device = dev;
@@ -4663,6 +4866,11 @@ function tick() {
 		let wd = cfg.wan.device ? res[cfg.wan.device] : null;
 		if (wd?.delta) bloat_tick(now(), wd.delta.rx_bps, wd.delta.tx_bps);
 		if (wd?.delta) hogs_tick(now(), wd.delta.rx_bps, wd.delta.tx_bps);
+		sample_sfp();
+		let sfp_res = sfp_out();
+		if (sfp_res?.los) { level = worst(level, 'warn'); push(reasons, { c: 'sfp_los', since: sfp.los_since }); }
+		else if (sfp_res?.drop) { level = worst(level, 'warn'); push(reasons, { c: 'sfp_weak', rx: sfp_res.rx, base: sfp_res.base }); }
+		if (sfp_res?.alarm) { level = worst(level, 'warn'); push(reasons, { c: 'sfp_alarm', flags: sfp_res.flags }); }
 		if (bloat.active) {
 			level = worst(level, 'warn');
 			push(reasons, { c: 'bufferbloat_now', add: bloat.max_add, load: bloat.last?.load, dir: bloat.last?.dir });
@@ -4693,6 +4901,7 @@ function tick() {
 				n: trace.n, cooldown: cfg.wan.trace_cooldown } : null,
 			bloat: bloat_out(),
 			hogs: hogs_out(),
+			sfp: sfp_res,
 			v6,
 			dns: dns_res,
 			rx_kbps: wd?.delta ? round(wd.delta.rx_bps / 1000, 0) : null,
@@ -4754,6 +4963,11 @@ function tick() {
 		if (me.cpu != null) hv['self:cpu'] = me.total;
 		if (thermal?.temp != null) hv.temp = thermal.temp;
 		if (thermal) hv.thr = thermal.throttle ? 1 : 0;
+		if (wan?.sfp?.ok) {
+			if (wan.sfp.rx != null) hv['sfp:rx'] = wan.sfp.rx;
+			if (wan.sfp.tx != null) hv['sfp:tx'] = wan.sfp.tx;
+			if (wan.sfp.temp != null) hv['sfp:temp'] = wan.sfp.temp;
+		}
 		if (wan?.rx_kbps != null) {
 			hv['wan:rx'] = wan.rx_kbps;
 			hv['wan:tx'] = wan.tx_kbps;

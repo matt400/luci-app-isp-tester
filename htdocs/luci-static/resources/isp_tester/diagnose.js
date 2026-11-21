@@ -219,7 +219,25 @@ return baseclass.extend({
 		};
 
 		/* ---- WAN */
+		/* the optical signal: hard evidence of the line, no ping can say that */
+		var sfpLos   = by(function(e) { return e.type === 'sfp_los'; });
+		var sfpDrop  = by(function(e) { return e.type === 'sfp_rx_drop'; });
+		var sfpAlarm = by(function(e) { return e.type === 'sfp_alarm'; });
+		var sfpGone  = by(function(e) { return e.type === 'sfp_gone'; });
+		var sfpPer   = periods(sorted, [ 'sfp_los', 'sfp_rx_drop' ], to);
+		var maxFall = 0, minRx = null;
+		sfpDrop.forEach(function(e) {
+			if (e.d && e.d.base != null && e.d.rx != null) maxFall = Math.max(maxFall, e.d.base - e.d.rx);
+			if (e.d && e.d.rx != null && (minRx == null || e.d.rx < minRx)) minRx = e.d.rx;
+		});
+		add('isp', 5, 'sfp_los', sfpLos);
+		add('isp', 4, 'sfp_drop', sfpDrop, { fall: Math.round(maxFall * 10) / 10, rx: minRx });
+		add('edge', 1, 'sfp_alarm', sfpAlarm, { flags: uniq(sfpAlarm.map(function(e) { return { d: { f: (e.d.flags || []).join(', ') } }; }), 'f').join('; ') });
+		add('home', 1.5, 'sfp_gone', sfpGone);
 		add('edge', 3, 'wan_link', wanLinkDown, { dev: wanDev });
+
+		var duringSfp = wanDown.concat(wanLinkDown, gwLoss, farLoss, wanSess, pppEcho).filter(function(e) { return inPeriods(sfpPer, e.ts, 30); });
+		add('isp', 3, 'sfp_with_wan', duringSfp);
 
 		add('isp', 3, 'wan_down', wanDown.filter(function(e) { return !near(wanLinkDown, e.ts); }));
 
@@ -521,6 +539,11 @@ return baseclass.extend({
 		case 'log_nic':         return _('Network driver / switch chip hung (%d×, kernel "transmit timed out") – router hardware or driver.').format(f.n);
 		case 'router_busy':     return _('%d problems happened while the router was overloaded (CPU / RAM / connection table) – the router itself may be dropping packets.').format(f.n);
 		case 'link_hogs':       return _('The link was full %d× – %s was the heaviest user in %d of them (up to %d%% of the traffic then). That traffic is your own, not an ISP fault.').format(f.n, a.host, a.n, a.share);
+		case 'sfp_los':         return _('No light came from the line (SFP RX at the noise floor, %d×) – the fibre is broken or unplugged, a connector is dirty or loose, or the ISP\'s equipment is down. Hard evidence of a fault in the line, not in the router: clean and re-seat the connector first, then show this to the ISP.').format(f.n);
+		case 'sfp_drop':        return _('The received optical power fell %d× (by up to %s dB, down to %s dBm) – a fault in the line: fibre bent or damaged, a dirty or loose connector, a splitter or the ISP\'s side. Hard evidence, no ping can show it.').format(f.n, a.fall, a.rx != null ? a.rx : '?');
+		case 'sfp_with_wan':    return _('%d Internet problems happened while the optical signal was weak or gone – they have the same cause, in the line.').format(f.n);
+		case 'sfp_alarm':       return _('The SFP module raised an alarm (%d×: %s) – overheating, laser current or voltage; the module may be failing.').format(f.n, a.flags);
+		case 'sfp_gone':        return _('The SFP module stopped answering %d× – taken out, or it hung (power, a faulty module).').format(f.n);
 		case 'router_hot':      return (a.throttled
 			? _('%d problems happened while the router was overheated and its CPU slowed down (up to %s °C) – the router itself loses packets; check ventilation, the heatsink, the case.')
 			: _('%d problems happened while the router was overheated (up to %s °C) – the router itself may lose packets; check ventilation, the heatsink, the case.')).format(f.n, a.temp);

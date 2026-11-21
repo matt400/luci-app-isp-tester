@@ -244,6 +244,9 @@ function reasonText(r) {
 	case 'v6_no_route':     return _('No IPv6 default route for %s – the ISP stopped sending router advertisements').format(fmtDur(Date.now() / 1000 - r.since));
 	case 'dns_fail_now':    return _('DNS: %d%% of the queries get no answer from the upstream server (for %s)').format(r.pct, fmtDur(Date.now() / 1000 - r.since));
 	case 'dns_server_bad':  return _('DNS server %s retries or fails many queries').format(r.server);
+	case 'sfp_los':         return _('No light from the line (SFP RX) for %s – the fibre, the connector or the ISP\'s side').format(fmtDur(Date.now() / 1000 - r.since));
+	case 'sfp_weak':        return _('Optical signal weaker: RX %s dBm, usually %s dBm').format(r.rx, r.base != null ? r.base : '?');
+	case 'sfp_alarm':       return _('SFP module alarm: %s').format((r.flags || []).join(', '));
 	default:                return r.c;
 	}
 }
@@ -302,6 +305,15 @@ function eventText(e) {
 	case 'log':             return logText(d.kind) + ' – ' + d.prog + ': „' + d.msg + '”' + (d.n > 1 ? ' (%d×)'.format(d.n) : '');
 	case 'trace':           return traceText(e);
 	case 'link_hogs':       return hogsText(d);
+	case 'sfp_rx_drop':     return _('OPTICAL SIGNAL WEAKER: RX %s dBm, usually %s dBm (%s dB less) on %s').format(d.rx, d.base != null ? d.base : '?',
+		d.base != null ? (d.base - d.rx).toFixed(1) : '?', d.dev) + (d.why === 'module' ? ' · ' + _('the module itself warns') : d.why === 'min' ? ' · ' + _('below the set limit') : '');
+	case 'sfp_rx_drop_ok':  return _('Optical signal back to %s dBm after %s (weakest %s dBm)').format(d.rx, fmtDur(d.dur), d.min);
+	case 'sfp_los':         return _('NO LIGHT from the line on %s (SFP RX) – the fibre, the connector or the ISP\'s side').format(d.dev);
+	case 'sfp_los_ok':      return _('Light is back after %s (RX %s dBm)').format(fmtDur(d.dur), d.rx != null ? d.rx : '?');
+	case 'sfp_alarm':       return _('SFP module alarm: %s').format((d.flags || []).join(', ')) + (d.temp != null ? ' · %s °C'.format(d.temp) : '');
+	case 'sfp_alarm_ok':    return _('SFP module alarm over after %s').format(fmtDur(d.dur));
+	case 'sfp_gone':        return _('SFP module on %s does not answer any more (taken out, or it hung)').format(d.dev);
+	case 'sfp_gone_ok':     return _('SFP module on %s answers again after %s').format(d.dev, fmtDur(d.dur));
 	case 'decoder_restart': return _('Decoder %s RESTARTED – away for %s on %s (%s)').format(e.src, fmtDur(d.dur), d.port,
 		{ link: _('port link went down'), fdb: _('vanished from the MAC table'), quiet: _('silent while the stream stopped') }[d.via] || d.via) +
 		(d.stream ? ' – ' + _('the stream stopped because of it, not at the ISP') : '');
@@ -1331,6 +1343,20 @@ return view.extend({
 				E('span', { 'class': b.active ? 'ispt-warn-text' : '' }, bloatText(b)));
 		}
 
+		if (w.sfp) {
+			var sp = w.sfp, sv = [];
+			if (!sp.ok)
+				sv.push(E('span', { 'class': 'ispt-warn-text' }, sp.ethtool ? (sp.err ? _('no answer from the module on %s (%s)').format(sp.dev || '?', sp.err) : _('no module on %s').format(sp.dev || '?')) : _('install ethtool')));
+			else {
+				var bad = sp.los || sp.drop;
+				sv.push(E('span', { 'class': bad ? 'ispt-warn-text' : '', 'title': _('Received power; usually %s dBm, a fall of %s dB counts as a fault').format(sp.base != null ? sp.base : '?', sp.drop_db) },
+					sp.rx != null ? 'RX %s dBm'.format(sp.rx) : _('RX no light')));
+				if (sp.tx != null) sv.push(' · TX %s dBm'.format(sp.tx));
+				if (sp.temp != null) sv.push(' · %s °C'.format(sp.temp));
+				if (sp.alarm) sv.push(E('span', { 'class': 'ispt-warn-text' }, ' · ' + (sp.flags || []).join(', ')));
+			}
+			kv.push(E('span', { 'class': 'k', 'title': _('From the SFP module itself (ethtool -m %s)').format(sp.dev || '') }, _('Optical signal')), E('span', {}, sv));
+		}
 		if (w.hogs) {
 			var hg = w.hogs, hv;
 			if (hg.last)
@@ -1680,6 +1706,28 @@ return view.extend({
 				bands: bloatBands, fmt: function(v) { return v.toFixed(v < 10 ? 1 : 0); }, min_max: 1, legend: true }));
 		}
 
+		if (s['sfp:rx'] && s['sfp:rx'].some(function(v) { return v != null; })) {
+			/* dBm are negative and the chart starts at 0: shifted by 40, the axis labels shift back */
+			var evs3 = this.events().filter(function(e) { return !e.host; }).sort(function(a, b) { return a.ts - b.ts; });
+			var sfpBands = [];
+			evs3.forEach(function(e, i) {
+				if (e.type !== 'sfp_rx_drop' && e.type !== 'sfp_los') return;
+				var okt = e.type + '_ok', end = null;
+				for (var j = i + 1; j < evs3.length; j++)
+					if (evs3[j].type === okt || evs3[j].type === 'monitor_start' || evs3[j].type === 'data_gap') { end = evs3[j].ts; break; }
+				if (end == null) end = st.ts;
+				if (end >= w.from && e.ts <= w.to)
+					sfpBands.push({ from: e.ts, to: end, color: '#d64541', title: e.type === 'sfp_los' ? _('No light') : _('Weaker signal') });
+			});
+			var dbm = function(v) { return v == null ? null : v + 40; };
+			var sser = [ { name: _('RX power'), color: '#2a9d5b', data: s['sfp:rx'].map(dbm), fmt: function(v) { return (v - 40).toFixed(1) + ' dBm'; } } ];
+			if (s['sfp:tx'] && s['sfp:tx'].some(function(v) { return v != null; }))
+				sser.push({ name: _('TX power'), color: '#7a59c0', data: s['sfp:tx'].map(dbm), fmt: function(v) { return (v - 40).toFixed(1) + ' dBm'; } });
+			out.push(lineChart(t, sser, { from: w.from, to: w.to, bands: sfpBands, legend: true, min_max: 40,
+				title: _('Optical power of the SFP module (dBm) – red background = signal weaker / no light'),
+				fmt: function(v) { return Math.round(v - 40); } }));
+		}
+
 		if (s.temp && s.temp.some(function(v) { return v != null; })) {
 			var thr = s.thr || [], tw = st.thermal && st.thermal.warn;
 			out.push(lineChart(t, [
@@ -1962,6 +2010,8 @@ return view.extend({
 			row(_('Router overloaded'), _('%d×').format(count(function(e) { return e.type === 'cpu_high' || e.type === 'mem_low' || e.type === 'conntrack_full'; }))) +
 			(st.thermal ? row(_('Router overheated / CPU throttled'), _('%d× / %d×').format(count(function(e) { return e.type === 'temp_high'; }), count(function(e) { return e.type === 'throttle'; })) +
 				(st.thermal.max_temp != null ? ' · ' + _('highest %s °C since %s').format(st.thermal.max_temp, fmtTime(st.started)) : '')) : '') +
+			(st.wan && st.wan.sfp && st.wan.sfp.ok ? row(_('Optical signal (SFP)'), _('weaker %d×, no light %d×').format(count(function(e) { return e.type === 'sfp_rx_drop'; }), count(function(e) { return e.type === 'sfp_los'; })) +
+				(st.wan.sfp.rx != null ? ' · ' + _('now RX %s dBm, usually %s dBm, weakest %s dBm since start').format(st.wan.sfp.rx, st.wan.sfp.base != null ? st.wan.sfp.base : '?', st.wan.sfp.min_rx != null ? st.wan.sfp.min_rx : '?') : '')) : '') +
 			row(_('Problems reported by the user'), _('%d×').format(count(function(e) { return e.type === 'user_mark'; }))) +
 			'</table><h2>' + x(_('Assessment')) + '</h2><p><b>' + x(diagnose.verdictText(r.verdict)) + '</b> (' + x(diagnose.confidenceText(r.confidence)) + ')</p><ul>' +
 			r.findings.map(function(f) { return '<li>[' + x(diagnose.sideText(f.side)) + '] ' + x(diagnose.findingText(f)) + '</li>'; }).join('') +

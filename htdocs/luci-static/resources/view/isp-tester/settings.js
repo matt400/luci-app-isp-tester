@@ -471,6 +471,30 @@ return view.extend({
 		o.placeholder = '600';
 		o.depends('hogs', '1');
 
+		o = s.option(form.Flag, 'sfp', _('Optical signal (SFP / ONT)'),
+			_('When the WAN goes through an SFP module or an ONT in an SFP cage, read its RX / TX power and temperature (ethtool -m). A fall of the received power is a hard proof of a fault in the line. Shown only when the module answers; needs the ethtool package.'));
+		o.default = '1';
+		o.rmempty = false;
+
+		o = s.option(widgets.DeviceSelect, 'sfp_device', _('SFP port (override)'),
+			_('Empty = the physical port of the WAN interface.'));
+		o.noaliases = true;
+		o.optional = true;
+		o.depends('sfp', '1');
+
+		o = s.option(form.Value, 'sfp_drop_db', _('Weaker signal from (dB)'),
+			_('A fall of the received power below its usual level by this much, two readings in a row.'));
+		o.datatype = 'ufloat';
+		o.placeholder = '3';
+		o.depends('sfp', '1');
+
+		o = s.option(form.Value, 'sfp_rx_min', _('Received power below (dBm)'),
+			_('Also a fault below this level. Empty = the module\'s own low-power warning only.'));
+		o.datatype = 'range(-50,-1)';
+		o.optional = true;
+		o.placeholder = '-27';
+		o.depends('sfp', '1');
+
 		o = s.option(form.Value, 'down_mbit', _('Download speed (Mbit/s)'), _('Of your plan. Empty = the highest rate seen.'));
 		o.datatype = 'ufloat';
 		o.optional = true;

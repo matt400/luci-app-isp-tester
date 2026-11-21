@@ -60,6 +60,16 @@ config wan 'wan'
 	# is on); at most one list per hogs_cooldown seconds. Needs bloat '1'
 	option hogs '1'
 	option hogs_cooldown '600'
+	# optical signal of the SFP module / ONT stick the WAN goes through
+	# (ethtool -m, needs the ethtool package): RX/TX power, temperature and the
+	# module's alarms; a fall of the received power by sfp_drop_db below its
+	# usual level (or below sfp_rx_min dBm) is logged. Shown only when the
+	# module answers. sfp_device empty = the physical port of the WAN interface
+	option sfp '1'
+	#option sfp_device 'eth1'
+	option sfp_interval '30'
+	option sfp_drop_db '3'
+	#option sfp_rx_min '-27'
 	# speed of the plan in Mbit/s; unset = the highest rate seen
 	#option down_mbit '300'
 	#option up_mbit '50'
