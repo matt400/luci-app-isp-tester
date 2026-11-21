@@ -31,21 +31,24 @@ Target: **OpenWrt 24.10 and 25.12** (ucode + rpcd + LuCI JS). No compiled code, 
 | Area | How | Logged events |
 |------|-----|---------------|
 | **Internet** | Ping results of **collectd** (luci-app-statistics, Ping plugin): loss, latency and jitter per host. The host netifd reports as gateway is marked as the ISP gateway | packet loss, high latency, high jitter (optional), host not responding, *Internet down* (no host responds), recovery with duration |
+| **Optical signal** (SFP / ONT) | `ethtool -m <port>`: RX / TX power (dBm), module temperature, voltage, laser current and the module's alarm flags; only when the WAN goes through an SFP module and `ethtool` is installed | **no light** (RX at the noise floor), *optical signal weaker* (RX 3 dB below its usual level, or the module's own low-power warning), *SFP alarm*, *module does not answer*; RX / TX chart |
 | **WAN session** | netifd status of the WAN interface | interface down/up (PPPoE/DHCP session lost), session restarted between two checks, WAN address changed |
 | **IPv6** | netifd status of the DHCPv6 interface (`wan6`, what odhcp6c got) + the IPv6 hosts of the collectd Ping plugin | *IPv6 down* (no IPv6 host answers while IPv4 does), DHCPv6 session down/up, delegated **prefix lost / changed**, **no router advertisement** (default route gone) |
 | **DNS** | dnsmasq's own statistics: `ubus call dnsmasq metrics` every interval, per upstream server from its SIGUSR1 dump in the system log (every 5 min) | **DNS failing** (≥ 10 % of the queries sent upstream unanswered within a minute) / *OK again*; *DNS server X: N of M queries retried or failed* |
 | **System log** | `logread`: pppd, udhcpc, igmpproxy/mcproxy, kernel, dnsmasq | LCP echo timeouts, PPPoE discovery/authentication failures, DHCP lease lost, proxy errors, network driver hang, connection table full, out of memory, DNS query limit |
 | **IPTV** | Bitrate of the IPTV VLAN (bridge per-VLAN counters), or of a device that carries only IPTV traffic (e.g. `eth1.387`, or the decoder's port measured outgoing) | stream started, **stream stopped**, stream resumed after *N s* (with what IGMP did meanwhile), **decoder switched off** (stream gone and no channel subscribed any more: logged as info, not a fault), stream lost (still subscribed: long outage), bitrate dip |
-| **IGMP** | Joined groups on the proxy's upstream (`/proc/net/igmp`), multicast proxy process (igmpproxy, mcproxy, omcproxy), bridge MDB and IGMP timers | proxy stopped / restarted; every freeze is tagged as *channel change*, *membership dropped* or *still subscribed* |
+| **IGMP** | Joined groups on the proxy's upstream (`/proc/net/igmp`), multicast proxy process (igmpproxy, mcproxy, omcproxy), bridge MDB and IGMP timers | proxy stopped / restarted; every freeze is tagged as *channel change*, *membership dropped* or *still subscribed*; the operator's IGMP general queries (isp-tester-tsmon) | …, no query from the operator for 2 intervals |
 | **IPTV picture quality** (optional) | The helper `isp-tester-tsmon` counts every packet of the incoming stream, continuously: MPEG-TS continuity errors (lost packets) of the channel being watched | **picture errors** (*N* lost-packet gaps, ~*M* packets, channel, longest pause); yellow for a while after errors |
 | **Channel names** | Read from the stream itself (DVB SDT/PAT tables) by the same helper, or names set by hand | the channel being watched is named on the status page, in timeline events, the measurements CSV and notifications |
 | **Ports** | `/sys/class/net/<dev>` counters and link state | link down/up, link flapping between samples, speed change (e.g. 1 Gbit → 100 Mbit), RX/TX/CRC errors, drops |
 | **Router** | `/proc`: CPU per core (incl. softirq), RAM, connection tracking table. Only read to explain problems; for graphs use *Status → Realtime Graphs* or luci-app-statistics | router overloaded, low RAM, connection table full |
+| **SoC temperature** | `/sys/class/thermal` zones (+ their passive trip points), cooling devices (cpufreq = throttling, a fan is only noted), the CPU's frequency limit | *router overheated* (two checks above the limit) / *normal again*, *CPU slowed down by heat* (MHz instead of MHz) / *full speed again* |
 | **You** | **⚑ Problem now** button | your report with the time of the click and an optional note |
 | **Gaps** | the collector's own sign of life (`alive.json`, once a minute) + the kernel's boot id and `/proc/uptime` | **router restarted** (up since …), **not measured from X to Y** (router restarted, monitoring off, collector stopped or blocked) – listed in the report |
 | **Decoders** (bridged IPTV VLAN) | bridge MAC table (`bridge -s fdb`: which MAC behind which port, seconds since its last frame) + link of that port | *decoder restarted* (away N s; port link down / vanished from the MAC table / silent while the stream stopped), *switched off*, *back* – freezes during a restart are not counted against the ISP |
 | **Path snapshot** | one `mtr -r` (when installed) or busybox `traceroute` when a loss starts or the WAN is down, at most every 10 min | *loss starts at hop N (IP) and carries on to the destination* – the hops fold out on the timeline and are in the report |
 | **Bufferbloat** | collectd's ping matched with the WAN traffic of the same interval (device counters); line speed = highest 30 s rate seen or set | *bufferbloat: ping +N ms with the link X % full* / *over*; WAN traffic chart with the periods marked; card: ping idle vs. full link |
+| **Who fills the link** | while the WAN is full for a while (the limit of the bufferbloat detection): the traffic per host of that stretch, from **nlbwmon** (`nlbw -c csv -g mac`) when it is installed and running, else the connection tracking table (`/proc/net/nf_conntrack`, only when its byte accounting is on) | *link full (download 95 %) for 40 s – heaviest: laptop 88 %, tv 11 %* (info); the last list on the Internet card and in the report |
 | **Wi-Fi** | hostapd over ubus (`get_clients` every interval + its disassoc/deauth/assoc notifications), signal from hostapd or iwinfo | a watched device (phone, TV) *dropped and reconnected* after N s (fault) or *left* (info), *moved to another band*, *weak signal* (two checks below the limit, default −75 dBm) |
 | **Second router** (optional) | Events of a router behind this one (access point with a decoder, phone, TV), sent over UDP | everything that router logs, on the same timeline marked with its name; *router stopped reporting* / *reports again* |
 
@@ -93,6 +96,8 @@ The panel looks at what happened **at the same time** (within 30 s) in the selec
 | Loss only to far targets (2+ targets), gateway fine | ISP backbone / peering |
 | Loss to a single far target only | that server (no weight) |
 | WAN port loses link / has errors | line / ONT (counts half for both sides) |
+| Received optical power fell or no light (SFP) | ISP line: fibre, connector, splitter (hard evidence) |
+| Internet problems while the optical signal was weak or gone | the same cause, in the line |
 | IPTV freeze together with Internet problems | ISP line |
 | IPTV freeze together with a LAN port drop, error or speed downgrade | cable / switch at home |
 | IPTV freezes at a regular interval (e.g. every ~125 s or ~260 s) | IGMP timeout, i.e. router configuration (querier / snooping / proxy) |
@@ -109,6 +114,8 @@ The panel looks at what happened **at the same time** (within 30 s) in the selec
 | IPv6 down while IPv4 works, IPv6 prefix lost / changed, no router advertisement | ISP IPv6 |
 | DNS failing while ping works | DNS server (ISP's, if you set it) |
 | Problems while the router CPU / RAM / connection table was overloaded | router |
+| Problems while the router was overheated or its CPU throttled | router (ventilation, heatsink) |
+| Link full while you (a host at home) download or upload | your own traffic: named in the bufferbloat finding, no weight |
 | Your "Problem now" reports with / without anything measured around them | context (no weight) |
 | LAN link drops, CRC errors, renegotiation to 100 Mbit/s | cabling / devices at home |
 | IGMP snooping on, querier off (with freezes) | router configuration |
@@ -216,6 +223,17 @@ How to read it: a loss that **starts at a hop and carries on to the destination*
 
 The report for the ISP lists every snapshot with its hop table. At most one per *At most every* (default 10 min), one at a time, stopped after 60 s.
 
+## SoC temperature and throttling
+
+A router that overheats slows its CPU down and starts to lose packets – a fault that looks like the ISP's. Nothing is measured here, only read: the temperature of every zone in `/sys/class/thermal/thermal_zone*/temp`, the cooling devices (`cooling_device*`: a *cpufreq* one above state 0 means the kernel is throttling; a fan is only shown) and the CPU's frequency limit (`scaling_max_freq` against `cpuinfo_max_freq`).
+
+- **Overheated**: a zone is at or above its limit for two checks in a row (ends 5 °C below it). The limit is 5 °C under the zone's *passive* trip point – where the kernel itself starts to throttle – or 85 °C when the zone has none; set your own in *Settings → Router load → Overheated from*, `-1` switches it off.
+- **Throttled**: a cpufreq cooling device above state 0, or the CPU's frequency limit lowered while a zone is within 10 °C of its limit (a limit you set by hand is not heat). Logged with the frequency it fell to.
+- The banner shows *Router: 62 °C · 1200 MHz* (yellow when overheated or throttled; hover for every zone, the fan, the highest value since start and how long it was hot). The *Router temperature* chart marks throttling in red.
+- The analysis counts problems that happened while the router was overheated or throttled for the home side, with the highest temperature; if nothing broke at those times it stays a note.
+
+Routers without a thermal sensor (some MIPS SoCs) show nothing.
+
 ## Bufferbloat: lags only when the link is full?
 
 No speed test of its own: every collectd ping value (one average per collectd interval) is matched with the WAN traffic of the same interval, read from the WAN device's counters every tick. The line's speed is the highest 30-second rate ever seen (slowly forgotten, kept in `wanpeak.json`), or the speed of your plan when set (*Settings → Internet*).
@@ -226,6 +244,39 @@ No speed test of its own: every collectd ping value (one average per collectd in
 - The analysis puts it on the home side: your own traffic fills a buffer (modem or ISP). High-ping warnings during those periods are not counted against the ISP (loss still is). SQM (`luci-app-sqm`, cake, set a bit below the line speed) fixes it.
 
 The load is known only when the link was full at least once (or the speed is set); until then the card says so.
+
+## Optical signal of the SFP / ONT
+
+If the WAN goes through an SFP module (or an ONT stick in an SFP cage) the router can read the module's own measurements, and the received power is the one number that says whether the light from the line got weaker – a ping cannot. It is read with `ethtool -m <port>` (package `ethtool`) every 30 s – the EEPROM is slow – and shown as *Optical signal: RX -9.1 dBm · TX 2.4 dBm · 45 °C* on the Internet card, with a chart of both powers.
+
+- **No light** (RX at −40 dBm or the module reports −inf, two readings in a row): the fibre is broken or unplugged, a connector is loose, or the ISP's side is down. A fault, with the time it started.
+- **Optical signal weaker**: RX is *Weaker signal from* (3 dB) below its usual level (the median of the last 20 readings, frozen during the drop), or below *Received power below* when set, or the module raises its own low-power warning. Two readings in a row. Ends when the level is back, with the weakest value.
+- **SFP module alarm**: the module's other alarm / warning flags (temperature, laser current, voltage, TX power, RX too strong).
+- **Module does not answer** after it did (taken out, or hung).
+
+The analysis counts a fall of the light, and Internet problems that happen during it, for the ISP's side – clean and re-seat the connector first, then show the log. Without a module `ethtool -m` fails and nothing is shown (it is tried again every 10 minutes); set *SFP port* when the module sits on a port other than the WAN's. The port is the physical device of the WAN interface without the VLAN (`eth1.835` → `eth1`).
+
+> Written from the `ethtool -m` output format (`Laser output power`, `Receiver signal average optical power`, `Module temperature`, the `… alarm` / `… warning` flags); not tried on a real module yet. Check on the router: `ethtool -m <port>`.
+
+### Who filled the link
+
+When the link stays full for a while (the same limit and line speed as the bufferbloat detection, so it needs *Detect bufferbloat* on), the hosts that used it are listed – the answer to *who clogged the link*. It only reads what the router already counts and starts, switches on and writes nothing:
+
+- **nlbwmon** (`nlbw -c csv -g mac`) when it is installed and running (package `nlbwmon`, or `luci-app-nlbwmon`). Its counters refresh every 30 s by default, so the link must stay full for 40 s.
+- else the **connection tracking table** (`/proc/net/nf_conntrack`) – only when `net.netfilter.nf_conntrack_acct` is already 1 (the tester does not change it). The link must stay full for 15 s. Flows between two LAN hosts are left out.
+- Without either the Internet card says what is missing.
+
+Two reads per episode (when the link gets full, and when it has been for long enough); the difference is the traffic of that stretch. The result is an info event on the timeline (*link full (download 95 %) for 40 s – heaviest: laptop 88 %, …*), the *Who fills the link* row of the Internet card, a table in the report, and the heaviest host is named in the bufferbloat finding. Names: your own labels (Wi-Fi devices, decoders), then the host name of the DHCP lease (`/tmp/dhcp.leases`), else the address. At most one list per *At most every* (10 min). With nlbwmon the window can start up to 30 s before the link got full, so the shares are approximate.
+
+> The `nlbw -c csv` output was written from its documentation; the columns are found from the header (`mac`, `rx_bytes`, `tx_bytes`) when there is one. Check once on the router: `nlbw -c csv -g mac`.
+
+### IGMP queries from the ISP
+
+The operator's router keeps the IPTV memberships alive with an IGMP *general query* (about every 125 s) that the decoders answer. When the queries stop, the memberships expire after about two intervals (≈ 260 s) and the stream freezes – repeatedly, so it looks random. The *IGMP timers* row only shows this router's **bridge settings**; it says nothing about what the operator sends. This is measured separately.
+
+`isp-tester-tsmon -Q` notes the general queries (IGMPv1/v2/v3) on the port facing the ISP (needs *Measure incoming traffic*; on a decoder's port nothing is seen). The *ISP IGMP queries* row of the IPTV card shows *last query 41 s ago · every ~125 s · 10.1.0.1 (IGMPv2)*. When more than two intervals (plus the response time) pass without one, a warning event *No IGMP query from the operator for 4 min* is logged (dated from when the memberships began to expire), and *queries from the operator again after …* when they return. The interval is the median of the gaps seen (else the query's own interval, else 125 s). Freezes inside such a silence are named in the analysis as an ISP-side fault; if no query is seen at all for more than 5 min while freezes happen, the analysis says so (check that the capture port faces the ISP). It warns about a *stop* only after queries were seen before. Without *Identify channel names* / *Picture quality* the helper runs queries-only (`-I`) and does not look at the streams.
+
+*Settings → IPTV → Watch the operator's IGMP queries* (`iptv.igmp_query`). Needs the `isp-tester-tsmon` package; rebuild it for `-Q`/`-I`.
 
 ## Wi-Fi
 
