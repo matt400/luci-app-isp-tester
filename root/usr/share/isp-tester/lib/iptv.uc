@@ -326,7 +326,9 @@ function vlan_sample() {
 		if (!br)
 			for (let p in ports) {
 				let m = base(fs.readlink(`${SYSNET}/${p}/master`));
-				if (m) { br = m; break; }
+				/* the name goes into bridge commands run by a shell: kernel
+				 * names may hold characters the shell would act on */
+				if (valid_dev(m)) { br = m; break; }
 			}
 		vl.bridge = br;
 		vl.ports = filter(ports, (p) => p != br);
@@ -660,12 +662,17 @@ function igmpq_ingest(m, t, pid) {
 		igq.pid = pid;
 		igq.gen = 0;
 		igq.since = t;
-		igq.silent = false;
+		/* the queries the old one saw may have been missed in between:
+		 * the gap to its last one is no interval */
+		igq.fresh = true;
+		/* a silence in progress stays open (and ends with igmp_noquery_ok at
+		 * the next query): reset quietly, it never ended on the timeline and
+		 * the analysis counted every later freeze as "no queries" */
 	}
 	let gen = m.gen ?? 0;
 	if (gen > igq.gen) {
 		let ts = t - ((m.gen_age ?? -1) >= 0 ? m.gen_age : 0);
-		if (gen - igq.gen == 1 && igq.last_ts != null && ts > igq.last_ts) {
+		if (gen - igq.gen == 1 && !igq.fresh && igq.last_ts != null && ts > igq.last_ts) {
 			push(igq.ivals, round(ts - igq.last_ts, 0));
 			if (length(igq.ivals) > IGQ_RING) shift(igq.ivals);
 		}
@@ -676,6 +683,7 @@ function igmpq_ingest(m, t, pid) {
 		igq.total += gen - igq.gen;
 		igq.gen = gen;
 		igq.last_ts = ts;
+		igq.fresh = false;
 		igq.ever = true;
 	}
 	if (m.src) igq.src = m.src;
@@ -1273,12 +1281,21 @@ function tsm_poll() {
 /* the clock was stepped while not trusted (see clock.uc clk_fix): the wall
  * times noted since the start move with it, so durations stay right */
 function iptv_shift(by) {
-	let mv = (o, ks) => { for (let k in ks) if (type(o[k]) == 'int') o[k] += by; };
+	let mv = (o, ks) => { for (let k in ks) if (type(o[k]) == 'int' || type(o[k]) == 'double') o[k] += by; };
 	mv(iptv, [ 'since', 'stall_since', 'low_w', 'prev_w' ]);
 	mv(igmp, [ 'proxy_since', 'last_change' ]);
 	mv(tsq, [ 'started', 'drop_ts' ]);
 	for (let g, t in igmp.joined) if (t > 0) igmp.joined[g] = t + by;
+	for (let h in igmp.hist) h.ts += by;
 	for (let mac, d in dec.list) mv(d, [ 'since', 'gone_at', 'seen', 'last_active', 'quiet_from' ]);
+	/* the operator's queries: a step forward would look like a long silence
+	 * (a false igmp_noquery), the decoders' leases like expired ones */
+	mv(igq, [ 'last_ts', 'since', 'silent_ref' ]);
+	for (let mac, s in dhl.mac) mv(s, [ 'offer_t', 'last_ack' ]);
+	for (let e in tsq.win) e.ts += by;
+	for (let g, t in tsq.last_ev) tsq.last_ev[g] = t + by;
+	for (let g, p in tsq.pend) mv(p, [ 'since' ]);
+	if (tsq.flow) mv(tsq.flow, [ 'ts' ]);
 }
 
 export { iptv_init, iptv_shift, iptv, vl, igmp, igq, tsq, chn, dhl, dec, IGQ_RING, TSQ_STATE, TSQ_WIN, TSQ_DROP_SHOW, CHN_MAX, igmp_groups, igmp_poll, igmp_classify, proxy_process, sample_proxy, dhcp_src, dhcp_seen, dhcp_ingest, dhcp_log_line, dhcp_tick, vlan_sample, dec_fdb, dec_stream_hit, dec_poll, tsq_out, iptv_on, iptv_fast, tsq_target, chn_load, chn_save, chn_name, chn_now, chn_current, chn_learn, chn_missing, chn_out, handle_chn_forget, igmpq_ingest, igmpq_expected, igmpq_limit, igmpq_check, igmpq_out, iptv_out, nobody_subscribed, iptv_flag_stall, iptv_update, iptv_counters, iptv_fast_sample, sample_iptv, tsm_stream, igq_want, tsm_want, tsm_args, tsm_stop, tsm_start, tsq_level, tsm_read, tsm_poll };

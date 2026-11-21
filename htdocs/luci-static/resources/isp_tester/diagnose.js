@@ -124,14 +124,13 @@ return baseclass.extend({
 		var isJitter = function(e) { return e.type === 'target_degraded' && e.d && e.d.why === 'jitter'; };
 		/* bufferbloat periods: high ping there is the own traffic, not the ISP */
 		var bloats      = by(function(e) { return e.type === 'bufferbloat'; });
-		var inBloat = function(ts) {
-			return bloats.some(function(b) {
-				var end = b.ts + 3600;
-				for (var i = 0; i < sorted.length; i++)
-					if (sorted[i].ts > b.ts && (sorted[i].type === 'bufferbloat_ok' || sorted[i].type === 'monitor_start' || sorted[i].type === 'data_gap')) { end = sorted[i].ts; break; }
-				return ts >= b.ts - 60 && ts <= end + 60;
-			});
-		};
+		/* the periods are worked out once: inBloat() is asked for every ping
+		 * warning (several times each), and scanned the whole list per call */
+		var bloatPer = bloats.map(function(b) {
+			var r = nextOf(sorted, b.ts + 1, function(x) { return x.type === 'bufferbloat_ok' || x.type === 'monitor_start' || x.type === 'data_gap'; });
+			return { from: b.ts, to: r ? r.ts : b.ts + 3600 };
+		});
+		var inBloat = function(ts) { return inPeriods(bloatPer, ts, 60); };
 		/* a high ping / jitter (no loss) while the link was full belongs to the bufferbloat finding */
 		var bloatLag = function(e) { return e.type === 'target_degraded' && e.d && !(e.d.loss > 0) && inBloat(e.ts); };
 		/* IPv6 targets are judged on their own (IPv6 can break while IPv4 works) */

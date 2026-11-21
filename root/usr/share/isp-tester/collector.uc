@@ -241,6 +241,10 @@ function watchdog_ping() {
 		wd.mode = r?.mode;
 		wd.last = now();
 		wd.err = (r == null) ? 'no_answer' : null;
+		/* no answer: the connection may be dead (ubusd restarted) - it does
+		 * not throw then, so without this every later ubus call (WAN status,
+		 * dnsmasq) failed too until procd's watchdog killed the collector */
+		if (r == null) ubus_conn = null;
 	}
 	catch (e) {
 		ubus_conn = null;
@@ -297,14 +301,17 @@ function hist_add(h, t, vals, max) {
 	if (n > max) {
 		let cut = n - max;
 		h.t = slice(h.t, cut);
-		for (let k, arr in h.s) {
-			arr = h.s[k] = slice(arr, cut);
+		let empty = [];
+		for (let k in keys(h.s)) {
+			let arr = h.s[k] = slice(h.s[k], cut);
 			/* a series with no value left is dropped; searched from the end,
 			 * where a live series has its values, so it stops at once */
 			let i = length(arr) - 1;
 			while (i >= 0 && arr[i] == null) i--;
-			if (i < 0) delete h.s[k];
+			if (i < 0) push(empty, k);
 		}
+		/* deleted after the loop, not from the object being iterated */
+		for (let k in empty) delete h.s[k];
 	}
 }
 
@@ -841,9 +848,14 @@ function csv_append(row) {
  * try is repeated after 30 minutes at the earliest.
  */
 const PUSH_SH = '/usr/share/isp-tester/push.sh';
+/* monotonic time of the last start: a send that cannot write push.json
+ * (busy with an older one, VARDIR full) would otherwise be started again on
+ * every tick */
+let push_m = null;
 
 function push_tick() {
 	if (!cfg.push.enabled || now() - started < 120) return;
+	if (push_m != null && mono() - push_m < 300) return;
 	let st;
 	try { st = json(fs.readfile(`${VARDIR}/push.json`) || 'null'); } catch (e) { st = null; }
 	let wait = cfg.push.interval_h * 3600;
@@ -852,6 +864,7 @@ function push_tick() {
 	if (st && !st.ok && (st.state != 'running' || now() - (st.ts ?? 0) > 900)) wait = min(wait, 1800);
 	/* (a try "in the future" after the clock was set back counts as over) */
 	if (st?.ts && now() - st.ts < wait && now() >= st.ts) return;
+	push_m = mono();
 	system(`/bin/sh ${PUSH_SH} send >/dev/null 2>&1 &`);
 }
 
@@ -941,7 +954,8 @@ function tick() {
 			push(reasons, { c: 'no_ping_source', error: source.error, plugin: source.ping_plugin });
 
 		let wdev = cfg.wan.device ? res[cfg.wan.device] : null;
-		if (wdev?.delta) bloat_tick(now(), wdev.delta.rx_bps, wdev.delta.tx_bps);
+		/* also without counters (WAN device gone): a bufferbloat in progress must be able to end */
+		bloat_tick(now(), wdev?.delta?.rx_bps, wdev?.delta?.tx_bps);
 		sample_sfp();
 		let sfp_res = sfp_out();
 		if (sfp_res?.los) { level = worst(level, 'warn'); push(reasons, { c: 'sfp_los', since: sfp.los_since }); }
@@ -1074,7 +1088,9 @@ function tick() {
 		for (let k, x in targets)
 			if (x.active) push(tlist, { label: x.label, t: x });
 		let cols = csv_columns(devs, tlist);
-		if (join(',', cols) != csv_header) csv_open(cols);
+		/* also when the file is gone (deleted, the USB stick re-mounted):
+		 * appending would make a file without the header line */
+		if (join(',', cols) != csv_header || !fs.stat(`${RUNDIR}/samples.csv`)) csv_open(cols);
 
 		let row = [ tstamp(t), overall ];
 		for (let x in tlist) push(row, x.t.res?.loss, x.t.res?.rtt, x.t.res?.jitter);

@@ -172,9 +172,17 @@ function peer_event(x, host, off) {
 	return e;
 }
 
-function peer_save() {
+/* written on a change of what a restart needs (epoch, last stored event,
+ * online), else at most every 20 s for "seen" - not on every datagram, of
+ * which there are several per tick */
+let peer_saved = { key: null, ts: 0 };
+
+function peer_save(force) {
 	let o = {};
 	for (let n, p in peer.peers) o[n] = { ep: p.ep, last: p.last, seen: p.seen, lost_at: p.lost_at, online: p.online };
+	let key = join(',', map(sort(keys(o)), (n) => `${n}:${o[n].ep}:${o[n].last}:${o[n].online}`)), t = now();
+	if (!force && key == peer_saved.key && t - peer_saved.ts < 20 && t >= peer_saved.ts) return;
+	peer_saved = { key, ts: t };
 	write_atomic(`${VARDIR}/peers.json`, sprintf('%J', o));
 }
 
@@ -314,7 +322,7 @@ function peer_tick(hb) {
 		if (LEVEL[pl] != null) level = worst(level, pl == 'fail' ? 'fail' : pl);
 		push(list, { name: n, addr: p.addr, online: p.online, seen: p.seen, off: p.off, iv: p.iv, level: pl, hb: p.online ? p.hb : null });
 	}
-	if (changed) peer_save();
+	if (changed) peer_save(true);
 	return { level, reasons, list };
 }
 

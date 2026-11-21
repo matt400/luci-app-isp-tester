@@ -88,6 +88,7 @@ struct group {
 	unsigned gap_last_ms, gap_max_ms;
 	int rtp;
 	int rtp_seq;
+	int rtp_back;            /* "older" packets in a row: the sender started a new sequence */
 	uint64_t rtp_lost;
 	/* bitrate since the last report */
 	uint64_t rep_bytes, rep_pkts;
@@ -436,6 +437,7 @@ static void cc_reset(struct group *g)
 	memset(g->last_cc, CC_NONE, sizeof(g->last_cc));
 	memset(g->dup, 0, sizeof(g->dup));
 	g->rtp_seq = -1;
+	g->rtp_back = 0;
 }
 
 static struct group *group_get(uint32_t addr, double t)
@@ -607,8 +609,18 @@ static void handle_frame(const uint8_t *f, int caplen, int wirelen, double t)
 		g->rtp = 1;
 		if (g->rtp_seq >= 0) {
 			unsigned d = (seq - g->rtp_seq) & 0xffff;
-			/* repeated or reordered packet: not a loss */
-			if (d == 0 || d > 0x8000) { g->t_last = t; return; }
+			/* repeated or reordered packet: not a loss - unless it goes on:
+			 * a sender that restarts its sequence (another server, a restart
+			 * without a 5 s pause) would otherwise have every packet of the
+			 * next ~32768 skipped as "old" and the stream look dead */
+			if (d == 0 || d > 0x8000) {
+				g->t_last = t;
+				if (d == 0 || ++g->rtp_back < 32) return;
+				cc_reset(g);
+				g->restarts++;
+				d = 1;
+			}
+			g->rtp_back = 0;
 			g->rtp_lost += d - 1;
 		}
 		g->rtp_seq = seq;

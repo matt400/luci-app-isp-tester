@@ -7,11 +7,44 @@
 'require dom';
 'require isp_tester.diagnose as diagnose';
 
-var callStatus = rpc.declare({
+/*
+ * Text children of E() become text nodes. LuCI's dom.append() puts a plain
+ * string child in with innerHTML; here strings carry what came from outside:
+ * channel names read from the IPTV stream (DVB SDT), lines of the system
+ * log, notes, names reported by the second router. No child in this view is
+ * meant as markup (the charts set innerHTML themselves).
+ */
+var E = (function(E0) {
+	var txt = function(c) { return (typeof c === 'string' || typeof c === 'number') ? [ '' + c ] : c; };
+	return function(type, attr, data) {
+		if (arguments.length < 3 && (attr == null || typeof attr !== 'object' || Array.isArray(attr) || attr instanceof Node))
+			return E0(type, txt(attr));
+		return E0(type, attr, txt(data));
+	};
+})(window.E);
+
+/* seconds the router's clock is ahead of this browser's: "for 5 min",
+ * "updated 10 s ago" and the stale check are measured on the router's clock
+ * (the times in the data are its own); a PC or router clock that is off by
+ * a minute showed "MONITOR IS NOT WORKING" before */
+var SKEW = 0;
+
+function rnow() {
+	return Date.now() / 1000 + SKEW;
+}
+
+var callStatusRpc = rpc.declare({
 	object: 'luci.isp_tester',
 	method: 'status',
 	expect: { '': {} }
 });
+
+function callStatus() {
+	return callStatusRpc().then(function(r) {
+		if (r && typeof r.now === 'number') SKEW = r.now - Date.now() / 1000;
+		return r;
+	});
+}
 
 var callEvents = rpc.declare({
 	object: 'luci.isp_tester',
@@ -276,7 +309,7 @@ function areaName(a) {
 function reasonText(r) {
 	switch (r.c) {
 	case 'dev_missing':     return _('Device %s does not exist').format(r.dev);
-	case 'link_down':       return _('%s: link down for %s').format(r.dev, fmtDur(Date.now() / 1000 - r.since));
+	case 'link_down':       return _('%s: link down for %s').format(r.dev, fmtDur(rnow() - r.since));
 	case 'errors_now':      return _('%s: receiving errors right now').format(r.dev);
 	case 'recent_events':   return r.dev
 		? _('%s: problems in the last minutes (see timeline)').format(r.dev)
@@ -287,15 +320,15 @@ function reasonText(r) {
 		: (r.why === 'jitter')
 		? _('%s: high jitter %s').format(targetName(r.t), fmtMs(r.jitter))
 		: _('%s: high latency %s').format(targetName(r.t), fmtMs(r.rtt));
-	case 'wan_down':        return _('Internet unreachable for %s').format(fmtDur(Date.now() / 1000 - r.since));
-	case 'wan_if_down':     return _('WAN interface %s is down (no PPPoE/DHCP session) for %s').format(r.iface, fmtDur(Date.now() / 1000 - r.since));
+	case 'wan_down':        return _('Internet unreachable for %s').format(fmtDur(rnow() - r.since));
+	case 'wan_if_down':     return _('WAN interface %s is down (no PPPoE/DHCP session) for %s').format(r.iface, fmtDur(rnow() - r.since));
 	case 'no_ping_source':  return _('No ping data: enable the Ping plugin of luci-app-statistics (collectd) and add the ISP gateway and far hosts there.');
 	case 'proxy_down':      return _('Multicast proxy %s is not running').format(r.name || '');
 	case 'igmp_noquery':    return _('The operator has stopped sending IGMP queries');
 	case 'cpu_high':        return (r.cpu == null) ? _('Router CPU busy') : _('Router CPU busy: %d%% (%s)').format(r.cpu, r.core || 'cpu');
 	case 'mem_low':         return _('Router is low on RAM: %d%% free').format(r.pct);
 	case 'conntrack_full':  return _('Connection table %d%% full').format(r.pct);
-	case 'stream_stalled':  return _('Stream stopped %s ago').format(fmtDur(Date.now() / 1000 - r.since));
+	case 'stream_stalled':  return _('Stream stopped %s ago').format(fmtDur(rnow() - r.since));
 	case 'stream_dip':      return _('Bitrate is much lower than usual');
 	case 'ts_errors':       return _('Picture errors in the incoming IPTV stream (see timeline)');
 	case 'ts_no_helper':    return _('Picture quality needs the isp-tester-tsmon package: install it (see README).');
@@ -305,19 +338,19 @@ function reasonText(r) {
 	case 'ts_drops':        return _('The router was too busy to count every IPTV packet in the last minutes, so some errors may be its own (see the IPTV card).');
 	case 'dec_fdb_failed':  return _('Decoders: cannot read the bridge MAC table (bridge fdb)');
 	case 'bufferbloat_now': return _('Ping is up by %d ms while the link is %d%% full (%s) – bufferbloat, not an outage').format(r.add, r.load, r.dir === 'up' ? _('upload') : _('download'));
-	case 'peer_offline':    return _('Router %s has not reported for %s (switched off, rebooting or the cable between the routers)').format(r.name, fmtDur(Date.now() / 1000 - r.since));
+	case 'peer_offline':    return _('Router %s has not reported for %s (switched off, rebooting or the cable between the routers)').format(r.name, fmtDur(rnow() - r.since));
 	case 'peer_level':      return _('Router %s reports: %s').format(r.name, levelText(r.lvl === 'fail' ? 'fail' : 'warn').toLowerCase());
 	case 'vlan_vlan_not_found': return _('VLAN %d is not on any bridge port – check the VLAN number in Settings.').format(r.vlan);
 	case 'vlan_no_bridge_tool': return _('The bridge command is missing: install ip-bridge.');
 	case 'vlan_bridge_failed':
 	case 'vlan_no_stats':   return _('Cannot read the counters of VLAN %d from the bridge.').format(r.vlan);
-	case 'v6_down':         return _('IPv6 does not work for %s while IPv4 does – pages load slowly (the browser tries IPv6 first)').format(fmtDur(Date.now() / 1000 - r.since));
-	case 'v6_if_down':      return _('IPv6 interface %s is down for %s').format(r.iface, fmtDur(Date.now() / 1000 - r.since));
-	case 'v6_pd_lost':      return _('No IPv6 prefix from the ISP for %s – the home network has no IPv6').format(fmtDur(Date.now() / 1000 - r.since));
-	case 'v6_no_route':     return _('No IPv6 default route for %s – the ISP stopped sending router advertisements').format(fmtDur(Date.now() / 1000 - r.since));
-	case 'dns_fail_now':    return _('DNS: %d%% of the queries get no answer from the upstream server (for %s)').format(r.pct, fmtDur(Date.now() / 1000 - r.since));
+	case 'v6_down':         return _('IPv6 does not work for %s while IPv4 does – pages load slowly (the browser tries IPv6 first)').format(fmtDur(rnow() - r.since));
+	case 'v6_if_down':      return _('IPv6 interface %s is down for %s').format(r.iface, fmtDur(rnow() - r.since));
+	case 'v6_pd_lost':      return _('No IPv6 prefix from the ISP for %s – the home network has no IPv6').format(fmtDur(rnow() - r.since));
+	case 'v6_no_route':     return _('No IPv6 default route for %s – the ISP stopped sending router advertisements').format(fmtDur(rnow() - r.since));
+	case 'dns_fail_now':    return _('DNS: %d%% of the queries get no answer from the upstream server (for %s)').format(r.pct, fmtDur(rnow() - r.since));
 	case 'dns_server_bad':  return _('DNS server %s retries or fails many queries').format(r.server);
-	case 'sfp_los':         return _('No light from the line (SFP RX) for %s – the fibre, the connector or the ISP\'s side').format(fmtDur(Date.now() / 1000 - r.since));
+	case 'sfp_los':         return _('No light from the line (SFP RX) for %s – the fibre, the connector or the ISP\'s side').format(fmtDur(rnow() - r.since));
 	case 'sfp_weak':        return _('Optical signal weaker: RX %s dBm, usually %s dBm').format(r.rx, r.base != null ? r.base : '?');
 	case 'sfp_alarm':       return _('SFP module alarm: %s').format((r.flags || []).join(', '));
 	default:                return r.c;
@@ -857,7 +890,7 @@ function download(name, text, mime) {
 }
 
 function stamp() {
-	return isoTime(Date.now() / 1000).replace(/[: ]/g, '-');
+	return isoTime(rnow()).replace(/[: ]/g, '-');
 }
 
 function csvCell(v) {
@@ -899,7 +932,7 @@ return view.extend({
 	/* ---- time window */
 	now: function() {
 		var st = this.last && this.last[0] && this.last[0].state;
-		return Math.max(Date.now() / 1000, st ? st.ts : 0);
+		return Math.max(rnow(), st ? st.ts : 0);
 	},
 
 	win: function() {
@@ -923,6 +956,16 @@ return view.extend({
 		if (c && c.recent === recent && c.base === base) return c.out;
 		var out = mergeEvents(recent, base);
 		this.evCache = { recent: recent, base: base, out: out };
+		return out;
+	},
+
+	/* this router's events, oldest first, for the chart bands (each chart
+	 * filtered and sorted the whole timeline again on every 5 s redraw) */
+	ownAsc: function() {
+		var all = this.events(), c = this.ascCache;
+		if (c && c.all === all) return c.out;
+		var out = all.filter(function(e) { return !e.host; }).reverse();
+		this.ascCache = { all: all, out: out };
 		return out;
 	},
 
@@ -1063,7 +1106,7 @@ return view.extend({
 		}
 
 		/* running, but the state is not updated: hung (procd's watchdog restarts it) */
-		var stale = Date.now() / 1000 - st.ts;
+		var stale = rnow() - st.ts;
 		var wdt = (st.watchdog && st.watchdog.timeout) || Math.max(60, st.interval * 6);
 		if (stale > Math.max(st.interval * 3, 30)) {
 			return E('div', { 'class': 'ispt-banner ispt-bg-fail' }, [
@@ -1097,7 +1140,7 @@ return view.extend({
 			: (o === 'warn') ? _('Works, but there were problems')
 			: _('Fault right now');
 
-		var age = Date.now() / 1000 - st.ts;
+		var age = rnow() - st.ts;
 		var c1 = st.counts && st.counts.h1 || { warn: 0, err: 0 };
 		var c24 = st.counts && st.counts.h24 || { warn: 0, err: 0 };
 
@@ -1151,7 +1194,7 @@ return view.extend({
 
 	/* the collector keeps restarting: say so, the measurements have holes */
 	renderRestarts: function(st) {
-		var t = Date.now() / 1000;
+		var t = rnow();
 		var n = this.events().filter(function(e) { return !e.host && e.type === 'collector_restart' && e.ts > t - 3600; }).length;
 		if (n < 2) return '';
 		return E('div', { 'class': 'ispt-banner ispt-bg-warn', 'style': 'padding:.5em 1em' }, [
@@ -1190,10 +1233,10 @@ return view.extend({
 		return E('div', { 'class': 'ispt-banner ispt-bg-maint', 'style': 'padding:.5em 1em' }, [
 			E('span', { 'style': 'font-size:1.4em' }, '🔧'),
 			E('div', {}, [ E('strong', {}, _('Maintenance until %s').format(hhmm(m.until))), ' – ',
-				_('not counted as faults, no notifications (for %s so far)').format(fmtDur(Date.now() / 1000 - m.since)) + (m.note ? ' · „' + m.note + '”' : '') ]),
+				_('not counted as faults, no notifications (for %s so far)').format(fmtDur(rnow() - m.since)) + (m.note ? ' · „' + m.note + '”' : '') ]),
 			E('div', { 'class': 'meta' }, [
 				E('button', { 'class': 'cbi-button', 'click': ui.createHandlerFn(this, function() {
-					return callMaint(Math.max(1, Math.round((m.until - Date.now() / 1000) / 60)) + 30, m.note || '').then(function() { setTimeout(function() { self.refreshNow(); }, 11000); });
+					return callMaint(Math.max(1, Math.round((m.until - rnow()) / 60)) + 30, m.note || '').then(function() { setTimeout(function() { self.refreshNow(); }, 11000); });
 				}) }, _('+30 min')), ' ',
 				E('button', { 'class': 'cbi-button cbi-button-negative', 'click': ui.createHandlerFn(this, function() {
 					return callMaint(0, '').then(function() { setTimeout(function() { self.refreshNow(); }, 11000); });
@@ -1364,7 +1407,7 @@ return view.extend({
 		var now = rateParts(t.kbps), avg = rateParts(t.avg || null);
 		var kpis = E('div', { 'class': 'ispt-kpis' }, [
 			kpi(_('Stream'), { playing: _('running'), stalled: _('STOPPED'), idle: _('none') }[t.state] || t.state || '–', '', stLvl,
-				stateText + ' · ' + _('for %s').format(fmtDur(Date.now() / 1000 - t.since))),
+				stateText + ' · ' + _('for %s').format(fmtDur(rnow() - t.since))),
 			kpi(_('Bitrate'), now[0], now[1], t.kbps && t.avg && t.kbps < t.avg / 2 ? 'warn' : 'ok'),
 			kpi(_('Usual'), avg[0], avg[1]),
 			kpi(_('Packets/s'), t.pps != null ? num(t.pps) : '–', '')
@@ -1372,7 +1415,7 @@ return view.extend({
 
 		var head = [
 			E('span', { 'class': 'k' }, _('State')), E('span', { 'class': t.state === 'stalled' ? 'ispt-warn-text' : '' },
-				stateText + ' · ' + _('for %s').format(fmtDur(Date.now() / 1000 - t.since)))
+				stateText + ' · ' + _('for %s').format(fmtDur(rnow() - t.since)))
 		];
 		var kv = [], decs = [], igmp = [];
 
@@ -1384,17 +1427,17 @@ return view.extend({
 		(t.decoders || []).forEach(function(x) {
 			decs.push(E('span', { 'class': 'k' }, _('Decoder %s').format(x.label || x.mac)), E('span', { 'class': x.present ? '' : 'ispt-warn-text' },
 				x.present
-					? [ dot(x.quiet ? 'warn' : 'ok'), _('on %s, for %s').format(x.port, fmtDur(Date.now() / 1000 - x.since)) +
-						(x.quiet ? ' · ' + _('silent for %s').format(fmtDur(Date.now() / 1000 - x.active)) : '') ]
+					? [ dot(x.quiet ? 'warn' : 'ok'), _('on %s, for %s').format(x.port, fmtDur(rnow() - x.since)) +
+						(x.quiet ? ' · ' + _('silent for %s').format(fmtDur(rnow() - x.active)) : '') ]
 					: [ dot(x.off ? 'unknown' : 'fail'), (x.off ? _('off / unplugged since %s') : _('not visible for %s')).format(
-						x.off ? hhmm(x.since) : fmtDur(Date.now() / 1000 - x.since)) + ' (' + x.port + ')' ]));
+						x.off ? hhmm(x.since) : fmtDur(rnow() - x.since)) + ' (' + x.port + ')' ]));
 		});
 
 		/* the decoders' DHCP lease from the operator */
 		(t.dhcp || []).forEach(function(x) {
 			var bits = [ x.ip || '–' ];
 			if (x.lease) bits.push(_('lease %s').format(fmtDur(x.lease)));
-			if (x.last_ack) bits.push(_('renewed %s ago').format(fmtDur(Date.now() / 1000 - x.last_ack)));
+			if (x.last_ack) bits.push(_('renewed %s ago').format(fmtDur(rnow() - x.last_ack)));
 			bits.push(_('%d renewals').format(x.renew));
 			var bad = [];
 			if (x.changes) bad.push(_('IP changed %d×').format(x.changes));
@@ -1431,10 +1474,10 @@ return view.extend({
 			head.push(E('span', { 'class': 'k' }, _('Picture quality')), E('span', {}, qv));
 			if (q.running && q.since && !qe)
 				kv.push(E('span', { 'class': 'k' }, _('Measuring')),
-					E('span', {}, _('continuously, every packet, for %s').format(fmtDur(Date.now() / 1000 - q.since))));
-			if (q.drop_ts && Date.now() / 1000 - q.drop_ts < 600)
+					E('span', {}, _('continuously, every packet, for %s').format(fmtDur(rnow() - q.since))));
+			if (q.drop_ts && rnow() - q.drop_ts < 600)
 				kv.push(E('span', { 'class': 'k' }, _('Not counted')),
-					E('span', {}, [ dot('warn'), ' ', _('%d packets the router was too busy to count (last %s ago) – errors at that time are not logged').format(q.dropped, fmtDur(Date.now() / 1000 - q.drop_ts)) ]));
+					E('span', {}, [ dot('warn'), ' ', _('%d packets the router was too busy to count (last %s ago) – errors at that time are not logged').format(q.dropped, fmtDur(rnow() - q.drop_ts)) ]));
 		}
 
 		if (t.bridge) {
@@ -1468,7 +1511,7 @@ return view.extend({
 				igmp.push(E('span', { 'class': 'k' }, _('Channels joined (%s)').format(ig.dev)), E('span', { 'class': 'ispt-groups' },
 					!ig.found ? _('device not in IGMP table') :
 					(ig.groups && ig.groups.length ? ig.groups.map(function(g) { return chLabel(t, g); }).join(', ') : _('none')) + (ig.version ? ' · IGMP' + ig.version.replace('V', 'v') : '') +
-					(ig.last_change ? ' · ' + _('changed %s ago').format(fmtDur(Date.now() / 1000 - ig.last_change)) : '')));
+					(ig.last_change ? ' · ' + _('changed %s ago').format(fmtDur(rnow() - ig.last_change)) : '')));
 		}
 
 		return E('div', { 'class': 'ispt-card l-' + lvl(t.level) }, [
@@ -1498,7 +1541,7 @@ return view.extend({
 			return E('tr', { 'title': (x.reasons || []).map(reasonText).join('\n') }, [
 				E('td', {}, [ dot(x.level), x.label ? E('span', {}, [ x.label, ' ', E('span', { 'class': 'ispt-muted' }, x.dev) ]) : x.dev ]),
 				E('td', { 'style': 'white-space:nowrap' }, link),
-				E('td', { 'class': 'n' }, x.up ? fmtDur(Date.now() / 1000 - x.since) : '–'),
+				E('td', { 'class': 'n' }, x.up ? fmtDur(rnow() - x.since) : '–'),
 				numCell(e, true),
 				numCell(d, false),
 				numCell(tot.carrier_changes, false)
@@ -1535,10 +1578,10 @@ return view.extend({
 		return pl.map(function(p) {
 			var hb = p.hb || {}, kv = [];
 			kv.push(E('span', { 'class': 'k' }, _('Reports')), E('span', { 'class': p.online ? '' : 'ispt-warn-text' },
-				p.online ? _('%s ago from %s').format(fmtDur(Date.now() / 1000 - p.seen), p.addr || '?')
-					: _('nothing for %s (last from %s)').format(fmtDur(Date.now() / 1000 - p.seen), p.addr || '?')));
+				p.online ? _('%s ago from %s').format(fmtDur(rnow() - p.seen), p.addr || '?')
+					: _('nothing for %s (last from %s)').format(fmtDur(rnow() - p.seen), p.addr || '?')));
 			if (p.online && hb.up)
-				kv.push(E('span', { 'class': 'k' }, _('Monitoring for')), E('span', {}, fmtDur(Date.now() / 1000 - hb.up)));
+				kv.push(E('span', { 'class': 'k' }, _('Monitoring for')), E('span', {}, fmtDur(rnow() - hb.up)));
 			if (p.off)
 				kv.push(E('span', { 'class': 'k' }, _('Clock')), E('span', { 'class': 'ispt-warn-text' },
 					_('off by %d s – its events are moved to this router\'s time').format(p.off)));
@@ -1638,10 +1681,9 @@ return view.extend({
 		if (s['iptv:kbps']) {
 			var kb = s['iptv:kbps'];
 			/* stall periods come from the events: an idle decoder (0 kbit/s) is not a fault */
-			var evs = this.events().slice().sort(function(a, b) { return a.ts - b.ts; });
-			var stallBands = [];
 			/* this router's stream only (the second router measures its own) */
-			evs = evs.filter(function(e) { return !e.host; });
+			var evs = this.ownAsc();
+			var stallBands = [];
 			evs.forEach(function(e, i) {
 				if (e.type !== 'stream_stall') return;
 				var end = null;
@@ -1674,7 +1716,7 @@ return view.extend({
 		}
 
 		if (s['wan:rx']) {
-			var evs2 = this.events().filter(function(e) { return !e.host; }).sort(function(a, b) { return a.ts - b.ts; });
+			var evs2 = this.ownAsc();
 			var bloatBands = [];
 			evs2.forEach(function(e, i) {
 				if (e.type !== 'bufferbloat') return;
@@ -1695,7 +1737,7 @@ return view.extend({
 
 		if (s['sfp:rx'] && s['sfp:rx'].some(function(v) { return v != null; })) {
 			/* dBm are negative and the chart starts at 0: shifted by 40, the axis labels shift back */
-			var evs3 = this.events().filter(function(e) { return !e.host; }).sort(function(a, b) { return a.ts - b.ts; });
+			var evs3 = this.ownAsc();
 			var sfpBands = [];
 			evs3.forEach(function(e, i) {
 				if (e.type !== 'sfp_rx_drop' && e.type !== 'sfp_los') return;
@@ -1923,7 +1965,7 @@ return view.extend({
 			'.muted{color:#777;font-size:.9em}@media print{button{display:none}}</style></head><body>' +
 			'<button onclick="window.print()" style="float:right">' + x(_('Print / save as PDF')) + '</button>' +
 			'<h1>' + x(_('Connection fault report')) + '</h1>' +
-			'<p class="muted">' + x(_('Period: %s – %s · generated %s by luci-app-isp-tester').format(fmtTime(w.from), fmtTime(w.to), fmtTime(Date.now() / 1000))) + '</p>' +
+			'<p class="muted">' + x(_('Period: %s – %s · generated %s by luci-app-isp-tester').format(fmtTime(w.from), fmtTime(w.to), fmtTime(rnow()))) + '</p>' +
 			(hr ? '<p><b>' + x(_('Only the hours %s are counted in this report.').format(hoursText(hr))) + '</b></p>' : '') +
 			'<h2>' + x(_('Measurement coverage')) + '</h2><table>' +
 			row(_('Measured'), _('%s%% of the period').format(num(coverage, coverage >= 99.95 ? 0 : 1)) +
@@ -1934,7 +1976,7 @@ return view.extend({
 				fmtPct((st.self.avg || 0) + (st.self.tsmon ? st.self.tsmon.cpu || 0 : 0)), fmtPct(st.self.max + (st.self.tsmon ? st.self.tsmon.max || 0 : 0)),
 				fmtKB(st.self.rss_total), fmtTime(st.started))) : '') +
 			(function() {
-				var ms = maintIn(allEv, w.from, w.to, Date.now() / 1000), len = 0;
+				var ms = maintIn(allEv, w.from, w.to, rnow()), len = 0;
 				ms.forEach(function(m) { len += clipLen(Math.max(m.from, w.from), Math.min(m.to, w.to), hr); });
 				if (!ms.length) return '';
 				return row(_('Maintenance (excluded)'), _('%d×, %s – the user worked on the network: %s').format(ms.length, fmtDur(len),
@@ -2113,19 +2155,19 @@ return view.extend({
 			if (pe.role === 'send')
 				bits.push(E('span', { 'class': perr ? 'ispt-warn-text' : '' }, perr ? _('sending events to %s: %s').format(pe.host, perr)
 					: !pe.last_ack ? _('sending events to %s (waiting for the first confirmation)').format(pe.host)
-					: _('sending events to %s (last confirmed %s ago%s)').format(pe.host, fmtDur(Date.now() / 1000 - pe.last_ack),
+					: _('sending events to %s (last confirmed %s ago%s)').format(pe.host, fmtDur(rnow() - pe.last_ack),
 						pe.pending ? ', ' + _('%d waiting').format(pe.pending) : '')));
 			else
 				bits.push(E('span', { 'class': perr ? 'ispt-warn-text' : '' }, perr ? _('receiving events: %s').format(perr)
 					: _('receiving events of the second router on UDP port %d').format(pe.port)));
-			if (pe.bad && pe.bad_ts && Date.now() / 1000 - pe.bad_ts < 3600)
+			if (pe.bad && pe.bad_ts && rnow() - pe.bad_ts < 3600)
 				bits.push(E('span', { 'class': 'ispt-warn-text' }, _('%d messages with a wrong key (last from %s)').format(pe.bad, pe.bad_addr || '?')));
 		}
 		if (st.notify) {
 			var n = st.notify, failed = n.last_fail > (n.last_ok || 0);
 			bits.push(!n.fetch ? _('notifications: uclient-fetch / wget missing')
-				: failed ? _('notifications: last attempt failed %s ago (%d waiting)').format(fmtDur(Date.now() / 1000 - n.last_fail), n.pending)
-				: n.last_ok ? _('notifications: last sent %s ago').format(fmtDur(Date.now() / 1000 - n.last_ok))
+				: failed ? _('notifications: last attempt failed %s ago (%d waiting)').format(fmtDur(rnow() - n.last_fail), n.pending)
+				: n.last_ok ? _('notifications: last sent %s ago').format(fmtDur(rnow() - n.last_ok))
 				: _('notifications: nothing sent yet'));
 		}
 		var parts = [];

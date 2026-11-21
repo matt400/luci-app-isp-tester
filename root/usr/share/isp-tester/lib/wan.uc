@@ -144,9 +144,11 @@ function bloat_target() {
 
 /* every tick: WAN traffic in bit/s; checks a new collectd value when there is one */
 function bloat_tick(t, rx, tx) {
-	if (!C.cfg.wan.bloat || rx == null) return;
-	push(bloat.ring, [ t, rx, tx ]);
-	while (length(bloat.ring) && bloat.ring[0][0] < t - 900) shift(bloat.ring);
+	if (!C.cfg.wan.bloat) return;
+	/* rx null (no WAN counters this tick): only the end of a bufferbloat
+	 * without data below is checked */
+	if (rx != null) push(bloat.ring, [ t, rx, tx ?? 0 ]);
+	while (length(bloat.ring) && (bloat.ring[0][0] < t - 900 || bloat.ring[0][0] > t)) shift(bloat.ring);
 
 	/* line speed: a 30 s rate, so a burst or an uneven tick does not count; forgotten by ~8 %/day */
 	let n = length(bloat.ring), w = 0, sr = 0, stx = 0;
@@ -160,6 +162,15 @@ function bloat_tick(t, rx, tx) {
 	}
 
 	let tg = bloat_target();
+	/* no ping values any more (collectd stopped, the target was removed):
+	 * nothing can show that it is over, so it is ended here instead of
+	 * keeping the WAN card yellow for good */
+	if (bloat.active && (!tg || t - tg.res.ts > 300)) {
+		bloat.active = false;
+		bloat.bad_n = bloat.ok_n = 0;
+		bloat.first = null;
+		C.emit('info', 'wan', tg?.label ?? 'wan', 'bufferbloat_ok', { dur: t - bloat.since, max_add: round(bloat.max_add, 0), no_data: true });
+	}
 	if (!tg) return;
 	let ts = tg.res.ts, prev = bloat.seen[tg.host];
 	if (ts == prev) return;
@@ -570,7 +581,9 @@ function v6_session(st) {
 
 	if (up && v6s.up != null) {
 		let had = v6s.prefixes ?? [];
-		if (length(pd) && length(had) && join(' ', pd) != join(' ', had))
+		/* back after a loss: reported by v6_pd_back below (with "same"), not
+		 * a second time as a change */
+		if (length(pd) && length(had) && v6s.pd_lost == null && join(' ', pd) != join(' ', had))
 			C.emit('warn', 'wan', 'ipv6', 'v6_pd_change', { iface, from: had, to: pd });
 		else if (!length(pd) && length(had) && v6s.pd_lost == null) {
 			v6s.pd_lost = t;
@@ -789,6 +802,9 @@ function wan_status() {
 /* the DHCPv6 interface: as set, else wan6 or <wan>_6 (IPv6 "auto" on wan) */
 function refresh_wan6() {
 	if (!C.cfg.wan.enabled || !C.cfg.wan.ipv6) return;
+	/* no DHCPv6 interface (an ISP without IPv6, IPv6 switched off): looked
+	 * for once a minute, not with two failing ubus calls on every tick */
+	if (!v6s.found && v6s.next_m != null && mono() < v6s.next_m) return;
 	let names = C.cfg.wan.interface6 ? [ C.cfg.wan.interface6 ] : uniq_list([ v6s.iface, 'wan6', `${C.cfg.wan.interface}_6` ]);
 	for (let n in names) {
 		if (!n) continue;
@@ -800,6 +816,7 @@ function refresh_wan6() {
 		return;
 	}
 	v6s.found = false;
+	v6s.next_m = mono() + 60;
 }
 
 function refresh_wan_device() {
@@ -827,15 +844,19 @@ function refresh_wan_device() {
 /* the clock was stepped while not trusted (see clock.uc clk_fix): the wall
  * times noted since the start move with it, so durations stay right */
 function wan_shift(by) {
-	let mv = (o, ks) => { for (let k in ks) if (type(o[k]) == 'int') o[k] += by; };
+	let mv = (o, ks) => { for (let k in ks) if (type(o[k]) == 'int' || type(o[k]) == 'double') o[k] += by; };
 	for (let h, t in targets) mv(t, [ 'since' ]);
 	mv(wansess, [ 'since' ]);
 	mv(v6s, [ 'since', 'pd_lost', 'route_lost' ]);
 	mv(wanst, [ 'down', 'v6_down' ]);
-	mv(bloat, [ 'since' ]);
-	mv(sfp, [ 'los_since', 'drop_since', 'alarm_since', 'gone_since' ]);
-	mv(dns, [ 'since' ]);
+	mv(bloat, [ 'since', 'peak_saved' ]);
+	mv(sfp, [ 'los_since', 'drop_since', 'alarm_since', 'gone_since', 'ts' ]);
+	mv(dns, [ 'since', 'dump_ts' ]);
 	mv(trace, [ 'last' ]);
+	/* the traffic ring and the DNS minute are kept by wall time too: a
+	 * step forward would empty them, a step back keep them "in the future" */
+	for (let x in bloat.ring) x[0] += by;
+	for (let x in dns.win) x.ts += by;
 }
 
 export { wan_init, wan_shift, targets, source, wansess, v6s, wanst, trace, bloat, sfp, dns, target_why, target_level, trace_file, trace_request, trace_target, bloat_load_peak, bloat_target, bloat_tick, bloat_out, sfp_device, sample_sfp, sfp_out, fam_count, check_wan_down, collectd_ping, gateway_ip, sample_pings, wan_session, v6_prefixes, v6_session, v6_out, dnsmasq_metrics, dns_log_line, dns_judge_servers, sample_dns, iface_status, wan_status, refresh_wan6, refresh_wan_device };

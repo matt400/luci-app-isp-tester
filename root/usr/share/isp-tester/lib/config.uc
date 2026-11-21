@@ -224,6 +224,10 @@ function load_config() {
 	at_least('warn_window', 60, 900);
 	at_least('err_cooldown', 10, 60);
 	at_least('drop_warn', 1, 50);
+	/* a loss limit of 0 would make every target "degraded" on every value
+	 * (loss >= 0), and a fail limit below the warning one would skip yellow */
+	if (!(c.wan.loss_warn >= 1)) c.wan.loss_warn = 1;
+	if (!(c.wan.loss_fail >= c.wan.loss_warn)) c.wan.loss_fail = max(c.wan.loss_warn, 50);
 	if (c.wan.gateway && !valid_host(c.wan.gateway)) c.wan.gateway = '';
 	if (!match(c.wan.collectd_socket ?? '', /^\/[A-Za-z0-9._\/-]+$/)) c.wan.collectd_socket = '';
 	if (!match(c.wan.rrd_dir ?? '', /^\/[A-Za-z0-9._\/-]+$/)) c.wan.rrd_dir = '/tmp/rrd';

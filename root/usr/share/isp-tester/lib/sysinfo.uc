@@ -59,6 +59,9 @@ function sfp_read(dev) {
 	return r;
 }
 
+/* ident -> { t: time of its last update (LISTVAL), v: value } */
+let cd_cache = {};
+
 function cd_unixsock(path) {
 	let socket;
 	try { socket = require('socket'); } catch (e) { return { error: 'no_socket_module' }; }
@@ -97,22 +100,32 @@ function cd_unixsock(path) {
 		return lines ?? [];
 	};
 
-	let out = {};
+	let out = {}, cache = {};
 	for (let line in query('LISTVAL')) {
 		/* "<time> <host>/ping/ping_droprate-1.1.1.1" */
 		let m = match(line, /^([0-9.]+) [^\/]+\/ping\/(ping|ping_droprate|ping_stddev)-(.+)$/);
 		if (!m) continue;
 		let ident = substr(line, index(line, ' ') + 1);
-		let val = null;
-		for (let r in query(`GETVAL "${ident}"`)) {
-			let v = match(r, /^value=(.*)$/);
-			if (v) val = cd_parse_val(v[1]);
+		/* LISTVAL gives the time of the last update: a value that did not
+		 * change since the previous tick (collectd's interval is usually
+		 * longer than ours) is not asked for again */
+		let c = cd_cache[ident], val;
+		if (c && c.t == m[1]) val = c.v;
+		else {
+			val = null;
+			for (let r in query(`GETVAL "${ident}"`)) {
+				let v = match(r, /^value=(.*)$/);
+				if (v) val = cd_parse_val(v[1]);
+			}
 		}
+		/* a failed read is asked again next time */
+		if (val != null) cache[ident] = { t: m[1], v: val };
 		let h = out[m[3]] ??= { ts: 0 };
 		h[m[2]] = val;
 		if (+m[1] > h.ts) h.ts = int(+m[1]);
 	}
 	sk.close();
+	cd_cache = cache;
 	return { hosts: out };
 }
 
@@ -125,22 +138,30 @@ function rrd_last(file) {
 	return m ? { ts: +m[1], v: cd_parse_val(m[2]) } : null;
 }
 
+/* file -> { mtime, r }: rrdtool is started only for files written since the
+ * last tick (collectd's rrdtool plugin writes every CacheTimeout s, a tick is
+ * 10 s: most ticks needed no rrdtool at all, up to 3 per host before) */
+let rrd_cache = {};
+
 function cd_rrd(dir) {
 	if (!RRDTOOL) return { error: 'no_rrdtool' };
-	let out = {};
+	let out = {}, cache = {};
 	for (let host in (fs.lsdir(dir) ?? [])) {
 		if (!valid_host(host)) continue;     /* the path goes into a shell command */
 		let pdir = `${dir}/${host}/ping`;
 		for (let f in (fs.lsdir(pdir) ?? [])) {
 			let m = match(f, /^(ping|ping_droprate|ping_stddev)-(.+)\.rrd$/);
 			if (!m || !match(m[2], /^[A-Za-z0-9.:_-]+$/)) continue;
-			let r = rrd_last(`${pdir}/${f}`);
+			let file = `${pdir}/${f}`, mt = fs.stat(file)?.mtime, c = rrd_cache[file];
+			let r = (c && mt != null && c.mtime == mt) ? c.r : rrd_last(file);
 			if (!r) continue;
+			cache[file] = { mtime: mt, r };
 			let h = out[m[2]] ??= { ts: 0 };
 			h[m[1]] = r.v;
 			if (r.ts > h.ts) h.ts = r.ts;
 		}
 	}
+	rrd_cache = cache;
 	return { hosts: out };
 }
 
