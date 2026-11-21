@@ -3,7 +3,7 @@
 /* luci-app-isp-tester: part of the collector (see ../collector.uc) */
 
 import * as fs from 'fs';
-import { ROUTE, PROC, RRDTOOL, BRIDGE, STAT_KEYS, mono, num, valid_host, round } from './common.uc';
+import { SYSNET, ROUTE, PROC, RRDTOOL, BRIDGE, TIMEOUT, ETHTOOL, STAT_KEYS, mono, num, valid_host, round } from './common.uc';
 import { sfp_parse, cd_parse_val } from './parsers.uc';
 
 function rd(dev, f) {
