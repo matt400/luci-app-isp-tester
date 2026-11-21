@@ -431,6 +431,13 @@ let iptv = {
 	acc: null                               /* per-tick aggregate of the fast samples */
 };
 let csv_rows = 0;
+let ubus_conn = null;     /* one ubus connection, (re)opened on demand */
+
+/* names of the ubus objects matching re; list() with a pattern would return
+ * their method signatures, not their names */
+function ubus_objects(re) {
+	return filter(ubus_conn?.list() ?? [], (n) => type(n) == 'string' && match(n, re) != null);
+}
 let csv_header = null;
 let last_mono = null;
 let started = now();
@@ -2281,7 +2288,7 @@ function dnsmasq_metrics() {
 		ubus_conn ??= require('ubus').connect();
 		let sum = null;
 		/* one object per dnsmasq instance */
-		for (let o in (ubus_conn?.list('dnsmasq*') ?? [])) {
+		for (let o in ubus_objects(/^dnsmasq(\.|$)/)) {
 			let r = ubus_conn.call(o, 'metrics');
 			r = r?.metrics ?? r;
 			if (type(r) != 'object') continue;
@@ -3728,8 +3735,6 @@ function csv_append(row) {
 
 /* ------------------------------------------------------------------ tick */
 
-let ubus_conn = null;
-
 /* netifd status of a logical interface (testing: a JSON file in env) */
 function iface_status(name, env) {
 	let f = getenv(env);
@@ -3821,7 +3826,7 @@ function hostapd_read() {
 	try {
 		ubus_conn ??= require('ubus').connect();
 		let out = {};
-		for (let o in (ubus_conn?.list('hostapd.*') ?? [])) {
+		for (let o in ubus_objects(/^hostapd\./)) {
 			let r = ubus_conn.call(o, 'get_clients');
 			if (type(r) == 'object') out[o] = r;
 		}
