@@ -22,11 +22,17 @@ function peer_init(ctx) { C = ctx; }
  * UDP, one JSON message per datagram, signed with HMAC-SHA256 of a shared
  * key (wire format: 64 hex characters of the MAC, then the JSON):
  *   sender -> receiver { v, h: host, ep: start time of the sender, now, iv,
+ *                        lo: lowest sequence number still kept,
  *                        ev: [ { q: sequence number, e: event } ], hb: status }
  *   receiver -> sender { v, ack: highest sequence number stored, ep, to, now }
  * Unacknowledged events are sent again every interval, so a short outage of
  * the receiver (or of the cable between the routers) loses nothing; the
- * receiver drops what it has already stored (q <= last). Every interval the
+ * receiver drops what it has already stored (q <= last) and takes the events
+ * only in order (q = last + 1): when the first of several datagrams of one
+ * send is lost and a later one arrives, its events wait for the resend
+ * instead of moving `last` past the lost ones (the ack would then tell the
+ * sender to forget them). Events the sender itself had to drop (full outbox)
+ * are skipped by `lo`. Every interval the
  * sender also sends a short status (heartbeat), so the receiver notices when
  * the second router stops reporting. Clocks: when the sender's clock is off
  * by more than 5 s, the receiver moves the events to its own time.
@@ -114,7 +120,8 @@ function peer_fit(x) {
 function peer_flush(hb) {
 	if (!peer.sk || C.cfg.peer.role != 'send') return;
 	let dst = { address: C.cfg.peer.host, port: C.cfg.peer.port };
-	let base = { v: PEER_VER, h: C.hostname, ep: peer.ep, now: now(), iv: C.cfg.interval };
+	let base = { v: PEER_VER, h: C.hostname, ep: peer.ep, now: now(), iv: C.cfg.interval,
+		lo: length(peer.out) ? peer.out[0].q : peer.seq + 1 };
 	let i = 0, pkts = 0;
 	while (pkts < 8) {
 		let o = { ...base, ev: [] };
@@ -206,9 +213,15 @@ function peer_ingest(o, addr) {
 	if (o.hb) p.hb = peer_hb_clean(o.hb);
 
 	let added = 0;
+	/* what the sender no longer has (dropped from a full outbox) is not waited for */
+	let lo = (type(o.lo) == 'int') ? o.lo : null;
+	if (lo != null && lo > p.last + 1) p.last = lo - 1;
 	for (let x in (type(o.ev) == 'array' ? o.ev : [])) {
 		let q = int(+x?.q || 0);
 		if (q <= p.last) continue;
+		/* a gap: an earlier datagram was lost, wait for the resend (a sender
+		 * without `lo` - older version - is taken as before) */
+		if (lo != null && q != p.last + 1) break;
 		let e = peer_event(x.e, name, off);
 		p.last = q;
 		if (!e) continue;

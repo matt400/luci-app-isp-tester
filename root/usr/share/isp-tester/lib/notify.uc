@@ -85,8 +85,10 @@ function notify_flush(force) {
 		else {
 			notif.last_fail = now();
 			notif.last_err = code;
-			/* no Internet (the usual reason): retry in a minute */
-			notif.last = now() - n.cooldown + 60;
+			/* no Internet (the usual reason): retry in a minute (or after the
+			 * cooldown, when it is shorter; a time "in the future" would let
+			 * the next tick send at once) */
+			notif.last = now() - max(0, n.cooldown - 60);
 		}
 	});
 	if (!proc) notif.busy = false;

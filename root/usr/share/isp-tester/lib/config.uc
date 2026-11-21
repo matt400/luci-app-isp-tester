@@ -200,7 +200,18 @@ function load_config() {
 
 	}
 
+	c.interval = int(c.interval);
 	if (c.interval < 2) c.interval = 2;
+	/* sizes and times that would empty the lists or keep nothing on screen
+	 * (0 events kept, a 0 s warning window) or rewrite a file on every tick */
+	let at_least = (k, lo, dflt) => { let v = int(c[k]); c[k] = (v != v) ? dflt : max(v, lo); };
+	at_least('max_events', 50, 1000);
+	at_least('max_samples', 60, 8640);
+	at_least('history', 30, 360);
+	at_least('long_history', 60, 1440);
+	at_least('warn_window', 60, 900);
+	at_least('err_cooldown', 10, 60);
+	at_least('drop_warn', 1, 50);
 	if (c.wan.gateway && !valid_host(c.wan.gateway)) c.wan.gateway = '';
 	if (!match(c.wan.collectd_socket ?? '', /^\/[A-Za-z0-9._\/-]+$/)) c.wan.collectd_socket = '';
 	if (!match(c.wan.rrd_dir ?? '', /^\/[A-Za-z0-9._\/-]+$/)) c.wan.rrd_dir = '/tmp/rrd';

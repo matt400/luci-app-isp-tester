@@ -12,7 +12,7 @@ let C = null;
 function clock_init(ctx) { C = ctx; }
 
 let clk = { on: false, off: null, steps: 0, last: null, run_hist: 0, run_min: 0, m0: 0 };
-let ntp = { state: 'unknown', client: null, checked: 0, sync_ts: null, stratum: null, offset: null, poll: null, action: null };
+let ntp = { state: 'unknown', client: null, checked: null, sync_ts: null, stratum: null, offset: null, poll: null, action: null };
 
 function clk_fields(typ, d) {
 	/* a gap found while running (a late tick) lies wholly in this run; one
@@ -28,6 +28,19 @@ function clk_fields(typ, d) {
 function clk_shift_hist(h, n, by) {
 	let len = length(h.t);
 	for (let i = max(0, len - n); i < len; i++) h.t[i] += by;
+}
+
+/* points dated after `t` (the clock was set back while it was trusted, so
+ * they were not moved): dropped, the charts expect the times in order and
+ * would draw a line back across the hour. The events stay (kept in order by
+ * store_event); only the chart points go. */
+function clk_trim_hist(h, t) {
+	let n = length(h.t), i = n;
+	while (i > 0 && h.t[i - 1] > t) i--;
+	if (i == n) return 0;
+	h.t = slice(h.t, 0, i);
+	for (let k, arr in h.s) h.s[k] = slice(arr, 0, i);
+	return n - i;
 }
 
 /* back into time order after some events were moved (stable: events of the
@@ -77,6 +90,12 @@ function clk_check() {
 	if (clk.off != null && absf(off - clk.off) >= 2.5) {
 		let by = int(round(off - clk.off, 0));
 		let n = clk.on ? clk_fix(by) : 0;
+		if (!clk.on && by < 0) {
+			let t = now();
+			clk_trim_hist(C.history(), t);
+			if (clk_trim_hist(C.history_min(), t))
+				write_atomic(`${RUNDIR}/history.json`, sprintf('%J', C.history_min()));
+		}
 		clk.steps++;
 		clk.last = { ts: now(), by };
 		if (clk.on) clk_release();
@@ -116,8 +135,9 @@ function ntp_lines(text, quiet) {
 
 /* is there an NTP client at all (once a minute) */
 function ntp_client() {
-	let t = now();
-	if (t - ntp.checked < 60) return;
+	/* monotonic: after the clock was set back it would not look for an hour */
+	let t = mono();
+	if (ntp.checked != null && t - ntp.checked < 60) return;
 	ntp.checked = t;
 	let c = null;
 	for (let pid in (fs.lsdir(PROC) ?? [])) {
@@ -158,7 +178,7 @@ function clk_init() {
 	clk.off = time() - mono();
 	ntp_lines(fs.readfile(`${VARDIR}/ntp.last`), true);
 	fs.unlink(`${VARDIR}/ntp.pending`);
-	ntp.checked = 0;
+	ntp.checked = null;
 	ntp_client();
 	let up = C.uptime_s();
 	/* shortly after boot and not confirmed yet: the clock may still be set */

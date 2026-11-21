@@ -824,5 +824,18 @@ function refresh_wan_device() {
 	C.cfg.wan.gw = valid_host(gw) ? gw : null;
 }
 
+/* the clock was stepped while not trusted (see clock.uc clk_fix): the wall
+ * times noted since the start move with it, so durations stay right */
+function wan_shift(by) {
+	let mv = (o, ks) => { for (let k in ks) if (type(o[k]) == 'int') o[k] += by; };
+	for (let h, t in targets) mv(t, [ 'since' ]);
+	mv(wansess, [ 'since' ]);
+	mv(v6s, [ 'since', 'pd_lost', 'route_lost' ]);
+	mv(wanst, [ 'down', 'v6_down' ]);
+	mv(bloat, [ 'since' ]);
+	mv(sfp, [ 'los_since', 'drop_since', 'alarm_since', 'gone_since' ]);
+	mv(dns, [ 'since' ]);
+	mv(trace, [ 'last' ]);
+}
 
-export { wan_init, targets, source, wansess, v6s, wanst, trace, bloat, sfp, dns, target_why, target_level, trace_file, trace_request, trace_target, bloat_load_peak, bloat_target, bloat_tick, bloat_out, sfp_device, sample_sfp, sfp_out, fam_count, check_wan_down, collectd_ping, gateway_ip, sample_pings, wan_session, v6_prefixes, v6_session, v6_out, dnsmasq_metrics, dns_log_line, dns_judge_servers, sample_dns, iface_status, wan_status, refresh_wan6, refresh_wan_device };
+export { wan_init, wan_shift, targets, source, wansess, v6s, wanst, trace, bloat, sfp, dns, target_why, target_level, trace_file, trace_request, trace_target, bloat_load_peak, bloat_target, bloat_tick, bloat_out, sfp_device, sample_sfp, sfp_out, fam_count, check_wan_down, collectd_ping, gateway_ip, sample_pings, wan_session, v6_prefixes, v6_session, v6_out, dnsmasq_metrics, dns_log_line, dns_judge_servers, sample_dns, iface_status, wan_status, refresh_wan6, refresh_wan_device };
