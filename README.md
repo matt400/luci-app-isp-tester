@@ -31,6 +31,7 @@ Target: **OpenWrt 24.10 and 25.12** (ucode + rpcd + LuCI JS). No compiled code, 
 | Area | How | Logged events |
 |------|-----|---------------|
 | **Internet** | Ping results of **collectd** (luci-app-statistics, Ping plugin): loss, latency and jitter per host. The host netifd reports as gateway is marked as the ISP gateway | packet loss, high latency, high jitter (optional), host not responding, *Internet down* (no host responds), recovery with duration |
+| **Optical signal** (SFP / ONT) | `ethtool -m <port>`: RX / TX power (dBm), module temperature, voltage, laser current and the module's alarm flags; only when the WAN goes through an SFP module and `ethtool` is installed | **no light** (RX at the noise floor), *optical signal weaker* (RX 3 dB below its usual level, or the module's own low-power warning), *SFP alarm*, *module does not answer*; RX / TX chart |
 | **WAN session** | netifd status of the WAN interface | interface down/up (PPPoE/DHCP session lost), session restarted between two checks, WAN address changed |
 | **IPv6** | netifd status of the DHCPv6 interface (`wan6`, what odhcp6c got) + the IPv6 hosts of the collectd Ping plugin | *IPv6 down* (no IPv6 host answers while IPv4 does), DHCPv6 session down/up, delegated **prefix lost / changed**, **no router advertisement** (default route gone) |
 | **DNS** | dnsmasq's own statistics: `ubus call dnsmasq metrics` every interval, per upstream server from its SIGUSR1 dump in the system log (every 5 min) | **DNS failing** (≥ 10 % of the queries sent upstream unanswered within a minute) / *OK again*; *DNS server X: N of M queries retried or failed* |
@@ -95,6 +96,8 @@ The panel looks at what happened **at the same time** (within 30 s) in the selec
 | Loss only to far targets (2+ targets), gateway fine | ISP backbone / peering |
 | Loss to a single far target only | that server (no weight) |
 | WAN port loses link / has errors | line / ONT (counts half for both sides) |
+| Received optical power fell or no light (SFP) | ISP line: fibre, connector, splitter (hard evidence) |
+| Internet problems while the optical signal was weak or gone | the same cause, in the line |
 | IPTV freeze together with Internet problems | ISP line |
 | IPTV freeze together with a LAN port drop, error or speed downgrade | cable / switch at home |
 | IPTV freezes at a regular interval (e.g. every ~125 s or ~260 s) | IGMP timeout, i.e. router configuration (querier / snooping / proxy) |
@@ -241,6 +244,19 @@ No speed test of its own: every collectd ping value (one average per collectd in
 - The analysis puts it on the home side: your own traffic fills a buffer (modem or ISP). High-ping warnings during those periods are not counted against the ISP (loss still is). SQM (`luci-app-sqm`, cake, set a bit below the line speed) fixes it.
 
 The load is known only when the link was full at least once (or the speed is set); until then the card says so.
+
+## Optical signal of the SFP / ONT
+
+If the WAN goes through an SFP module (or an ONT stick in an SFP cage) the router can read the module's own measurements, and the received power is the one number that says whether the light from the line got weaker – a ping cannot. It is read with `ethtool -m <port>` (package `ethtool`) every 30 s – the EEPROM is slow – and shown as *Optical signal: RX -9.1 dBm · TX 2.4 dBm · 45 °C* on the Internet card, with a chart of both powers.
+
+- **No light** (RX at −40 dBm or the module reports −inf, two readings in a row): the fibre is broken or unplugged, a connector is loose, or the ISP's side is down. A fault, with the time it started.
+- **Optical signal weaker**: RX is *Weaker signal from* (3 dB) below its usual level (the median of the last 20 readings, frozen during the drop), or below *Received power below* when set, or the module raises its own low-power warning. Two readings in a row. Ends when the level is back, with the weakest value.
+- **SFP module alarm**: the module's other alarm / warning flags (temperature, laser current, voltage, TX power, RX too strong).
+- **Module does not answer** after it did (taken out, or hung).
+
+The analysis counts a fall of the light, and Internet problems that happen during it, for the ISP's side – clean and re-seat the connector first, then show the log. Without a module `ethtool -m` fails and nothing is shown (it is tried again every 10 minutes); set *SFP port* when the module sits on a port other than the WAN's. The port is the physical device of the WAN interface without the VLAN (`eth1.835` → `eth1`).
+
+> Written from the `ethtool -m` output format (`Laser output power`, `Receiver signal average optical power`, `Module temperature`, the `… alarm` / `… warning` flags); not tried on a real module yet. Check on the router: `ethtool -m <port>`.
 
 ### Who filled the link
 
