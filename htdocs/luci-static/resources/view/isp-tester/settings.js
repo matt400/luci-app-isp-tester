@@ -643,6 +643,11 @@ return view.extend({
 		o.placeholder = '40';
 		o.depends('decoders', '1');
 
+		o = s.option(form.Flag, 'dhcp', _('DHCP of the decoders'),
+			_('Lease renewals and address changes from the operator. In a bridged IPTV VLAN the lease is not in the router, so the measuring helper (isp-tester-tsmon) also notes the operator\'s DHCP replies on that VLAN; when the router gives the decoders their address, dnsmasq\'s messages in the system log are used for the decoders named below.'));
+		o.default = '1';
+		o.rmempty = false;
+
 		o = s.option(form.Value, 'dec_off', _('Switched off after (s)'),
 			_('Away longer than this: switched off or unplugged, not a restart.'));
 		o.datatype = 'range(60,86400)';

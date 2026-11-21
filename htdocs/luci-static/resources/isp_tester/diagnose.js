@@ -306,6 +306,12 @@ return baseclass.extend({
 			devs: uniq(decRestarts.filter(function(r) { return decStalls.some(function(s) { return s.ts >= r.ts - 15 && s.ts <= r.ts + ((r.d && r.d.dur) || 0) + 10; }); }), 'src').join(', ') });
 		/* a decoder that restarts by itself: power supply, firmware, overheating */
 		add('home', 1, 'decoder_restarts', decRestarts, { devs: uniq(decRestarts, 'src').join(', ') });
+
+		/* the decoders' lease at the operator */
+		var dhChange = by(function(e) { return e.type === 'dhcp_ip_change'; });
+		var dhBad = by(function(e) { return e.type === 'dhcp_nak' || e.type === 'dhcp_expired' || e.type === 'dhcp_late'; });
+		add('isp', 1.5, 'dhcp_change', dhChange, { devs: uniq(dhChange, 'src').join(', ') });
+		add('isp', 1.5, 'dhcp_bad', dhBad, { devs: uniq(dhBad, 'src').join(', ') });
 		var proxyStop = proxyBad.filter(function(e) { return e.type !== 'log'; });
 		add('home', 3, 'proxy_down', proxyStop, { name: proxyStop[0] && proxyStop[0].d && proxyStop[0].d.name });
 		add('home', 1, 'log_proxy', proxyBad.filter(function(e) { return e.type === 'log'; }));
@@ -498,6 +504,8 @@ return baseclass.extend({
 			(a.lags ? ' ' + _('%d high-ping warnings at those times are not counted against the ISP.').format(a.lags) : '');
 		case 'stall_decoder':   return _('%d of %d IPTV freezes happened while a decoder (%s) restarted – the decoder, not a lost stream; not counted against the ISP.').format(f.n, a.total, a.devs);
 		case 'decoder_restarts': return _('Decoder %s restarted %d× – power supply, firmware update or overheating (or someone switched it off and on).').format(a.devs, f.n);
+		case 'dhcp_change':     return _('The operator gave decoder %s a different address %d× – each change interrupts the picture; the operator\'s DHCP (address pool, lease).').format(a.devs, f.n);
+		case 'dhcp_bad':        return _('Decoder %s: lease refused or not renewed in time (%d×) – the operator\'s DHCP server.').format(a.devs, f.n);
 		case 'trace_hop':       return _('Path snapshots (%d): the loss started at hop %d (%s) and carried on to the destination (%d× there) – inside the ISP\'s network or beyond; the hops before it were fine. Show this to the ISP.').format(f.n, a.hop, a.ip, a.same);
 		case 'trace_first_hop': return _('Path snapshots (%d): the loss started already at the first hop (%s) – the access line or the ISP\'s first router.').format(f.n, a.ip);
 		case 'marks_wifi':      return _('%d of %d of your reports came with a Wi-Fi drop or weak signal of %s, and nothing on the line – the cause is Wi-Fi.').format(f.n, a.total, a.devs);

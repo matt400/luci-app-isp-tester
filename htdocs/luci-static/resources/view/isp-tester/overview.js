@@ -340,6 +340,12 @@ function eventText(e) {
 	case 'ntp_off':         return _('No NTP client running – the times in the log cannot be trusted');
 	case 'maint_start':     return (d.extend ? _('Maintenance extended until %s') : _('MAINTENANCE until %s: what happens meanwhile is not counted and not notified')).format(hhmm(d.until)) + (d.note ? ' – „' + d.note + '”' : '');
 	case 'maint_end':       return _('Maintenance over after %s').format(fmtDur(d.dur)) + (d.early ? ' (' + _('ended by hand') + ')' : '');
+	case 'dhcp_lease':      return _('Decoder %s: address %s from the operator').format(e.src, d.ip) + (d.lease ? ' · ' + _('lease %s').format(fmtDur(d.lease)) : '') + (d.server ? ' · ' + _('server %s').format(d.server) : '');
+	case 'dhcp_new':        return _('Decoder %s asked for an address from scratch (restarted or lost its lease): %s').format(e.src, d.ip);
+	case 'dhcp_ip_change':  return _('Decoder %s: address CHANGED %s → %s – the operator gave it a new one, the picture may stop for a moment').format(e.src, d.from, d.to);
+	case 'dhcp_nak':        return _('Decoder %s: the operator REFUSED its lease (DHCPNAK)').format(e.src);
+	case 'dhcp_expired':    return _('Decoder %s: lease of %s ran out without a renewal').format(e.src, d.ip);
+	case 'dhcp_late':       return _('Decoder %s renewed its lease %s after it had run out').format(e.src, fmtDur(d.late));
 	case 'clock_step':      return _('Clock set by %s%s').format(d.by > 0 ? '+' : '−', fmtDur(Math.abs(d.by))) +
 		(d.fixed ? ' · ' + _('%d earlier entries of this boot moved to the right time').format(d.fixed) : '');
 	default:                return e.type;
@@ -1333,6 +1339,21 @@ return view.extend({
 						x.off ? hhmm(x.since) : fmtDur(Date.now() / 1000 - x.since)) + ' (' + x.port + ')' ]));
 		});
 
+		/* the decoders' DHCP lease from the operator */
+		(t.dhcp || []).forEach(function(x) {
+			var bits = [ x.ip || '–' ];
+			if (x.lease) bits.push(_('lease %s').format(fmtDur(x.lease)));
+			if (x.last_ack) bits.push(_('renewed %s ago').format(fmtDur(Date.now() / 1000 - x.last_ack)));
+			bits.push(_('%d renewals').format(x.renew));
+			var bad = [];
+			if (x.changes) bad.push(_('IP changed %d×').format(x.changes));
+			if (x.naks) bad.push(_('refused %d×').format(x.naks));
+			if (x.expired) bad.push(_('lease expired'));
+			kv.push(E('span', { 'class': 'k', 'title': _('Seen from the operator\'s DHCP replies (%s)').format(x.via === 'dnsmasq' ? 'dnsmasq' : _('in the IPTV VLAN')) },
+				_('DHCP %s').format(x.label || x.mac)),
+				E('span', { 'class': bad.length ? 'ispt-warn-text' : '' }, bits.join(' · ') + (bad.length ? ' · ' + bad.join(' · ') : '')));
+		});
+
 		if (t.quality) {
 			var q = t.quality, qe = {
 				no_helper: _('needs the isp-tester-tsmon package'),
@@ -1864,6 +1885,9 @@ return view.extend({
 				row(_('IPv6 prefix lost / changed'), _('%d× / %d×').format(count(function(e) { return e.type === 'v6_pd_lost'; }), count(function(e) { return e.type === 'v6_pd_change'; }))) +
 				row(_('No IPv6 router advertisement'), _('%d×').format(count(function(e) { return e.type === 'v6_no_route'; }))) : '') +
 			row(_('Related messages in the system log'), _('%d×').format(count(function(e) { return e.type === 'log'; }))) +
+			(st.iptv && st.iptv.dhcp && st.iptv.dhcp.length ? row(_('Decoder DHCP: address changes / refused / expired'), _('%d× / %d× / %d×').format(
+				count(function(e) { return e.type === 'dhcp_ip_change'; }), count(function(e) { return e.type === 'dhcp_nak'; }),
+				count(function(e) { return e.type === 'dhcp_expired' || e.type === 'dhcp_late'; }))) : '') +
 			row(_('DNS failing (no answer from the upstream server)'), (function() { var v = sum('dns_fail', [ 'dns_ok', 'monitor_start' ]); return _('%d, total %s, longest %s').format(v.n, fmtDur(v.total), fmtDur(v.longest)); })() +
 				(count(function(e) { return e.type === 'dns_server_bad'; }) ? ' · ' + _('servers with many failed queries: %s').format(own.filter(function(e) { return e.type === 'dns_server_bad'; }).map(function(e) { return e.src; }).filter(function(v, i, a) { return a.indexOf(v) === i; }).join(', ')) : '')) +
 			row(_('IPTV freezes'), _('%d, total %s, longest %s').format(tv.n, fmtDur(tv.total), fmtDur(tv.longest)) + (r.zaps ? ' · ' + _('%d channel changes not counted').format(r.zaps) : '')) +

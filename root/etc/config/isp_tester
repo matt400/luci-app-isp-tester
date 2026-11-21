@@ -66,6 +66,9 @@ config iptv 'iptv'
 	option dec_silence '40'
 	# away longer = switched off, not a restart
 	option dec_off '600'
+	# DHCP of the decoders: the operator's replies in the IPTV VLAN (tsmon),
+	# or dnsmasq-dhcp in the system log for the named decoders (routed IPTV)
+	option dhcp '1'
 	# IPTV VLAN number (e.g. 236). Enough when the VLAN is only bridged to the
 	# decoders: bitrate from the bridge's per-VLAN counters, channels from the
 	# bridge's multicast table, ports detected. Empty = use 'device' below.

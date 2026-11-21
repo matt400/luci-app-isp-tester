@@ -170,7 +170,9 @@ function default_config() {
 			quality: false, q_warn: 1, q_fail: 30, q_gap: 500,
 			names: true, channels: {},
 			/* decoder restarts: bridge MAC table (bridged VLAN) + port link; decoders = { mac: label } */
-			decoders: true, dec_silence: 40, dec_off: 600, dec_labels: {}
+			decoders: true, dec_silence: 40, dec_off: 600, dec_labels: {},
+			/* DHCP of the decoders: the operator's replies seen by tsmon */
+			dhcp: true
 		},
 		system: {
 			enabled: true, cpu_warn: 90, mem_warn: 10, conntrack_warn: 90
@@ -259,6 +261,7 @@ function load_config() {
 		c.wan.ping_hosts = aslist(pg.Hosts);
 
 		c.iptv.decoders    = bool(t.decoders, true);
+		c.iptv.dhcp        = bool(t.dhcp, true);
 		c.iptv.dec_silence = num(t.dec_silence, c.iptv.dec_silence);
 		c.iptv.dec_off     = num(t.dec_off, c.iptv.dec_off);
 		cur.foreach('isp_tester', 'decoder', (s) => {
@@ -510,7 +513,10 @@ const MSG = {
 		collector_restart: 'Monitor restarted after it %s',
 		ntp_sync: 'Clock synchronized (NTP stratum %s)', ntp_unsync: 'Clock NOT synchronized - times in the log may be wrong',
 		ntp_off: 'No NTP client running - times in the log may be wrong', clock_step: 'Clock set by %ss',
-		maint_start: 'Maintenance until %s: not counted, no notifications (%s)', maint_end: 'Maintenance over after %s'
+		maint_start: 'Maintenance until %s: not counted, no notifications (%s)', maint_end: 'Maintenance over after %s',
+		dhcp_lease: 'Decoder %s: address %s from the operator (lease %s)', dhcp_new: 'Decoder %s asked for an address anew: %s',
+		dhcp_ip_change: 'Decoder %s: address CHANGED %s -> %s', dhcp_nak: 'Decoder %s: operator REFUSED the lease (DHCPNAK)',
+		dhcp_expired: 'Decoder %s: lease of %s expired without renewal', dhcp_late: 'Decoder %s renewed its lease %s too late'
 	},
 	pl: {
 		link_down: '%s: BRAK ŁĄCZA', link_up: '%s: łącze wróciło po %s', link_flap: '%s: łącze mrugnęło',
@@ -544,7 +550,10 @@ const MSG = {
 		collector_restart: 'Monitor uruchomiony ponownie, bo %s',
 		ntp_sync: 'Zegar zsynchronizowany (NTP stratum %s)', ntp_unsync: 'Zegar NIE jest zsynchronizowany - czasy w logu mogą być błędne',
 		ntp_off: 'Brak klienta NTP - czasy w logu mogą być błędne', clock_step: 'Zegar przestawiony o %ss',
-		maint_start: 'Prace serwisowe do %s: bez liczenia i powiadomień (%s)', maint_end: 'Prace serwisowe zakończone po %s'
+		maint_start: 'Prace serwisowe do %s: bez liczenia i powiadomień (%s)', maint_end: 'Prace serwisowe zakończone po %s',
+		dhcp_lease: 'Dekoder %s: adres %s od operatora (dzierżawa %s)', dhcp_new: 'Dekoder %s poprosił o adres od nowa: %s',
+		dhcp_ip_change: 'Dekoder %s: ZMIANA adresu %s -> %s', dhcp_nak: 'Dekoder %s: operator ODMÓWIŁ dzierżawy (DHCPNAK)',
+		dhcp_expired: 'Dekoder %s: dzierżawa %s wygasła bez odnowienia', dhcp_late: 'Dekoder %s odnowił dzierżawę %s za późno'
 	}
 };
 
@@ -620,6 +629,12 @@ function event_text(e, lang) {
 	case 'clock_step': return sprintf(f, (d.by > 0 ? '+' : '') + d.by);
 	case 'maint_start': return sprintf(f, substr(tstamp(d.until), 11, 5), d.note || '-');
 	case 'maint_end': return sprintf(f, dur_txt(d.dur));
+	case 'dhcp_lease': return sprintf(f, e.src, d.ip, d.lease ? dur_txt(d.lease) : '?');
+	case 'dhcp_new': return sprintf(f, e.src, d.ip);
+	case 'dhcp_ip_change': return sprintf(f, e.src, d.from, d.to);
+	case 'dhcp_nak': return sprintf(f, e.src);
+	case 'dhcp_expired': return sprintf(f, e.src, d.ip);
+	case 'dhcp_late': return sprintf(f, e.src, dur_txt(d.late));
 	case 'data_gap': return sprintf(f, d.from ? tstamp(d.from) : '?', tstamp(d.to), dur_txt(d.len),
 		(lang == 'pl' ? GAP_WHY_PL : GAP_WHY_EN)[d.why] ?? d.why);
 	default: return f;
@@ -2570,6 +2585,107 @@ function handle_notify_test() {
 	notify_flush(true);
 }
 
+/* ------------------------------------------------------- decoder DHCP */
+
+/*
+ * The decoders get their address from the operator: in the IPTV VLAN the
+ * router only bridges, so their lease is nowhere in the router (no dnsmasq
+ * lease, nothing in the system log). tsmon, which listens on that VLAN
+ * anyway, notes the operator's DHCP replies (-D: OFFER, ACK, NAK; ACK with
+ * the address, lease time, server). When the router itself gives the
+ * decoders their address (routed IPTV), dnsmasq-dhcp's DHCPACK / DHCPNAK
+ * lines in the system log are used for the decoders named in the settings.
+ *   dhcp_lease      first lease seen (info)
+ *   (renewal)       counted, not logged
+ *   dhcp_new        an OFFER before the ACK: the decoder asked for an address
+ *                   from scratch (restarted, or lost its lease)
+ *   dhcp_ip_change  another address than before (warn)
+ *   dhcp_nak        the server refused (warn)
+ *   dhcp_late       renewed after the lease had run out (warn)
+ *   dhcp_expired    lease ran out, no renewal seen, decoder still there (warn)
+ */
+let dhl = { pid: null, seq: 0, mac: {} };
+/* decoders seen in the IPTV VLAN (see dec_poll) */
+let dec = { list: {}, err: null, t: 0 };
+
+function dhcp_src(mac) {
+	return cfg.iptv.dec_labels[mac] || mac;
+}
+
+function dhcp_seen(x, via) {
+	let mac = lc(`${x.mac ?? ''}`);
+	if (!match(mac, /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/)) return;
+	let t = (type(x.t) == 'int' && x.t > 0) ? x.t : now();
+	let s = dhl.mac[mac] ??= { mac, ip: null, acks: 0, renew: 0, changes: 0, naks: 0, offer_t: null, last_ack: null,
+		lease: null, server: null, expired: false, via };
+	let src = dhcp_src(mac);
+	s.via = via;
+	if (x.type == 2) { s.offer_t = t; return; }
+	if (x.type == 6) {
+		s.naks++;
+		emit('warn', 'iptv', src, 'dhcp_nak', { mac, ip: s.ip, server: x.server, via });
+		return;
+	}
+	if (x.type != 5 || !match(`${x.ip ?? ''}`, /^[0-9.]+$/) || x.ip == '0.0.0.0') return;
+	let fresh = s.offer_t != null && t - s.offer_t <= 15;
+	s.offer_t = null;
+	if (s.ip == null)
+		emit('info', 'iptv', src, 'dhcp_lease', { mac, ip: x.ip, lease: x.lease, server: x.server, router: x.router, via });
+	else if (x.ip != s.ip) {
+		s.changes++;
+		emit('warn', 'iptv', src, 'dhcp_ip_change', { mac, from: s.ip, to: x.ip, lease: x.lease, server: x.server, via });
+	}
+	else if (s.lease && s.last_ack != null && t - s.last_ack > s.lease + 5) {
+		s.renew++;
+		emit('warn', 'iptv', src, 'dhcp_late', { mac, ip: x.ip, late: t - s.last_ack - s.lease, lease: s.lease, via });
+	}
+	else if (fresh)
+		emit('info', 'iptv', src, 'dhcp_new', { mac, ip: x.ip, lease: x.lease, via });
+	else s.renew++;
+	s.acks++;
+	s.ip = x.ip;
+	s.last_ack = t;
+	s.lease = (x.lease > 0) ? x.lease : null;
+	s.server = x.server ?? s.server;
+	s.expired = false;
+}
+
+/* new entries of tsmon's DHCP ring (numbered per helper process) */
+function dhcp_ingest(r) {
+	if (!cfg.iptv.dhcp || type(r?.dhcp) != 'array') return;
+	if (r.pid != dhl.pid) { dhl.pid = r.pid; dhl.seq = 0; }
+	for (let x in r.dhcp) {
+		if (type(x?.seq) != 'int' || x.seq <= dhl.seq) continue;
+		dhl.seq = x.seq;
+		dhcp_seen(x, 'vlan');
+	}
+}
+
+/* routed IPTV: "DHCPACK(br-iptv) 10.1.2.3 aa:bb:cc:dd:ee:ff name" */
+function dhcp_log_line(l) {
+	let m = match(l.msg, /^DHCP(ACK|NAK)\([^)]*\) ([0-9.]+) ([0-9a-fA-F:]{17})/);
+	if (!m) return false;
+	let mac = lc(m[3]);
+	if (cfg.iptv.dec_labels[mac] == null) return true;
+	dhcp_seen({ t: l.ts, type: m[1] == 'ACK' ? 5 : 6, mac, ip: m[2] }, 'dnsmasq');
+	return true;
+}
+
+function dhcp_tick() {
+	if (!cfg.iptv.dhcp) return null;
+	let t = now(), out = [];
+	for (let mac, s in dhl.mac) {
+		let d = dec.list[mac];
+		if (s.lease && s.last_ack != null && !s.expired && t - s.last_ack > s.lease + 30 && d?.present !== false) {
+			s.expired = true;
+			emit('warn', 'iptv', dhcp_src(mac), 'dhcp_expired', { mac, ip: s.ip, lease: s.lease, last: s.last_ack });
+		}
+		push(out, { mac, label: cfg.iptv.dec_labels[mac] ?? '', ip: s.ip, lease: s.lease, server: s.server, last_ack: s.last_ack,
+			acks: s.acks, renew: s.renew, changes: s.changes, naks: s.naks, expired: s.expired, via: s.via });
+	}
+	return out;
+}
+
 /* ------------------------------------------------------------ system log */
 
 /*
@@ -2633,6 +2749,7 @@ function read_log() {
 		if (first) continue;
 
 		if (l.prog == 'dnsmasq' && cfg.dns.enabled && dns_log_line(l)) continue;
+		if (l.prog == 'dnsmasq-dhcp' && cfg.iptv.dhcp && dhcp_log_line(l)) continue;
 		for (let r in LOG_RULES) {
 			if (!match(l.prog, r[0]) || !match(l.msg, r[1])) continue;
 
@@ -2767,7 +2884,6 @@ function vlan_sample() {
  *           stopped, then frames again (behind a switch the port stays up)
  * Back within dec_off s: decoder_restart; longer: decoder_off / decoder_on.
  */
-let dec = { list: {}, err: null, t: 0 };
 
 /* MAC -> { port, age } of the decoders in the IPTV VLAN */
 function dec_fdb() {
@@ -3345,12 +3461,13 @@ function sample_iptv(devres) {
  */
 
 function tsm_want() {
-	return iptv_on() && (cfg.iptv.quality || cfg.iptv.names);
+	return iptv_on() && (cfg.iptv.quality || cfg.iptv.names || (cfg.iptv.dhcp && cfg.iptv.vlan));
 }
 
 function tsm_args(tg) {
 	let a = [ '-i', tg.dev, '-d', tg.dir, '-g', `${max(0, cfg.iptv.q_gap)}`, '-o', TSQ_STATE ];
 	if (tg.vid) push(a, '-v', `${int(tg.vid)}`);
+	if (cfg.iptv.dhcp) push(a, '-D');
 	return join(' ', a);
 }
 
@@ -3423,6 +3540,7 @@ function tsm_read() {
 	if (!ours || age > 30) return;
 	tsq.err = null;
 	if (t - tsq.started > 120) tsq.fails = 0;
+	dhcp_ingest(r);
 
 	/* the socket overflowed: this router could not keep up, so lost packets
 	 * in this interval may be its own, not the ISP's */
@@ -4231,6 +4349,8 @@ function tick() {
 	let iptv_dev = cfg.iptv.vlan ? vl.upstream : cfg.iptv.device;
 	let iptv_res = sample_iptv(iptv_dev ? res[iptv_dev] : null);
 	tsm_poll();
+	let dhcp_res = dhcp_tick();
+	if (iptv_res && dhcp_res != null) iptv_res.dhcp = dhcp_res;
 	let decs = dec_poll();
 	if (iptv_res && decs != null) {
 		iptv_res.decoders = decs;
