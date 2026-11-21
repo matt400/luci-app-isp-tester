@@ -2614,3 +2614,303 @@ msgstr ""
 
 msgid "Lease renewals and address changes from the operator. In a bridged IPTV VLAN the lease is not in the router, so the measuring helper (isp-tester-tsmon) also notes the operator's DHCP replies on that VLAN; when the router gives the decoders their address, dnsmasq's messages in the system log are used for the decoders named below."
 msgstr ""
+
+msgid "%d of %d IPTV freezes happened while the operator sent no IGMP queries – the memberships expire without them: ISP multicast side, not the router."
+msgstr ""
+
+msgid "The operator's IGMP queries stopped %d× (see the timeline)."
+msgstr ""
+
+msgid "No IGMP query from the operator was seen in %d min although IPTV freezes occurred – the ISP side does not keep the memberships alive (check that the capture port faces the ISP)."
+msgstr ""
+
+msgid "The link was full %d× – %s was the heaviest user in %d of them (up to %d%% of the traffic then). That traffic is your own, not an ISP fault."
+msgstr ""
+
+msgid "No light came from the line (SFP RX at the noise floor, %d×) – the fibre is broken or unplugged, a connector is dirty or loose, or the ISP's equipment is down. Hard evidence of a fault in the line, not in the router: clean and re-seat the connector first, then show this to the ISP."
+msgstr ""
+
+msgid "The received optical power fell %d× (by up to %s dB, down to %s dBm) – a fault in the line: fibre bent or damaged, a dirty or loose connector, a splitter or the ISP's side. Hard evidence, no ping can show it."
+msgstr ""
+
+msgid "%d Internet problems happened while the optical signal was weak or gone – they have the same cause, in the line."
+msgstr ""
+
+msgid "The SFP module raised an alarm (%d×: %s) – overheating, laser current or voltage; the module may be failing."
+msgstr ""
+
+msgid "The SFP module stopped answering %d× – taken out, or it hung (power, a faulty module)."
+msgstr ""
+
+msgid "%d problems happened while the router was overheated and its CPU slowed down (up to %s °C) – the router itself loses packets; check ventilation, the heatsink, the case."
+msgstr ""
+
+msgid "%d problems happened while the router was overheated (up to %s °C) – the router itself may lose packets; check ventilation, the heatsink, the case."
+msgstr ""
+
+msgid "The router overheated and throttled its CPU (up to %s °C, %d×) – no problems at those moments."
+msgstr ""
+
+msgid "The router was overheated (up to %s °C, %d×) – no problems at those moments."
+msgstr ""
+
+msgid "Heaviest at those times: %s."
+msgstr ""
+
+msgid "The operator has stopped sending IGMP queries"
+msgstr ""
+
+msgid "No light from the line (SFP RX) for %s – the fibre, the connector or the ISP's side"
+msgstr ""
+
+msgid "Optical signal weaker: RX %s dBm, usually %s dBm"
+msgstr ""
+
+msgid "SFP module alarm: %s"
+msgstr ""
+
+msgid "No IGMP query from the operator for %s (usually every %s)"
+msgstr ""
+
+msgid "IGMP queries from the operator again after %s"
+msgstr ""
+
+msgid "Router OVERHEATED: %s %s °C (limit %s °C)"
+msgstr ""
+
+msgid "Router temperature normal again after %s"
+msgstr ""
+
+msgid "Router CPU SLOWED DOWN by heat: %s MHz instead of %s MHz (%s °C)"
+msgstr ""
+
+msgid "Router CPU at full speed again after %s"
+msgstr ""
+
+msgid "OPTICAL SIGNAL WEAKER: RX %s dBm, usually %s dBm (%s dB less) on %s"
+msgstr ""
+
+msgid "the module itself warns"
+msgstr ""
+
+msgid "below the set limit"
+msgstr ""
+
+msgid "Optical signal back to %s dBm after %s (weakest %s dBm)"
+msgstr ""
+
+msgid "NO LIGHT from the line on %s (SFP RX) – the fibre, the connector or the ISP's side"
+msgstr ""
+
+msgid "Light is back after %s (RX %s dBm)"
+msgstr ""
+
+msgid "SFP module alarm over after %s"
+msgstr ""
+
+msgid "SFP module on %s does not answer any more (taken out, or it hung)"
+msgstr ""
+
+msgid "SFP module on %s answers again after %s"
+msgstr ""
+
+msgid "%s GB"
+msgstr ""
+
+msgid "LINK FULL (%s %d%%) for %s – heaviest: %s"
+msgstr ""
+
+msgid "%s in that time, from %s"
+msgstr ""
+
+msgid "the connection table"
+msgstr ""
+
+msgid "%d of %d MHz"
+msgstr ""
+
+msgid "throttled"
+msgstr ""
+
+msgid "Router: %s"
+msgstr ""
+
+msgid "limit"
+msgstr ""
+
+msgid "fan"
+msgstr ""
+
+msgid "cooling"
+msgstr ""
+
+msgid "Highest since start: %s °C (%s)"
+msgstr ""
+
+msgid "Overheated for %s, throttled for %s since start"
+msgstr ""
+
+msgid "no answer from the module on %s (%s)"
+msgstr ""
+
+msgid "no module on %s"
+msgstr ""
+
+msgid "install ethtool"
+msgstr ""
+
+msgid "Received power; usually %s dBm, a fall of %s dB counts as a fault"
+msgstr ""
+
+msgid "RX no light"
+msgstr ""
+
+msgid "From the SFP module itself (ethtool -m %s)"
+msgstr ""
+
+msgid "Optical signal"
+msgstr ""
+
+msgid "Traffic of the %s the link was %d%% full (%s), %s in total; read from %s at %s"
+msgstr ""
+
+msgid "could not read the traffic per host (%s)"
+msgstr ""
+
+msgid "nlbwmon is installed but not running"
+msgstr ""
+
+msgid "needs nlbwmon (luci-app-nlbwmon) or the conntrack byte accounting"
+msgstr ""
+
+msgid "ready (%s) – listed when the link has been full for a while"
+msgstr ""
+
+msgid "connection table"
+msgstr ""
+
+msgid "The hosts that used the most traffic while the link was full, the last time it was full for a while"
+msgstr ""
+
+msgid "Who fills the link"
+msgstr ""
+
+msgid "last query %s ago"
+msgstr ""
+
+msgid "every ~%s"
+msgstr ""
+
+msgid "SILENT, memberships can expire"
+msgstr ""
+
+msgid "none seen in %s"
+msgstr ""
+
+msgid "waiting for the first query"
+msgstr ""
+
+msgid "General IGMP queries sent by the operator on the IPTV VLAN, seen by the router. Without them the memberships time out."
+msgstr ""
+
+msgid "ISP IGMP queries"
+msgstr ""
+
+msgid "Settings of this router's bridge, not what the operator sends – see \"ISP IGMP queries\"."
+msgstr ""
+
+msgid "No light"
+msgstr ""
+
+msgid "Weaker signal"
+msgstr ""
+
+msgid "RX power"
+msgstr ""
+
+msgid "TX power"
+msgstr ""
+
+msgid "Optical power of the SFP module (dBm) – red background = signal weaker / no light"
+msgstr ""
+
+msgid "SoC temperature"
+msgstr ""
+
+msgid "CPU throttled"
+msgstr ""
+
+msgid "Router temperature (°C) – red background = CPU slowed down by heat"
+msgstr ""
+
+msgid "Router overheated / CPU throttled"
+msgstr ""
+
+msgid "highest %s °C since %s"
+msgstr ""
+
+msgid "Optical signal (SFP)"
+msgstr ""
+
+msgid "weaker %d×, no light %d×"
+msgstr ""
+
+msgid "now RX %s dBm, usually %s dBm, weakest %s dBm since start"
+msgstr ""
+
+msgid "Who filled the link"
+msgstr ""
+
+msgid "Taken automatically while the link was full for a while: the hosts with the most traffic in that time. Full link with your own traffic is not an ISP fault."
+msgstr ""
+
+msgid "Time"
+msgstr ""
+
+msgid "Direction"
+msgstr ""
+
+msgid "Heaviest"
+msgstr ""
+
+msgid "When the link stays full (the limit above) for a while, list the hosts with the most traffic in that time. Only reads: nlbwmon when it is installed and running, else the connection tracking table when its byte accounting is on."
+msgstr ""
+
+msgid "Optical signal (SFP / ONT)"
+msgstr ""
+
+msgid "When the WAN goes through an SFP module or an ONT in an SFP cage, read its RX / TX power and temperature (ethtool -m). A fall of the received power is a hard proof of a fault in the line. Shown only when the module answers; needs the ethtool package."
+msgstr ""
+
+msgid "SFP port (override)"
+msgstr ""
+
+msgid "Empty = the physical port of the WAN interface."
+msgstr ""
+
+msgid "Weaker signal from (dB)"
+msgstr ""
+
+msgid "A fall of the received power below its usual level by this much, two readings in a row."
+msgstr ""
+
+msgid "Received power below (dBm)"
+msgstr ""
+
+msgid "Also a fault below this level. Empty = the module's own low-power warning only."
+msgstr ""
+
+msgid "Watch the operator's IGMP queries"
+msgstr ""
+
+msgid "Shows how long ago the operator sent its last IGMP general query and warns when they stop: without them the memberships expire after about two intervals and the stream freezes. Works on the port facing the ISP (incoming traffic). Needs the isp-tester-tsmon package."
+msgstr ""
+
+msgid "Overheated from (°C)"
+msgstr ""
+
+msgid "SoC temperature from /sys/class/thermal, two intervals in a row; throttling (slower CPU) is logged on its own. Empty = 5 °C below the point where the kernel starts to throttle (85 °C when unknown), -1 disables."
+msgstr ""
+
+msgid "automatic"
+msgstr ""
