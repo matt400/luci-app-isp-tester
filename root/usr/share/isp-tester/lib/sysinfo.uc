@@ -222,7 +222,7 @@ function meminfo() {
 		if (r) m[r[1]] = +r[2];
 	}
 	let avail = m.MemAvailable ?? ((m.MemFree ?? 0) + (m.Cached ?? 0) + (m.Buffers ?? 0));
-	return m.MemTotal ? { total: m.MemTotal, avail, pct: round(avail * 100 / m.MemTotal, 0) } : null;
+	return m.MemTotal ? { total: m.MemTotal, avail, pct: round(avail * 100.0 / m.MemTotal, 0) } : null;
 }
 
 function dnsmasq_pids() {

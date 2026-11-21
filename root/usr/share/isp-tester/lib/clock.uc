@@ -89,6 +89,8 @@ function clk_check() {
 	let off = time() - mono();
 	if (clk.off != null && absf(off - clk.off) >= 2.5) {
 		let by = int(round(off - clk.off, 0));
+		/* expected: the first NTP step after a boot (not a problem) */
+		let expected = clk.on;
 		let n = clk.on ? clk_fix(by) : 0;
 		if (!clk.on && by < 0) {
 			let t = now();
@@ -99,7 +101,7 @@ function clk_check() {
 		clk.steps++;
 		clk.last = { ts: now(), by };
 		if (clk.on) clk_release();
-		C.emit(absf(by) >= 60 ? 'warn' : 'info', 'system', 'clock', 'clock_step', { by, fixed: n, ntp: ntp.state });
+		C.emit(absf(by) >= 60 && !expected ? 'warn' : 'info', 'system', 'clock', 'clock_step', { by, fixed: n, ntp: ntp.state });
 	}
 	clk.off = off;
 	if (clk.on && mono() - clk.m0 > 3600) clk_release();
@@ -147,7 +149,11 @@ function ntp_client() {
 	}
 	let was = ntp.client;
 	ntp.client = c;
-	if (!c && was !== null && !getenv('ISP_TESTER_CONFIG')) {
+	ntp.checks = (ntp.checks ?? 0) + 1;
+	/* gone since the last check, or none at all from the second check on
+	 * (a minute after the start, when sysntpd had time to come up): before,
+	 * a router without any NTP client was never reported */
+	if (!c && (was !== null || ntp.checks >= 2) && !getenv('ISP_TESTER_CONFIG')) {
 		if (ntp.state != 'off') C.emit('warn', 'system', 'clock', 'ntp_off', {});
 		ntp.state = 'off';
 	}

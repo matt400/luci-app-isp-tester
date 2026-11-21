@@ -639,13 +639,19 @@ static void handle_frame(const uint8_t *f, int caplen, int wirelen, double t)
 		if (q[0] != 0x47) { g->sync_err++; break; }
 		int x1 = q[1], x2 = q[2], x3 = q[3];
 		g->ts_pkts++;
+		if (x1 & 0x80) {
+			/* transport error: the header itself (PID, counter) cannot be
+			 * trusted - counted once here, not again as a CC error of a
+			 * random PID (the collector adds the two up) */
+			g->tei++;
+			continue;
+		}
 		int pid = ((x1 & 0x1f) << 8) | x2;
 		if (pid == 0x1fff) continue;
-		if (x1 & 0x80) g->tei++;
 		int afc = (x3 >> 4) & 3;
 		if (afc == 0) continue;
 		/* PAT / SDT for the channel name, until the service is known */
-		if (!g->psi_done && (pid == 0 || pid == 0x11) && (afc & 1) && !(x1 & 0x80))
+		if (!g->psi_done && (pid == 0 || pid == 0x11) && (afc & 1))
 			psi_packet(g, pid, q, x1, afc);
 		int cc = x3 & 15;
 		if (afc & 2) {

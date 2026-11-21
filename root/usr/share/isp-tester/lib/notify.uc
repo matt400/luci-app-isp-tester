@@ -20,20 +20,22 @@ const RECOVERY = { wan_up: true, stream_resume: true, stream_lost: true, stream_
 	wan_if_up: true, proxy_up: true, target_ok: true, dev_present: true, peer_back: true,
 	bufferbloat_ok: true, v6_up: true, v6_if_up: true, v6_pd_back: true, v6_route_back: true, dns_ok: true, dns_server_ok: true,
 	igmp_noquery_ok: true, sfp_los_ok: true, sfp_rx_drop_ok: true, sfp_alarm_ok: true, sfp_gone_ok: true,
-	cpu_high_ok: true, mem_low_ok: true, conntrack_full_ok: true };
+	cpu_high_ok: true, mem_low_ok: true, conntrack_full_ok: true, ntp_sync: true };
 
 function notify_queue(e) {
 	let n = C.cfg.notify;
 	if (!n.enabled) return;
-	/* during maintenance (the user works on the network): nothing */
-	if (e.m) return;
 	let key = `${e.host ?? ''}|${e.area}|${e.src}`;
 	let want;
 	if (RECOVERY[e.type]) {
 		want = notif.open[key] == true;
+		/* also during maintenance: the fault is over, so a later, unrelated
+		 * recovery of the same source does not send a stray "back" */
 		delete notif.open[key];
 	}
-	else {
+	/* during maintenance (the user works on the network): nothing is sent */
+	if (e.m) return;
+	if (!RECOVERY[e.type]) {
 		want = (e.lvl == 'err') || (e.lvl == 'warn' && n.min_level == 'warn');
 		if (want) notif.open[key] = true;
 	}
@@ -112,4 +114,4 @@ function notify_status() {
 		last_ok: notif.last_ok, last_fail: notif.last_fail, last_err: notif.last_err, fetch: FETCH != null } : null;
 }
 
-export { notify_init, notify_queue, notify_flush, notify_test, notify_status };
+export { RECOVERY, notify_init, notify_queue, notify_flush, notify_test, notify_status };

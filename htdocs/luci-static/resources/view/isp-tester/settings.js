@@ -291,7 +291,8 @@ return view.extend({
 		o.rmempty = false;
 
 		o = s.option(form.Value, 'interval', _('Sampling interval'), _('Seconds between measurements.'));
-		o.datatype = 'range(2,300)';
+		/* whole seconds: the init script needs an integer for the watchdog */
+		o.datatype = 'and(uinteger,range(2,300))';
 		o.placeholder = '10';
 
 		o = s.option(form.Value, 'max_samples', _('Measurements kept'),

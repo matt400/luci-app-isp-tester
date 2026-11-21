@@ -68,7 +68,8 @@ function trace_judge(hops) {
 function median(a) {
 	if (!length(a)) return null;
 	let s = sort([ ...a ], (x, y) => x - y), n = length(s);
-	return (n % 2) ? s[n >> 1] : (s[n / 2 - 1] + s[n / 2]) / 2;
+	/* / 2.0: two ints would be divided as integers in ucode */
+	return (n % 2) ? s[n >> 1] : (s[n / 2 - 1] + s[n / 2]) / 2.0;
 }
 
 /* "0.5412 mW / -2.67 dBm" -> -2.67; "-inf dBm" -> null */
