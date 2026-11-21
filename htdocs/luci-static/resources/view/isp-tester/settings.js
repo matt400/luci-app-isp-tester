@@ -168,6 +168,55 @@ function renderPush() {
 	]);
 }
 
+/* tabs of the settings page, in this order; sections are put into them by place() */
+var TABS = [
+	[ 'general',  _('General') ],
+	[ 'wan',      _('Internet (WAN)') ],
+	[ 'iptv',     _('IPTV') ],
+	[ 'channels', _('Channel names') ],
+	[ 'decoders', _('Decoders') ],
+	[ 'ports',    _('Ports') ],
+	[ 'system',   _('Router load') ],
+	[ 'dns',      _('DNS') ],
+	[ 'notify',   _('Notifications') ],
+	[ 'peer',     _('Second router') ],
+	[ 'push',     _('Send data') ]
+];
+
+/* put a section into a tab; the tab name replaces the section title unless keepTitle */
+function place(s, tab, keepTitle) {
+	s.isptab = tab;
+	if (!keepTitle) s.hidetitle = true;
+	return s;
+}
+
+/*
+ * Map that groups its sections into tabs (by s.isptab). The panes are built
+ * here, before LuCI initialises the tab groups, so the nested IPTV
+ * Basic/Advanced tabs and the last open tab are kept after Save & Apply.
+ */
+var TabbedMap = form.Map.extend({
+	renderChildren: function(tab_name) {
+		return this.super('renderChildren', arguments).then(L.bind(function(nodes) {
+			if (tab_name != null) return nodes;
+
+			var kids = this.children.filter(function(c) { return !c.disable; });
+			var panes = {};
+
+			nodes.forEach(function(node, i) {
+				var t = (kids[i] && kids[i].isptab) || TABS[0][0];
+				(panes[t] = panes[t] || []).push(node);
+			});
+
+			return [ E('div', { 'class': 'cbi-map-tabbed' }, TABS.filter(function(t) {
+				return panes[t[0]];
+			}).map(function(t) {
+				return E('div', { 'data-tab': t[0], 'data-tab-title': t[1] }, panes[t[0]]);
+			})) ];
+		}, this));
+	}
+});
+
 return view.extend({
 	load: function() {
 		return Promise.all([
@@ -181,11 +230,12 @@ return view.extend({
 		var learned = data[0];
 		var state = (data[1] && data[1].state) || {};
 
-		m = new form.Map('isp_tester', _('ISP Tester – Settings'),
+		m = new TabbedMap('isp_tester', _('ISP Tester – Settings'),
 			_('Changes are applied immediately after “Save & Apply”; the collector restarts, keeping the timeline (charts start over).'));
 
 		/* ---- general */
 		s = m.section(form.NamedSection, 'general', 'general', _('General'));
+		place(s, 'general');
 
 		o = s.option(form.Flag, 'enabled', _('Enable monitoring'),
 			_('Turns the whole package on or off, including start at boot. Can also be switched on the overview page.'));
@@ -232,6 +282,7 @@ return view.extend({
 		/* ---- WAN */
 		s = m.section(form.NamedSection, 'wan', 'wan', _('Internet (WAN)'),
 			_('Ping is not measured here but taken from collectd: install <code>luci-app-statistics</code> and <code>collectd-mod-ping</code>, enable the Ping plugin and add the ISP gateway and one or two far hosts (e.g. 1.1.1.1, 8.8.8.8). Enable the UnixSock plugin (<code>collectd-mod-unixsock</code>) for live values; without it the values are read from the RRD files and lag behind by the cache time.'));
+		place(s, 'wan');
 
 		o = s.option(form.Flag, 'enabled', _('Monitor Internet'));
 		o.default = '1';
@@ -348,6 +399,7 @@ return view.extend({
 		/* ---- IPTV */
 		s = m.section(form.NamedSection, 'iptv', 'iptv', _('IPTV'),
 			_('Usually it is enough to enter the IPTV VLAN of your ISP. The bridge, the port towards the ISP and the decoder ports are then found automatically.'));
+		place(s, 'iptv');
 		s.tab('basic', _('Basic'));
 		s.tab('advanced', _('Advanced'));
 
@@ -461,6 +513,7 @@ return view.extend({
 		/* ---- router load */
 		s = m.section(form.NamedSection, 'system', 'system', _('Router load'),
 			_('An overloaded router drops packets too. Only read from /proc to explain problems in the timeline; for graphs use Status → Realtime Graphs or luci-app-statistics.'));
+		place(s, 'system');
 
 		o = s.option(form.Flag, 'enabled', _('Watch router load'));
 		o.default = '1';
@@ -483,6 +536,7 @@ return view.extend({
 		/* ---- DNS */
 		s = m.section(form.NamedSection, 'dns', 'dns', _('DNS'),
 			_('Pages that do not open while ping works are often DNS. No own test: dnsmasq\'s statistics are read – over ubus every interval (queries sent upstream, answered from the cache, unanswered), and per upstream server from the statistics dnsmasq writes to the system log on SIGUSR1 (queries sent, retried = no answer in time, failed = SERVFAIL/REFUSED, average latency).'));
+		place(s, 'dns');
 
 		o = s.option(form.Flag, 'enabled', _('Watch DNS'));
 		o.default = '1';
@@ -513,6 +567,7 @@ return view.extend({
 
 		s = m.section(form.NamedSection, 'iptv', 'iptv', _('Decoders'),
 			_('Tells “the decoder restarted” from “the stream vanished”. In a bridged IPTV VLAN the decoders get their address from the ISP, so the router has no neighbour entry for them; it uses the bridge\'s MAC table instead: every device in the IPTV VLAN on a port other than the one to the ISP is a decoder. A restart is seen when the port\'s link goes down (decoder directly on the port), when it vanishes from the MAC table and comes back, or when it is silent while the stream stops. Behind a switch the port stays up – install the package on the router the decoder is plugged into and let it send its events here. Needs the IPTV VLAN set above and the <code>ip-bridge</code> package.'));
+		place(s, 'decoders');
 
 		o = s.option(form.Flag, 'decoders', _('Detect decoder restarts'));
 		o.default = '1';
@@ -537,6 +592,7 @@ return view.extend({
 
 		s = m.section(form.GridSection, 'decoder', _('Decoder names'),
 			_('Optional: a name per decoder MAC address, shown instead of the address. The decoders found now are offered in the list.'));
+		place(s, 'decoders', true);
 		s.addremove = true;
 		s.anonymous = true;
 
@@ -553,6 +609,7 @@ return view.extend({
 		/* ---- second router */
 		s = m.section(form.NamedSection, 'peer', 'peer', _('Second router'),
 			_('Two routers, one timeline: a router behind this one (e.g. an access point with a decoder, a phone or the TV behind it) sends every event it logs to the main router, which shows them on its timeline marked with the sender\'s name and uses them in the analysis. Install the package on both, choose “Send” on the second one and “Receive” on the main one, with the same key. Over UDP, signed with the key (HMAC-SHA256); events that cannot be delivered are sent again.'));
+		place(s, 'peer');
 
 		o = s.option(form.ListValue, 'role', _('This router'));
 		o.value('off', _('Works alone'));
@@ -582,6 +639,7 @@ return view.extend({
 		/* ---- data push */
 		s = m.section(form.NamedSection, 'push', 'push', _('Send data to another device'),
 			_('Sends the timeline, history and CSV as one .tar.gz over SSH (dropbear\'s own client, no extra package) to another device in your network, e.g. a PC or a NAS with an SSH server. That device keeps the files, so the long history lives there and not on this router.'));
+		place(s, 'push');
 
 		o = s.option(form.Flag, 'enabled', _('Send regularly'));
 		o.default = '0';
@@ -624,6 +682,7 @@ return view.extend({
 		/* ---- notifications */
 		s = m.section(form.NamedSection, 'notify', 'notify', _('Notifications'),
 			_('Push a message to your phone when something breaks. Messages that cannot be sent during an outage are sent when the Internet is back.'));
+		place(s, 'notify');
 
 		o = s.option(form.Flag, 'enabled', _('Send notifications'));
 		o.default = '0';
@@ -677,6 +736,7 @@ return view.extend({
 		/* ---- channel names */
 		s = m.section(form.GridSection, 'channel', _('IPTV channel names'),
 			_('Names set here win over the names read from the stream. Use them when the operator sends no names or a different one is wanted.'));
+		place(s, 'channels', true);
 		s.addremove = true;
 		s.anonymous = true;
 		s.sortable = true;
@@ -695,6 +755,7 @@ return view.extend({
 		o.rmempty = false;
 
 		s = m.section(form.NamedSection, 'iptv', 'iptv', _('Names read from the streams'));
+		place(s, 'channels', true);
 		o = s.option(form.DummyValue, '_learned');
 		o.render = function() {
 			return E('div', { 'class': 'cbi-section-node' }, renderLearned(learned));
@@ -703,6 +764,7 @@ return view.extend({
 		/* ---- ports */
 		s = m.section(form.GridSection, 'port', _('Ports'),
 			_('Physical ports (or any devices) to watch for link drops, speed changes and errors.'));
+		place(s, 'ports');
 		s.addremove = true;
 		s.anonymous = true;
 		s.sortable = true;

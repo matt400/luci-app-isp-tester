@@ -1280,6 +1280,12 @@ msgstr "Zapomnij odczytane nazwy"
 msgid "Identify channel names"
 msgstr "Rozpoznawaj nazwy kanałów"
 
+msgid "Channel names"
+msgstr "Nazwy kanałów"
+
+msgid "Send data"
+msgstr "Wysyłanie danych"
+
 msgid "IPTV channel names"
 msgstr "Nazwy kanałów IPTV"
 
