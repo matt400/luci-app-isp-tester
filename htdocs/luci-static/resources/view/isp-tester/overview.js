@@ -216,6 +216,7 @@ function reasonText(r) {
 	case 'wan_if_down':     return _('WAN interface %s is down (no PPPoE/DHCP session) for %s').format(r.iface, fmtDur(Date.now() / 1000 - r.since));
 	case 'no_ping_source':  return _('No ping data: enable the Ping plugin of luci-app-statistics (collectd) and add the ISP gateway and far hosts there.');
 	case 'proxy_down':      return _('Multicast proxy %s is not running').format(r.name || '');
+	case 'igmp_noquery':    return _('The operator has stopped sending IGMP queries');
 	case 'cpu_high':        return (r.cpu == null) ? _('Router CPU busy') : _('Router CPU busy: %d%% (%s)').format(r.cpu, r.core || 'cpu');
 	case 'mem_low':         return _('Router is low on RAM: %d%% free').format(r.pct);
 	case 'conntrack_full':  return _('Connection table %d%% full').format(r.pct);
@@ -244,6 +245,9 @@ function reasonText(r) {
 	case 'v6_no_route':     return _('No IPv6 default route for %s – the ISP stopped sending router advertisements').format(fmtDur(Date.now() / 1000 - r.since));
 	case 'dns_fail_now':    return _('DNS: %d%% of the queries get no answer from the upstream server (for %s)').format(r.pct, fmtDur(Date.now() / 1000 - r.since));
 	case 'dns_server_bad':  return _('DNS server %s retries or fails many queries').format(r.server);
+	case 'sfp_los':         return _('No light from the line (SFP RX) for %s – the fibre, the connector or the ISP\'s side').format(fmtDur(Date.now() / 1000 - r.since));
+	case 'sfp_weak':        return _('Optical signal weaker: RX %s dBm, usually %s dBm').format(r.rx, r.base != null ? r.base : '?');
+	case 'sfp_alarm':       return _('SFP module alarm: %s').format((r.flags || []).join(', '));
 	default:                return r.c;
 	}
 }
@@ -285,11 +289,17 @@ function eventText(e) {
 	case 'wan_if_up':       return _('WAN interface %s up again after %s').format(d.iface, fmtDur(d.dur)) + (d.ip ? ' · ' + d.ip : '');
 	case 'wan_reconnect':   return _('WAN session restarted (previous one lasted %s)').format(fmtDur(d.prev));
 	case 'wan_ip_change':   return _('WAN address changed %s → %s').format(d.from, d.to);
+	case 'igmp_noquery':    return _('No IGMP query from the operator for %s (usually every %s)').format(fmtDur(d.silent), fmtDur(d.expected));
+	case 'igmp_noquery_ok': return _('IGMP queries from the operator again after %s').format(fmtDur(d.dur));
 	case 'proxy_down':      return _('Multicast proxy %s STOPPED').format(d.name);
 	case 'proxy_up':        return _('Multicast proxy %s running again after %s').format(d.name, fmtDur(d.dur));
 	case 'proxy_restart':   return _('Multicast proxy %s restarted').format(d.name);
 	case 'cpu_high':        return _('Router CPU busy: %d%% on %s (softirq %d%%)').format(d.cpu, d.core || 'cpu', d.sirq);
 	case 'cpu_high_ok':     return _('Router CPU load normal again after %s').format(fmtDur(d.dur));
+	case 'temp_high':       return _('Router OVERHEATED: %s %s °C (limit %s °C)').format(d.zone, d.temp, d.warn);
+	case 'temp_high_ok':    return _('Router temperature normal again after %s').format(fmtDur(d.dur));
+	case 'throttle':        return _('Router CPU SLOWED DOWN by heat: %s MHz instead of %s MHz (%s °C)').format(d.mhz != null ? d.mhz : '?', d.max_mhz != null ? d.max_mhz : '?', d.temp != null ? d.temp : '?');
+	case 'throttle_ok':     return _('Router CPU at full speed again after %s').format(fmtDur(d.dur));
 	case 'mem_low':         return _('Router is low on RAM: %d%% free').format(d.pct);
 	case 'mem_low_ok':      return _('Router RAM OK again after %s').format(fmtDur(d.dur));
 	case 'conntrack_full':  return _('Connection table %d%% full (%d of %d)').format(d.pct, d.n, d.max);
@@ -297,6 +307,16 @@ function eventText(e) {
 	case 'user_mark':       return _('You reported: %s').format(markText(d.what)) + (d.note ? ' – „' + d.note + '”' : '');
 	case 'log':             return logText(d.kind) + ' – ' + d.prog + ': „' + d.msg + '”' + (d.n > 1 ? ' (%d×)'.format(d.n) : '');
 	case 'trace':           return traceText(e);
+	case 'link_hogs':       return hogsText(d);
+	case 'sfp_rx_drop':     return _('OPTICAL SIGNAL WEAKER: RX %s dBm, usually %s dBm (%s dB less) on %s').format(d.rx, d.base != null ? d.base : '?',
+		d.base != null ? (d.base - d.rx).toFixed(1) : '?', d.dev) + (d.why === 'module' ? ' · ' + _('the module itself warns') : d.why === 'min' ? ' · ' + _('below the set limit') : '');
+	case 'sfp_rx_drop_ok':  return _('Optical signal back to %s dBm after %s (weakest %s dBm)').format(d.rx, fmtDur(d.dur), d.min);
+	case 'sfp_los':         return _('NO LIGHT from the line on %s (SFP RX) – the fibre, the connector or the ISP\'s side').format(d.dev);
+	case 'sfp_los_ok':      return _('Light is back after %s (RX %s dBm)').format(fmtDur(d.dur), d.rx != null ? d.rx : '?');
+	case 'sfp_alarm':       return _('SFP module alarm: %s').format((d.flags || []).join(', ')) + (d.temp != null ? ' · %s °C'.format(d.temp) : '');
+	case 'sfp_alarm_ok':    return _('SFP module alarm over after %s').format(fmtDur(d.dur));
+	case 'sfp_gone':        return _('SFP module on %s does not answer any more (taken out, or it hung)').format(d.dev);
+	case 'sfp_gone_ok':     return _('SFP module on %s answers again after %s').format(d.dev, fmtDur(d.dur));
 	case 'decoder_restart': return _('Decoder %s RESTARTED – away for %s on %s (%s)').format(e.src, fmtDur(d.dur), d.port,
 		{ link: _('port link went down'), fdb: _('vanished from the MAC table'), quiet: _('silent while the stream stopped') }[d.via] || d.via) +
 		(d.stream ? ' – ' + _('the stream stopped because of it, not at the ISP') : '');
@@ -356,6 +376,20 @@ function fmtPct(v) {
 	return v == null ? '–' : (v < 1 ? v.toFixed(2) : v.toFixed(1));
 }
 
+function fmtBytes(b) {
+	return b >= 1e9 ? _('%s GB').format((b / 1e9).toFixed(1)) : b >= 1e6 ? _('%s MB').format((b / 1e6).toFixed(b >= 1e8 ? 0 : 1)) : _('%d kB').format(Math.round(b / 1e3));
+}
+
+/* who filled the link: "laptop 88 %, 192.168.1.20 11 %" */
+function hogsHosts(d, n) {
+	return (d.hosts || []).slice(0, n || 3).map(function(h) { return '%s %d%%'.format(h.name || h.id, h.share); }).join(', ');
+}
+
+function hogsText(d) {
+	return _('LINK FULL (%s %d%%) for %s – heaviest: %s').format(d.dir === 'up' ? _('upload') : _('download'), d.load, fmtDur(d.win), hogsHosts(d, 5) || '–') +
+		' · ' + _('%s in that time, from %s').format(fmtBytes(d.total || 0), d.src === 'nlbwmon' ? 'nlbwmon' : _('the connection table'));
+}
+
 function fmtKB(kb) {
 	return kb == null ? '–' : (kb >= 1024 ? _('%s MB').format((kb / 1024).toFixed(1)) : _('%d kB').format(kb));
 }
@@ -366,6 +400,26 @@ function selfTitle(s) {
 		_('collector (with logread, bridge, rrdtool it runs): now %s%%, average %s%%, at most %s%%, RAM %s').format(fmtPct(s.cpu), fmtPct(s.avg), fmtPct(s.max), fmtKB(s.rss));
 	if (s.tsmon) t += '\n' + _('tsmon (IPTV picture): now %s%%, at most %s%%, RAM %s').format(fmtPct(s.tsmon.cpu), fmtPct(s.tsmon.max), fmtKB(s.tsmon.rss));
 	return t;
+}
+
+/* SoC temperature and throttling: one short line + details in the tooltip */
+function thermalLine(th) {
+	var t = [ th.temp != null ? '%s °C'.format(th.temp) : '–' ];
+	if (th.mhz != null) t.push(th.throttle ? _('%d of %d MHz').format(th.mhz, th.max_mhz) : '%d MHz'.format(th.mhz));
+	if (th.throttle) t.push(_('throttled'));
+	return _('Router: %s').format(t.join(' · '));
+}
+
+function thermalTitle(th) {
+	var l = (th.zones || []).map(function(z) {
+		return '%s: %s °C (%s %s °C)'.format(z.type, z.temp, _('limit'), z.warn);
+	});
+	(th.cool || []).forEach(function(c) {
+		l.push('%s: %s %d/%s'.format(c.type, c.fan ? _('fan') : _('cooling'), c.state, c.max != null ? c.max : '?'));
+	});
+	if (th.max_temp != null) l.push(_('Highest since start: %s °C (%s)').format(th.max_temp, fmtTime(th.max_ts)));
+	if (th.hot_s || th.thr_s) l.push(_('Overheated for %s, throttled for %s since start').format(fmtDur(th.hot_s), fmtDur(th.thr_s)));
+	return l.join('\n');
 }
 
 function gapWhy(w) {
@@ -1015,6 +1069,7 @@ return view.extend({
 			membership_interval: br && br.membership_interval,
 			query_interval: br && br.query_interval,
 			igmp: st.iptv && st.iptv.igmp,
+			igmpq: st.iptv && st.iptv.igmpq,
 			iptv_on: !!st.iptv,
 			/* devices whose Wi-Fi is watched, on this or the second router */
 			wifi_watched: ((st.wifi && st.wifi.stations) || []).length +
@@ -1113,6 +1168,8 @@ return view.extend({
 					_('Updated %s ago · running for %s').format(fmtDur(age), fmtDur(st.ts - st.started))),
 					st.self && st.self.cpu != null ? E('div', { 'class': 'ispt-muted', 'style': 'font-size:.85em',
 						'title': selfTitle(st.self) }, _('Tester itself: CPU %s%% · RAM %s').format(fmtPct(st.self.total), fmtKB(st.self.rss_total))) : '',
+				st.thermal && st.thermal.temp != null ? E('div', { 'class': st.thermal.hot || st.thermal.throttle ? 'ispt-warn-text' : 'ispt-muted', 'style': 'font-size:.85em',
+					'title': thermalTitle(st.thermal) }, thermalLine(st.thermal)) : '',
 				E('button', { 'class': 'cbi-button cbi-button-action ispt-markbtn', 'style': 'margin-top:.4em',
 					'title': _('Click the moment you notice a problem (TV freezes, Internet slow). It is logged and compared with the measurements.'),
 					'click': ui.createHandlerFn(this, 'showMark') }, _('⚑ Problem now')),
@@ -1290,6 +1347,35 @@ return view.extend({
 				E('span', { 'class': b.active ? 'ispt-warn-text' : '' }, bloatText(b)));
 		}
 
+		if (w.sfp) {
+			var sp = w.sfp, sv = [];
+			if (!sp.ok)
+				sv.push(E('span', { 'class': 'ispt-warn-text' }, sp.ethtool ? (sp.err ? _('no answer from the module on %s (%s)').format(sp.dev || '?', sp.err) : _('no module on %s').format(sp.dev || '?')) : _('install ethtool')));
+			else {
+				var bad = sp.los || sp.drop;
+				sv.push(E('span', { 'class': bad ? 'ispt-warn-text' : '', 'title': _('Received power; usually %s dBm, a fall of %s dB counts as a fault').format(sp.base != null ? sp.base : '?', sp.drop_db) },
+					sp.rx != null ? 'RX %s dBm'.format(sp.rx) : _('RX no light')));
+				if (sp.tx != null) sv.push(' · TX %s dBm'.format(sp.tx));
+				if (sp.temp != null) sv.push(' · %s °C'.format(sp.temp));
+				if (sp.alarm) sv.push(E('span', { 'class': 'ispt-warn-text' }, ' · ' + (sp.flags || []).join(', ')));
+			}
+			kv.push(E('span', { 'class': 'k', 'title': _('From the SFP module itself (ethtool -m %s)').format(sp.dev || '') }, _('Optical signal')), E('span', {}, sv));
+		}
+		if (w.hogs) {
+			var hg = w.hogs, hv;
+			if (hg.last)
+				hv = E('span', { 'title': _('Traffic of the %s the link was %d%% full (%s), %s in total; read from %s at %s').format(
+					fmtDur(hg.last.win), hg.last.load, hg.last.dir === 'up' ? _('upload') : _('download'), fmtBytes(hg.last.total || 0),
+					hg.last.src === 'nlbwmon' ? 'nlbwmon' : _('the connection table'), fmtTime(hg.last.ts)) }, hogsHosts(hg.last, 4));
+			else if (hg.err === 'read_failed')
+				hv = E('span', { 'class': 'ispt-warn-text' }, _('could not read the traffic per host (%s)').format(hg.source || '–'));
+			else if (!hg.source)
+				hv = E('span', { 'class': 'ispt-muted' }, hg.nlbw ? _('nlbwmon is installed but not running') : _('needs nlbwmon (luci-app-nlbwmon) or the conntrack byte accounting'));
+			else
+				hv = E('span', { 'class': 'ispt-muted' }, _('ready (%s) – listed when the link has been full for a while').format(hg.source === 'nlbwmon' ? 'nlbwmon' : _('connection table')));
+			kv.push(E('span', { 'class': 'k', 'title': _('The hosts that used the most traffic while the link was full, the last time it was full for a while') }, _('Who fills the link')), hv);
+		}
+
 		return E('div', { 'class': 'ispt-card l-' + lvl(w.level) }, [
 			E('h3', {}, [ _('Internet'), chip(w.level) ]),
 			E('table', { 'class': 'ispt-mini' }, [
@@ -1393,8 +1479,18 @@ return view.extend({
 				E('span', {}, t.bridge.querier == null ? '–' : (t.bridge.querier === '1' ? _('on') : _('off'))));
 		}
 
+		if (t.igmpq) {
+			var q = t.igmpq, qs;
+			if (q.gen > 0)
+				qs = [ dot(q.silent ? 'fail' : 'ok'), _('last query %s ago').format(fmtDur(q.age)) + ' · ' + _('every ~%s').format(fmtDur(q.expected)) +
+					(q.src ? ' · ' + q.src : '') + (q.ver ? ' (IGMPv' + q.ver + ')' : '') + (q.silent ? ' · ' + _('SILENT, memberships can expire') : '') ];
+			else
+				qs = [ dot(q.never ? 'warn' : 'ok'), q.never ? _('none seen in %s').format(fmtDur(q.seen_for)) : _('waiting for the first query') ];
+			kv.push(E('span', { 'class': 'k', 'title': _('General IGMP queries sent by the operator on the IPTV VLAN, seen by the router. Without them the memberships time out.') },
+				_('ISP IGMP queries')), E('span', {}, qs));
+		}
 		if (t.bridge && t.bridge.membership_interval)
-			kv.push(E('span', { 'class': 'k' }, _('IGMP timers')), E('span', {},
+			kv.push(E('span', { 'class': 'k', 'title': _('Settings of this router\'s bridge, not what the operator sends – see "ISP IGMP queries".') }, _('IGMP timers')), E('span', {},
 				_('membership %d s, query %d s').format(t.bridge.membership_interval, t.bridge.query_interval || 0)));
 		if (t.bridge && t.bridge.mdb)
 			kv.push(E('span', { 'class': 'k' }, _('Bridge groups')), E('span', { 'class': 'ispt-groups' },
@@ -1622,6 +1718,38 @@ return view.extend({
 				{ name: _('Upload'), color: '#2a9d5b', data: (s['wan:tx'] || []).map(mb), fmt: function(v) { return fmtRate(v * 1000); } }
 			], { from: w.from, to: w.to, title: _('WAN traffic (Mbit/s) – yellow = bufferbloat (ping up while the link is full)'),
 				bands: bloatBands, fmt: function(v) { return v.toFixed(v < 10 ? 1 : 0); }, min_max: 1, legend: true }));
+		}
+
+		if (s['sfp:rx'] && s['sfp:rx'].some(function(v) { return v != null; })) {
+			/* dBm are negative and the chart starts at 0: shifted by 40, the axis labels shift back */
+			var evs3 = this.events().filter(function(e) { return !e.host; }).sort(function(a, b) { return a.ts - b.ts; });
+			var sfpBands = [];
+			evs3.forEach(function(e, i) {
+				if (e.type !== 'sfp_rx_drop' && e.type !== 'sfp_los') return;
+				var okt = e.type + '_ok', end = null;
+				for (var j = i + 1; j < evs3.length; j++)
+					if (evs3[j].type === okt || evs3[j].type === 'monitor_start' || evs3[j].type === 'data_gap') { end = evs3[j].ts; break; }
+				if (end == null) end = st.ts;
+				if (end >= w.from && e.ts <= w.to)
+					sfpBands.push({ from: e.ts, to: end, color: '#d64541', title: e.type === 'sfp_los' ? _('No light') : _('Weaker signal') });
+			});
+			var dbm = function(v) { return v == null ? null : v + 40; };
+			var sser = [ { name: _('RX power'), color: '#2a9d5b', data: s['sfp:rx'].map(dbm), fmt: function(v) { return (v - 40).toFixed(1) + ' dBm'; } } ];
+			if (s['sfp:tx'] && s['sfp:tx'].some(function(v) { return v != null; }))
+				sser.push({ name: _('TX power'), color: '#7a59c0', data: s['sfp:tx'].map(dbm), fmt: function(v) { return (v - 40).toFixed(1) + ' dBm'; } });
+			out.push(lineChart(t, sser, { from: w.from, to: w.to, bands: sfpBands, legend: true, min_max: 40,
+				title: _('Optical power of the SFP module (dBm) – red background = signal weaker / no light'),
+				fmt: function(v) { return Math.round(v - 40); } }));
+		}
+
+		if (s.temp && s.temp.some(function(v) { return v != null; })) {
+			var thr = s.thr || [], tw = st.thermal && st.thermal.warn;
+			out.push(lineChart(t, [
+				{ name: _('SoC temperature'), color: '#d4774a', data: s.temp, fmt: function(v, k) { return v.toFixed(1) + ' °C' + (thr[k] ? ' · ' + _('throttled') : ''); } }
+			].concat(tw ? [ { name: _('limit'), color: '#d64541', data: s.temp.map(function() { return tw; }), fmt: function(v) { return v + ' °C'; } } ] : []),
+			{ from: w.from, to: w.to, bands: bandsFor(t, function(k) { return thr[k] > 0; }, '#d64541', _('CPU throttled')),
+				title: _('Router temperature (°C) – red background = CPU slowed down by heat'),
+				fmt: function(v) { return Math.round(v); }, min_max: 50, legend: true }));
 		}
 
 		var errSeries = [], ci = 0;
@@ -1894,6 +2022,10 @@ return view.extend({
 			row(_('Decoder restarts'), _('%d×').format(evs.filter(function(e) { return e.type === 'decoder_restart'; }).length)) +
 			row(_('Wi-Fi drops of watched devices'), _('%d×').format(evs.filter(function(e) { return e.type === 'wifi_reconnect' && e.lvl !== 'info'; }).length)) +
 			row(_('Router overloaded'), _('%d×').format(count(function(e) { return e.type === 'cpu_high' || e.type === 'mem_low' || e.type === 'conntrack_full'; }))) +
+			(st.thermal ? row(_('Router overheated / CPU throttled'), _('%d× / %d×').format(count(function(e) { return e.type === 'temp_high'; }), count(function(e) { return e.type === 'throttle'; })) +
+				(st.thermal.max_temp != null ? ' · ' + _('highest %s °C since %s').format(st.thermal.max_temp, fmtTime(st.started)) : '')) : '') +
+			(st.wan && st.wan.sfp && st.wan.sfp.ok ? row(_('Optical signal (SFP)'), _('weaker %d×, no light %d×').format(count(function(e) { return e.type === 'sfp_rx_drop'; }), count(function(e) { return e.type === 'sfp_los'; })) +
+				(st.wan.sfp.rx != null ? ' · ' + _('now RX %s dBm, usually %s dBm, weakest %s dBm since start').format(st.wan.sfp.rx, st.wan.sfp.base != null ? st.wan.sfp.base : '?', st.wan.sfp.min_rx != null ? st.wan.sfp.min_rx : '?') : '')) : '') +
 			row(_('Problems reported by the user'), _('%d×').format(count(function(e) { return e.type === 'user_mark'; }))) +
 			'</table><h2>' + x(_('Assessment')) + '</h2><p><b>' + x(diagnose.verdictText(r.verdict)) + '</b> (' + x(diagnose.confidenceText(r.confidence)) + ')</p><ul>' +
 			r.findings.map(function(f) { return '<li>[' + x(diagnose.sideText(f.side)) + '] ' + x(diagnose.findingText(f)) + '</li>'; }).join('') +
@@ -1913,6 +2045,17 @@ return view.extend({
 									'</td><td>' + h.loss + '%</td><td>' + (h.avg != null ? h.avg + ' ms' : '–') + '</td></tr>';
 							}).join('') + '</table>';
 					}).join('');
+			})() +
+			(function() {
+				var hg = own.filter(function(e) { return e.type === 'link_hogs' && e.d && (e.d.hosts || []).length; });
+				if (!hg.length) return '';
+				return '<h2>' + x(_('Who filled the link')) + '</h2><p class="muted">' +
+					x(_('Taken automatically while the link was full for a while: the hosts with the most traffic in that time. Full link with your own traffic is not an ISP fault.')) + '</p><table class="ev"><tr><th>' +
+					x(_('Time')) + '</th><th>' + x(_('Direction')) + '</th><th>' + x(_('Heaviest')) + '</th></tr>' +
+					hg.map(function(e) {
+						return '<tr><td>' + x(fmtTime(e.ts)) + '</td><td>' + x((e.d.dir === 'up' ? _('upload') : _('download')) + ' ' + e.d.load + '%, ' + fmtDur(e.d.win)) +
+							'</td><td>' + x(hogsHosts(e.d, 5)) + '</td></tr>';
+					}).join('') + '</table>';
 			})() +
 			'<h2>' + x(_('Event log (problems only)')) + '</h2><table class="ev">' +
 			evs.filter(function(e) { return e.lvl !== 'info'; }).map(function(e) {

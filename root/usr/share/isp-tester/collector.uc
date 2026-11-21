@@ -11,6 +11,7 @@
  *   - interface counters / link state: /sys/class/net
  *   - IGMP groups: /proc/net/igmp, multicast proxy from /proc, bridge MDB
  *   - router load: /proc (only to explain problems, no graphs)
+ *   - SoC temperature and throttling: /sys/class/thermal, cpufreq
  *   - system log (logread): pppd, udhcpc, igmpproxy, kernel, dnsmasq messages
  * The IPTV bitrate is one own measurement: read from the interface
  * counters every second, which nothing in OpenWrt does. The other is the
@@ -46,6 +47,8 @@ const VARDIR = getenv('ISP_TESTER_VARDIR') || '/var/run/isp-tester';
 const SYSNET = getenv('ISP_TESTER_SYSNET') || '/sys/class/net';
 const ROUTE = getenv('ISP_TESTER_ROUTE') || '/proc/net/route';
 const PROC = getenv('ISP_TESTER_PROC') || '/proc';
+const THERMAL = getenv('ISP_TESTER_THERMAL') || '/sys/class/thermal';
+const CPUDIR = getenv('ISP_TESTER_CPUDIR') || '/sys/devices/system/cpu';
 
 function find_bin(env, names) {
 	let e = getenv(env);
@@ -159,6 +162,11 @@ function default_config() {
 			trace: true, trace_cooldown: 600,
 			/* bufferbloat: ping vs. WAN load; down/up_mbit 0 = learn the line's speed */
 			bloat: true, bloat_ms: 30, bloat_load: 70, down_mbit: 0, up_mbit: 0,
+			/* who fills the link: hosts of the traffic while it is full (nlbwmon or the conntrack table) */
+			hogs: true, hogs_cooldown: 600,
+			/* optical signal of the SFP / ONT module (ethtool -m), when the WAN goes through one:
+			 * device '' = the WAN's physical port; drop_db below the usual level = a fault; rx_min dBm, '' = the module's own warning */
+			sfp: true, sfp_device: '', sfp_interval: 30, sfp_drop_db: 3, sfp_rx_min: null,
 			/* IPv6: netifd status of the DHCPv6 interface (odhcp6c), '' = wan6 / <wan>_6 */
 			ipv6: true, interface6: '', ra_after: 60
 		},
@@ -167,6 +175,8 @@ function default_config() {
 			min_kbps: 500, idle_after: 60, off_after: 15, dip_pct: 40,
 			sample_interval: 1, stall_after: 2,
 			igmp: true, igmp_device: '',
+			/* the operator's IGMP queries on the IPTV VLAN (needs isp-tester-tsmon) */
+			igmp_query: true,
 			quality: false, q_warn: 1, q_fail: 30, q_gap: 500,
 			names: true, channels: {},
 			/* decoder restarts: bridge MAC table (bridged VLAN) + port link; decoders = { mac: label } */
@@ -175,7 +185,10 @@ function default_config() {
 			dhcp: true
 		},
 		system: {
-			enabled: true, cpu_warn: 90, mem_warn: 10, conntrack_warn: 90
+			enabled: true, cpu_warn: 90, mem_warn: 10, conntrack_warn: 90,
+			/* SoC temperature (/sys/class/thermal) in deg C; 0 = 5 deg below the zone's
+			 * passive trip point (where the kernel starts throttling), else 85; -1 = off */
+			temp_warn: 0
 		},
 		/* DNS of the router (dnsmasq): ubus metrics every tick, per-server
 		 * statistics from its SIGUSR1 dump in the system log every dump s */
@@ -247,6 +260,13 @@ function load_config() {
 		c.wan.bloat_load     = num(w.bloat_load, c.wan.bloat_load);
 		c.wan.down_mbit      = num(w.down_mbit, c.wan.down_mbit);
 		c.wan.up_mbit        = num(w.up_mbit, c.wan.up_mbit);
+		c.wan.hogs           = bool(w.hogs, true);
+		c.wan.hogs_cooldown  = num(w.hogs_cooldown, c.wan.hogs_cooldown);
+		c.wan.sfp            = bool(w.sfp, true);
+		c.wan.sfp_device     = w.sfp_device ?? '';
+		c.wan.sfp_interval   = num(w.sfp_interval, c.wan.sfp_interval);
+		c.wan.sfp_drop_db    = num(w.sfp_drop_db, c.wan.sfp_drop_db);
+		c.wan.sfp_rx_min     = num(w.sfp_rx_min, null);
 		c.wan.ipv6           = bool(w.ipv6, true);
 		c.wan.interface6     = w.interface6 ?? '';
 		c.wan.ra_after       = num(w.ra_after, c.wan.ra_after);
@@ -268,12 +288,14 @@ function load_config() {
 			if (s.mac) c.iptv.dec_labels[lc(trim(s.mac))] = s.label ?? '';
 		});
 		c.iptv.igmp        = bool(t.igmp, true);
+		c.iptv.igmp_query  = bool(t.igmp_query, true);
 		c.iptv.igmp_device = t.igmp_device ?? '';
 
 		c.system.enabled        = bool(y.enabled, true);
 		c.system.cpu_warn       = num(y.cpu_warn, c.system.cpu_warn);
 		c.system.mem_warn       = num(y.mem_warn, c.system.mem_warn);
 		c.system.conntrack_warn = num(y.conntrack_warn, c.system.conntrack_warn);
+		c.system.temp_warn      = num(y.temp_warn, c.system.temp_warn);
 
 		c.notify.enabled   = bool(n.enabled, false);
 		c.notify.service   = n.service ?? c.notify.service;
@@ -407,6 +429,11 @@ function load_config() {
 	if (c.wan.bloat_load < 30 || c.wan.bloat_load > 100) c.wan.bloat_load = 70;
 	if (!(c.wan.down_mbit >= 0)) c.wan.down_mbit = 0;
 	if (!(c.wan.up_mbit >= 0)) c.wan.up_mbit = 0;
+	if (c.wan.hogs_cooldown < 60) c.wan.hogs_cooldown = 60;
+	if (c.wan.sfp_device && !valid_dev(c.wan.sfp_device)) c.wan.sfp_device = '';
+	if (c.wan.sfp_interval < 10) c.wan.sfp_interval = 10;
+	if (!(c.wan.sfp_drop_db >= 1)) c.wan.sfp_drop_db = 3;
+	if (c.wan.sfp_rx_min != null && !(c.wan.sfp_rx_min < 0 && c.wan.sfp_rx_min > -50)) c.wan.sfp_rx_min = null;
 
 	c.peer.port = int(c.peer.port);
 	if (c.peer.port < 1 || c.peer.port > 65535) c.peer.port = 51477;
@@ -461,12 +488,17 @@ let igmp = { groups: null, joined: {}, hist: [], proxy: null, proxy_seen: false,
  * pend/last_ev/last_lvl = per group, errors whose event is held back by the
  * cooldown, cc_acc = errors since the last tick (history chart),
  * dropped/drop_ts = packets the router could not count */
+const IGQ_RING = 8;
+let igq = { on: false, pid: null, gen: 0, total: 0, last_ts: null, ivals: [], src: null, ver: null, qqic: null,
+	max_resp: null, since: null, silent: false, silent_ref: 0, ever: false };
+
 let tsq = { proc: null, args: null, started: 0, fails: 0, next: 0, err: null, seen: {}, drops: null, flow: null,
 	win: [], last: null, pend: {}, last_ev: {}, last_lvl: {}, cc_acc: null, dropped: 0, drop_ts: 0 };
 /* channel names: db = group -> { name, provider, sid, ts } learned from the
  * streams (or { name: null, why, ts } when a stream carries none) */
 let chn = { db: {}, err: null };
-let sys = { prev: null, cpu_n: 0, cpu: false, mem: false, ct: false, cpu_since: 0, mem_since: 0, ct_since: 0 };
+let sys = { prev: null, cpu_n: 0, cpu: false, mem: false, ct: false, cpu_since: 0, mem_since: 0, ct_since: 0,
+	temp: false, temp_since: 0, temp_n: 0, thr: false, thr_since: 0, thr_off: 0 };
 let notif = { pending: [], last: 0, busy: false, last_ok: null, last_fail: null, last_err: null, open: {} };
 let logst = { last_ts: null, last_lines: {}, kinds: {} };
 const HOSTNAME = trim(fs.readfile(`${PROC}/sys/kernel/hostname`) ?? '') || 'OpenWrt';
@@ -495,6 +527,11 @@ const MSG = {
 		ts_errors: 'IPTV picture errors: %d lost-packet gaps (~%d packets) in %ss, channel %s',
 		proxy_down: 'Multicast proxy %s is not running', proxy_up: 'Multicast proxy %s running again', proxy_restart: 'Multicast proxy %s restarted',
 		cpu_high: 'Router CPU busy: %d%% (softirq %d%%)', mem_low: 'Router RAM low: %d%% free', conntrack_full: 'Connection table %d%% full',
+		link_hogs: 'Link %d%% full (%s) for %s, heaviest: %s',
+		igmp_noquery: 'No IGMP query from the operator for %s (usually every %s)', igmp_noquery_ok: 'IGMP queries from the operator again after %s',
+		sfp_rx_drop: 'Optical signal weak: RX %s dBm (usually %s dBm)', sfp_los: 'NO LIGHT from the line on %s (SFP RX)',
+		sfp_alarm: 'SFP module alarm: %s', sfp_gone: 'SFP module on %s does not answer any more',
+		temp_high: 'Router hot: %s %s C (limit %s C)', throttle: 'Router CPU throttled by heat: %s MHz instead of %s MHz (%s C)',
 		user_mark: 'Problem reported by user: %s', test: 'Test message - notifications work.',
 		peer_lost: 'Router %s does not report any more', peer_back: 'Router %s reports again after %s',
 		trace: 'Traceroute to %s: %s',
@@ -532,6 +569,11 @@ const MSG = {
 		ts_errors: 'Błędy obrazu IPTV: %d przerw w pakietach (~%d pakietów) w %ss, kanał %s',
 		proxy_down: 'Proxy multicast %s nie działa', proxy_up: 'Proxy multicast %s znów działa', proxy_restart: 'Proxy multicast %s zrestartowany',
 		cpu_high: 'Router przeciążony: CPU %d%% (softirq %d%%)', mem_low: 'Mało RAM: wolne %d%%', conntrack_full: 'Tablica połączeń zajęta w %d%%',
+		link_hogs: 'Łącze zajęte w %d%% (%s) przez %s, najwięcej: %s',
+		igmp_noquery: 'Brak zapytań IGMP od operatora od %s (zwykle co %s)', igmp_noquery_ok: 'Zapytania IGMP od operatora wróciły po %s',
+		sfp_rx_drop: 'Słaby sygnał optyczny: RX %s dBm (zwykle %s dBm)', sfp_los: 'BRAK ŚWIATŁA z linii na %s (RX SFP)',
+		sfp_alarm: 'Alarm modułu SFP: %s', sfp_gone: 'Moduł SFP na %s przestał odpowiadać',
+		temp_high: 'Router przegrzany: %s %s C (próg %s C)', throttle: 'Procesor routera dławiony przez temperaturę: %s MHz zamiast %s MHz (%s C)',
 		user_mark: 'Problem zgłoszony ręcznie: %s', test: 'Wiadomość testowa - powiadomienia działają.',
 		peer_lost: 'Router %s przestał się zgłaszać', peer_back: 'Router %s znów się zgłasza po %s',
 		trace: 'Traceroute do %s: %s',
@@ -593,6 +635,15 @@ function event_text(e, lang) {
 	case 'proxy_down': case 'proxy_up': case 'proxy_restart': return sprintf(f, d.name);
 	case 'cpu_high': return sprintf(f, d.cpu, d.sirq);
 	case 'mem_low': return sprintf(f, d.pct);
+	case 'sfp_rx_drop': return sprintf(f, d.rx, d.base ?? '?');
+	case 'sfp_los': case 'sfp_gone': return sprintf(f, d.dev);
+	case 'sfp_alarm': return sprintf(f, join(', ', d.flags ?? []));
+	case 'igmp_noquery': return sprintf(f, dur_txt(d.silent), dur_txt(d.expected));
+	case 'igmp_noquery_ok': return sprintf(f, dur_txt(d.dur));
+	case 'link_hogs': return sprintf(f, d.load, d.dir == 'up' ? (lang == 'pl' ? 'wysyłanie' : 'upload') : (lang == 'pl' ? 'pobieranie' : 'download'),
+		dur_txt(d.win), join(', ', map(slice(d.hosts ?? [], 0, 3), (h) => sprintf('%s %d%%', h.name ?? h.id, h.share))) || '-');
+	case 'temp_high': return sprintf(f, d.zone, d.temp, d.warn);
+	case 'throttle': return sprintf(f, d.mhz ?? '?', d.max_mhz ?? '?', d.temp ?? '?');
 	case 'conntrack_full': return sprintf(f, d.pct);
 	case 'user_mark': return sprintf(f, d.note || '-');
 	case 'peer_lost': return sprintf(f, e.src);
@@ -1053,7 +1104,8 @@ function hist_add(h, t, vals, max) {
 
 /* 1-minute aggregates for the long (24 h) history */
 const AGG_MODE = { rtt: 'avg', rttmax: 'max', loss: 'max', jit: 'max',
-	'iptv:kbps': 'avg', 'iptv:min': 'min', 'iptv:cc': 'sum', err: 'sum', drop: 'sum', lvl: 'max', maint: 'max', 'self:cpu': 'max' };
+	'iptv:kbps': 'avg', 'iptv:min': 'min', 'iptv:cc': 'sum', err: 'sum', drop: 'sum', lvl: 'max', maint: 'max', 'self:cpu': 'max', temp: 'max', thr: 'max',
+	'sfp:rx': 'min', 'sfp:tx': 'min', 'sfp:temp': 'max' };
 
 let agg = null;
 let agg10 = null;     /* 10-minute aggregates for the archive */
@@ -1692,6 +1744,394 @@ function bloat_out() {
 		learned: !(cfg.wan.down_mbit > 0 && cfg.wan.up_mbit > 0),
 		last: bloat.last, ms: cfg.wan.bloat_ms, load_pct: cfg.wan.bloat_load
 	};
+}
+
+/* ------------------------------------------------------ who fills the link */
+
+/*
+ * "Who clogged the link": while the WAN is full (the limit of the
+ * bufferbloat detection) for a while, the traffic per host of that stretch
+ * is read from what the router already counts: nlbwmon when it is installed
+ * and running (`nlbw -c csv -g mac`), else the connection tracking table
+ * (/proc/net/nf_conntrack, only when its byte accounting is already on).
+ * Two reads per episode - when the link gets full and when it has been for
+ * long enough - and the difference is the traffic of that stretch. Nothing
+ * is started, switched on or written. Without either source there is no
+ * list (the card says what is missing).
+ * nlbwmon refreshes its counters every 30 s by default, so with it the link
+ * must stay full for 40 s; the conntrack counters are live (15 s).
+ */
+const NLBW = find_bin('ISP_TESTER_NLBW', [ '/usr/sbin/nlbw' ]);
+const TIMEOUT = find_bin('ISP_TESTER_TIMEOUT', [ '/usr/bin/timeout', '/bin/timeout' ]);
+const LEASES = getenv('ISP_TESTER_LEASES') || '/tmp/dhcp.leases';
+const HOGS_MAX_FLOWS = 30000;
+let hogs = { full_n: 0, armed: true, snap: null, last_ev: 0, last: null, err: null, src: null, src_ts: 0,
+	peak: 0, dir: null, flows: 0 };
+
+function hogs_source() {
+	let t = mono();
+	if (hogs.src_ts && t - hogs.src_ts < 60) return hogs.src;
+	hogs.src_ts = t;
+	hogs.src = null;
+	if (NLBW) {
+		for (let pid in (fs.lsdir(PROC) ?? [])) {
+			if (!match(pid, /^[0-9]+$/)) continue;
+			if (trim(fs.readfile(`${PROC}/${pid}/comm`) ?? '') == 'nlbwmon') { hogs.src = 'nlbwmon'; break; }
+		}
+	}
+	if (!hogs.src && fs.stat(`${PROC}/net/nf_conntrack`) &&
+	    trim(fs.readfile(`${PROC}/sys/net/netfilter/nf_conntrack_acct`) ?? '') == '1')
+		hogs.src = 'conntrack';
+	return hogs.src;
+}
+
+/* names: your own labels, then the DHCP lease's host name */
+function hogs_names() {
+	let by_ip = {}, by_mac = {};
+	for (let l in split(fs.readfile(LEASES) ?? '', '\n')) {
+		let f = split(trim(l), /\s+/);
+		if (length(f) < 4 || !match(f[1], /^[0-9a-fA-F:]{17}$/)) continue;
+		let mac = lc(f[1]), name = (f[3] != '*') ? f[3] : null;
+		by_ip[f[2]] = { mac, name };
+		by_mac[mac] = { ip: f[2], name };
+	}
+	return { by_ip, by_mac };
+}
+
+function hogs_label(h, nm) {
+	let mac = h.mac ?? (h.ip ? nm.by_ip[h.ip]?.mac : null);
+	let ip = h.ip ?? (mac ? nm.by_mac[mac]?.ip : null);
+	let name = (mac ? (cfg.wifi.stations[mac] || cfg.iptv.dec_labels[mac]) : null) || null;
+	name ??= (mac ? nm.by_mac[mac]?.name : null) ?? (h.ip ? nm.by_ip[h.ip]?.name : null);
+	return { id: mac ?? ip, mac, ip, name: name || ip || mac };
+}
+
+/* bytes per MAC from nlbwmon: { mac: [ rx, tx ] }; null when it did not answer */
+function hogs_read_nlbw() {
+	let f = fs.popen(`${TIMEOUT ? TIMEOUT + ' 5 ' : ''}${NLBW} -c csv -g mac 2>/dev/null`, 'r');
+	if (!f) return null;
+	let out = f.read('all');
+	f.close();
+	if (!out) return null;
+	/* the header names the columns; without one the documented order is used */
+	let col = { mac: 0, rx: 2, tx: 4 }, res = {}, rows = 0;
+	for (let l in split(out, '\n')) {
+		let c = split(replace(trim(l), /"/g, ''), /[,;\t]/);
+		if (length(c) < 5) continue;
+		if (index(l, 'rx_bytes') >= 0) {
+			col = { mac: index(c, 'mac'), rx: index(c, 'rx_bytes'), tx: index(c, 'tx_bytes') };
+			continue;
+		}
+		if (col.mac < 0 || col.rx < 0 || col.tx < 0) return null;
+		let mac = lc(c[col.mac]);
+		if (!match(mac, /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/)) continue;
+		res[mac] = [ num(c[col.rx], 0), num(c[col.tx], 0) ];
+		rows++;
+	}
+	return rows ? res : null;
+}
+
+function is_local_ip(a, nm) {
+	if (nm.by_ip[a]) return true;
+	return !!(match(a, /^(10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2[0-9]|3[01])\.)/) || match(a, /^(f[cd][0-9a-f]{2}:|fe80:)/i));
+}
+
+/* flows of the conntrack table: { key: [ host_ip, bytes_from_host, bytes_to_host ] } */
+function hogs_read_ct(nm) {
+	let f = fs.open(`${PROC}/net/nf_conntrack`, 'r');
+	if (!f) return null;
+	let flows = {}, n = 0, l;
+	while ((l = f.read('line')) != null) {
+		if (++n > HOGS_MAX_FLOWS) break;
+		let t = split(trim(l), /\s+/), proto = t[2], o = {}, r = {}, cur = o;
+		/* original tuple first, then the reply's: the second "src=" starts it */
+		for (let x in t) {
+			let k = index(x, '=');
+			if (k < 0) continue;
+			let key = substr(x, 0, k), v = substr(x, k + 1);
+			if (key == 'src' && o.src != null) cur = r;
+			if (key == 'src' || key == 'dst' || key == 'sport' || key == 'dport' || key == 'bytes') cur[key] = v;
+		}
+		if (o.src == null || o.dst == null || o.bytes == null) continue;
+		let ob = num(o.bytes, 0), rb = num(r.bytes, 0);
+		let ls = is_local_ip(o.src, nm), ld = is_local_ip(o.dst, nm);
+		/* between two LAN hosts: does not cross the WAN */
+		if (ls && ld) continue;
+		let up = ls || !(r.src != null && is_local_ip(r.src, nm));
+		flows[`${proto}|${o.src}|${o.sport}|${o.dst}|${o.dport}`] = up ? [ o.src, ob, rb ] : [ r.src, rb, ob ];
+	}
+	f.close();
+	hogs.flows = n;
+	return flows;
+}
+
+function hogs_snapshot() {
+	let src = hogs_source();
+	if (!src) { hogs.err = (NLBW ? 'nlbwmon_stopped' : 'no_source'); return null; }
+	let nm = hogs_names(), data = (src == 'nlbwmon') ? hogs_read_nlbw() : hogs_read_ct(nm);
+	if (data == null) { hogs.err = 'read_failed'; return null; }
+	hogs.err = null;
+	return { src, ts: now(), m: mono(), data };
+}
+
+/* traffic of the stretch between two snapshots per host: { id: [ rx, tx ] } */
+function hogs_diff(a, b) {
+	let out = {}, nm = hogs_names();
+	if (b.src == 'nlbwmon') {
+		for (let mac, v in b.data) {
+			let p = a.data[mac] ?? [ 0, 0 ];
+			let rx = v[0] - p[0], tx = v[1] - p[1];
+			if (rx < 0 || tx < 0) continue;     /* the database was committed or reset between the two */
+			if (rx || tx) out[mac] = { mac, rx, tx };
+		}
+	}
+	else {
+		for (let k, v in b.data) {
+			let p = a.data[k], up = v[1] - (p ? p[1] : 0), down = v[2] - (p ? p[2] : 0);
+			if (up < 0 || down < 0) continue;
+			let h = (out[v[0]] ??= { ip: v[0], rx: 0, tx: 0 });
+			h.tx += up;
+			h.rx += down;
+		}
+	}
+	let res = [];
+	for (let k, h in out) {
+		let lb = hogs_label(h, nm);
+		push(res, { ...lb, rx: h.rx, tx: h.tx });
+	}
+	return res;
+}
+
+function hogs_finish(t, load, dir) {
+	let a = hogs.snap, b = hogs_snapshot();
+	hogs.snap = null;
+	if (!b || b.src != a.src) return;
+	let list = hogs_diff(a, b), key = (dir == 'up') ? 'tx' : 'rx', total = 0;
+	for (let h in list) total += h[key];
+	/* hosts with a name, ordered by their share of the full direction */
+	list = sort(filter(list, (h) => h[key] * 100 >= total), (x, y) => y[key] - x[key]);
+	if (!length(list) || total <= 0) return;
+	let hosts = map(slice(list, 0, 5), (h) => ({ id: h.id, name: h.name, ip: h.ip, mac: h.mac, bytes: h[key],
+		share: round(h[key] * 100 / total, 0) }));
+	hogs.last_ev = t;
+	emit('info', 'wan', 'link', 'link_hogs', { src: b.src, dir, load: round(load * 100, 0), win: int(b.m - a.m),
+		total, hosts }, a.ts);
+	hogs.last = { ts: a.ts, src: b.src, dir, load: round(load * 100, 0), win: int(b.m - a.m), total, hosts };
+}
+
+/* every tick, rates in bit/s */
+function hogs_tick(t, rx, tx) {
+	/* the line speed and the "full" limit are those of the bufferbloat detection */
+	if (!cfg.wan.hogs || !cfg.wan.bloat || rx == null) return;
+	let cap_rx = cfg.wan.down_mbit > 0 ? cfg.wan.down_mbit * 1e6 : bloat.peak_rx;
+	let cap_tx = cfg.wan.up_mbit > 0 ? cfg.wan.up_mbit * 1e6 : bloat.peak_tx;
+	let lr = cap_rx >= 1e6 ? rx / cap_rx : 0, lt = cap_tx >= 1e6 ? tx / cap_tx : 0;
+	let load = max(lr, lt), dir = (lt > lr) ? 'up' : 'down';
+
+	if (load * 100 < cfg.wan.bloat_load) {
+		hogs.full_n = 0;
+		hogs.snap = null;
+		hogs.armed = true;
+		hogs.peak = 0;
+		return;
+	}
+	hogs.full_n++;
+	if (load > hogs.peak) { hogs.peak = load; hogs.dir = dir; }
+	if (!hogs.armed || t - hogs.last_ev < cfg.wan.hogs_cooldown) return;
+	if (hogs.snap == null) {
+		hogs.snap = hogs_snapshot();
+		if (!hogs.snap) hogs.armed = false;     /* nothing to read: not again during this episode */
+		return;
+	}
+	if (mono() - hogs.snap.m >= (hogs.snap.src == 'nlbwmon' ? 40 : 15)) {
+		hogs_finish(t, hogs.peak, hogs.dir);
+		hogs.armed = false;
+	}
+}
+
+function hogs_out() {
+	if (!cfg.wan.hogs || !cfg.wan.bloat) return null;
+	return { source: hogs_source(), err: hogs.err, last: hogs.last, cooldown: cfg.wan.hogs_cooldown, nlbw: !!NLBW };
+}
+
+/* ----------------------------------------------- optical signal (SFP / ONT) */
+
+/*
+ * "Is the light from the line weaker?": when the WAN goes through an SFP
+ * module (or an ONT in an SFP cage) the router can read the module's own
+ * measurements - `ethtool -m <port>`: RX / TX power (dBm), temperature,
+ * voltage, laser current and the module's alarm flags. A fall in the received
+ * power is a hard proof of a fault in the line (fibre, connector, splitter,
+ * the ISP's side) that no ping can give. Read every sfp_interval s (the
+ * EEPROM is slow); without a module (ethtool says so) it is asked again
+ * every 10 minutes and nothing is shown. Only reads.
+ *   no light (RX at the noise floor)            -> sfp_los
+ *   RX sfp_drop_db below its usual level, or below the module's low-power
+ *   warning / sfp_rx_min                         -> sfp_rx_drop
+ *   any other alarm/warning flag of the module  -> sfp_alarm
+ *   the module stopped answering                 -> sfp_gone
+ */
+const ETHTOOL = find_bin('ISP_TESTER_ETHTOOL', [ '/usr/sbin/ethtool', '/sbin/ethtool', '/usr/bin/ethtool' ]);
+const SFP_RING = 20;         /* readings behind "its usual level" */
+const SFP_NOLIGHT = -40;     /* dBm: at or below it there is no light */
+let sfp = { dev: null, ok: null, err: null, next: 0, last: null, ts: null, ring: [], fails: 0,
+	los: false, los_since: 0, los_n: 0, drop: false, drop_since: 0, drop_n: 0, drop_min: null, base: null,
+	alarm: false, alarm_since: 0, gone: false, gone_since: 0, min_rx: null, max_temp: null };
+
+/* "0.5412 mW / -2.67 dBm" -> -2.67; "-inf dBm" -> null */
+function sfp_dbm(v) {
+	let m = match(v, /(-?[0-9.]+|-?inf)\s*dBm/);
+	return (m && m[1] != '-inf' && m[1] != 'inf') ? num(m[1], null) : null;
+}
+
+function sfp_num(v) {
+	let m = match(v, /^(-?[0-9.]+)/);
+	return m ? num(m[1], null) : null;
+}
+
+function sfp_parse(txt) {
+	let r = { rx: null, tx: null, temp: null, vcc: null, bias: null, has_rx: false, flags: [] };
+	for (let l in split(txt, '\n')) {
+		let k = index(l, ':');
+		if (k < 0) continue;
+		let key = trim(substr(l, 0, k)), val = trim(substr(l, k + 1));
+		if (key == 'Laser output power') r.tx = sfp_dbm(val);
+		else if (match(key, /^Receiver signal (average optical power|OMA)$/)) { r.rx = sfp_dbm(val); r.has_rx = true; }
+		else if (key == 'Module temperature') r.temp = sfp_num(val);
+		else if (key == 'Module voltage') r.vcc = sfp_num(val);
+		else if (key == 'Laser bias current') r.bias = sfp_num(val);
+		else if (match(key, /(alarm|warning)$/) && val == 'On') push(r.flags, key);
+	}
+	return r;
+}
+
+function sfp_device() {
+	let d = cfg.wan.sfp_device || wansess.phys;
+	return valid_dev(d) ? d : null;
+}
+
+function sfp_read(dev) {
+	let f = fs.popen(`${TIMEOUT ? TIMEOUT + ' 5 ' : ''}${ETHTOOL} -m ${dev} 2>&1`, 'r');
+	if (!f) return { err: 'run' };
+	let out = f.read('all') ?? '';
+	f.close();
+	let r = sfp_parse(out);
+	if (!r.has_rx) {
+		/* "Cannot get module EEPROM information: Operation not supported" - no module, or none with diagnostics */
+		let first = trim(split(out, '\n')[0] ?? '');
+		return { err: (first != '' && !match(first, /^Identifier/)) ? substr(first, 0, 80) : 'no_diag' };
+	}
+	return r;
+}
+
+function sfp_median(a) {
+	let m = median(a);
+	return (m == null) ? null : round(m, 2);
+}
+
+function sample_sfp() {
+	if (!cfg.wan.enabled || !cfg.wan.sfp || !ETHTOOL) return;
+	let t = mono(), dev = sfp_device();
+	if (!dev) return;
+	if (dev != sfp.dev) { sfp.dev = dev; sfp.next = 0; sfp.ok = null; }
+	if (t < sfp.next) return;
+
+	let r = sfp_read(dev), tn = now();
+	if (r.err) {
+		sfp.err = r.err;
+		sfp.fails++;
+		/* a module that was there stopped answering; one without any is asked again later */
+		if (sfp.ok) {
+			if (sfp.fails >= 2 && !sfp.gone) {
+				sfp.gone = true;
+				sfp.gone_since = tn;
+				emit('warn', 'wan', 'sfp', 'sfp_gone', { dev });
+			}
+			sfp.next = t + cfg.wan.sfp_interval;
+		}
+		else
+			sfp.next = t + 600;
+		return;
+	}
+	sfp.next = t + cfg.wan.sfp_interval;
+	sfp.fails = 0;
+	sfp.err = null;
+	if (sfp.gone) {
+		sfp.gone = false;
+		emit('info', 'wan', 'sfp', 'sfp_gone_ok', { dev, dur: tn - sfp.gone_since });
+	}
+	sfp.ok = true;
+	sfp.last = r;
+	sfp.ts = tn;
+	if (r.temp != null && (sfp.max_temp == null || r.temp > sfp.max_temp)) sfp.max_temp = r.temp;
+
+	/* no light */
+	let nolight = (r.rx == null) || r.rx <= SFP_NOLIGHT;
+	if (nolight) sfp.los_n++; else sfp.los_n = 0;
+	if (!sfp.los && sfp.los_n >= 2) {
+		sfp.los = true;
+		sfp.los_since = tn - cfg.wan.sfp_interval;
+		emit('err', 'wan', 'sfp', 'sfp_los', { dev, tx: r.tx }, sfp.los_since);
+	}
+	else if (sfp.los && !nolight) {
+		sfp.los = false;
+		emit('info', 'wan', 'sfp', 'sfp_los_ok', { dev, dur: tn - sfp.los_since, rx: r.rx });
+	}
+
+	/* weaker light: against its usual level (median of the last readings, frozen during a drop) */
+	if (!nolight) {
+		let base = (length(sfp.ring) >= 5) ? sfp_median(sfp.ring) : null;
+		let low = false, why = null;
+		if (base != null && r.rx <= base - cfg.wan.sfp_drop_db) { low = true; why = 'drop'; }
+		else if (cfg.wan.sfp_rx_min != null && r.rx < cfg.wan.sfp_rx_min) { low = true; why = 'min'; }
+		else for (let fl in r.flags) if (match(fl, /rx power low/i)) { low = true; why = 'module'; }
+		let recovered = !low && (base == null || r.rx > base - cfg.wan.sfp_drop_db / 2);
+
+		if (low) sfp.drop_n++; else sfp.drop_n = 0;
+		if (sfp.drop && (sfp.drop_min == null || r.rx < sfp.drop_min)) sfp.drop_min = r.rx;
+		if (!sfp.drop && sfp.drop_n >= 2) {
+			sfp.drop = true;
+			sfp.drop_since = tn - cfg.wan.sfp_interval;
+			sfp.drop_min = r.rx;
+			sfp.base = base ?? sfp.base;
+			emit('warn', 'wan', 'sfp', 'sfp_rx_drop', { dev, rx: r.rx, base: sfp.base, why, tx: r.tx }, sfp.drop_since);
+		}
+		else if (sfp.drop && recovered) {
+			sfp.drop = false;
+			emit('info', 'wan', 'sfp', 'sfp_rx_drop_ok', { dev, dur: tn - sfp.drop_since, min: sfp.drop_min, rx: r.rx });
+			sfp.drop_min = null;
+			sfp.ring = [];
+		}
+		if (!sfp.drop && !low) {
+			push(sfp.ring, r.rx);
+			if (length(sfp.ring) > SFP_RING) shift(sfp.ring);
+			sfp.base = sfp_median(sfp.ring);
+		}
+		if (sfp.min_rx == null || r.rx < sfp.min_rx) sfp.min_rx = r.rx;
+	}
+
+	/* other alarms of the module (temperature, laser current, voltage, TX power, RX too strong) */
+	let other = filter(r.flags, (fl) => !match(fl, /rx power low/i));
+	if (!sfp.alarm && length(other)) {
+		sfp.alarm = true;
+		sfp.alarm_since = tn;
+		emit('warn', 'wan', 'sfp', 'sfp_alarm', { dev, flags: other, temp: r.temp, rx: r.rx, tx: r.tx });
+	}
+	else if (sfp.alarm && !length(other)) {
+		sfp.alarm = false;
+		emit('info', 'wan', 'sfp', 'sfp_alarm_ok', { dev, dur: tn - sfp.alarm_since });
+	}
+}
+
+function sfp_out() {
+	if (!cfg.wan.sfp) return null;
+	/* nothing to show without a module (most routers have none), unless a device was set by hand */
+	if (!sfp.ok && !cfg.wan.sfp_device) return null;
+	let r = sfp.last ?? {};
+	return { dev: sfp.dev, ok: sfp.ok && !sfp.gone, err: sfp.err, ethtool: !!ETHTOOL, ts: sfp.ts,
+		rx: r.rx, tx: r.tx, temp: r.temp, vcc: r.vcc, bias: r.bias, flags: r.flags,
+		base: sfp.base, drop: sfp.drop, los: sfp.los, alarm: sfp.alarm, min_rx: sfp.min_rx, max_temp: sfp.max_temp,
+		drop_db: cfg.wan.sfp_drop_db };
 }
 
 /* responding / all targets of one address family */
@@ -2365,6 +2805,130 @@ function sample_system() {
 		push(o.reasons, { c: 'recent_events' });
 	}
 	return o;
+}
+
+/* ------------------------------------------- SoC temperature, throttling */
+
+/*
+ * "Did the router overheat and slow down?": the temperature of the thermal
+ * zones (/sys/class/thermal, millidegrees), the cooling devices the kernel
+ * uses against heat (a cpufreq one above state 0 = throttling; a fan is only
+ * noted) and the CPU's frequency limit. Throttling is a cpufreq cooling
+ * device above state 0, or the CPU's maximum frequency lowered below its
+ * hardware maximum while a zone is within 10 C of its limit (a limit set by
+ * hand is not heat). Only reads. A zone's limit is 5 C below its passive
+ * trip point (where the kernel starts to throttle) unless set in the
+ * settings; 85 C when the zone has no trip point.
+ */
+let therm = { max_temp: null, max_ts: null, thr_s: 0, hot_s: 0, last: null, seen: false };
+
+function sysint(path) {
+	let v = fs.readfile(path);
+	return (v == null) ? null : num(trim(v), null);
+}
+
+function thermal_zones() {
+	let out = [];
+	for (let z in sort(fs.lsdir(THERMAL) ?? [])) {
+		if (!match(z, /^thermal_zone[0-9]+$/)) continue;
+		let d = `${THERMAL}/${z}`;
+		let mc = sysint(`${d}/temp`);
+		/* a sensor that is off reads 0 or a huge negative value */
+		if (mc == null || mc <= 0 || mc > 250000) continue;
+		let trip = null;
+		for (let i = 0; i < 12; i++) {
+			if (trim(fs.readfile(`${d}/trip_point_${i}_type`) ?? '') != 'passive') continue;
+			let tt = sysint(`${d}/trip_point_${i}_temp`);
+			if (tt > 0 && (trip == null || tt < trip)) trip = tt;
+		}
+		let type = trim(fs.readfile(`${d}/type`) ?? '') || z;
+		let temp = round(mc / 1000, 1), tr = (trip != null) ? round(trip / 1000, 0) : null;
+		let warn = cfg.system.temp_warn > 0 ? cfg.system.temp_warn : (tr != null ? tr - 5 : 85);
+		push(out, { zone: z, type, temp, trip: tr, warn });
+	}
+	return out;
+}
+
+/* the cooling devices: cpufreq ones throttle, fans only cool */
+function thermal_cooling() {
+	let out = [];
+	for (let c in sort(fs.lsdir(THERMAL) ?? [])) {
+		if (!match(c, /^cooling_device[0-9]+$/)) continue;
+		let d = `${THERMAL}/${c}`;
+		let type = trim(fs.readfile(`${d}/type`) ?? '');
+		let st = sysint(`${d}/cur_state`), mx = sysint(`${d}/max_state`);
+		if (st == null) continue;
+		push(out, { type, state: st, max: mx,
+			throttle: !!match(type, /cpu|freq/i), fan: !!match(type, /fan|pwm/i) });
+	}
+	return out;
+}
+
+/* the CPU's frequency (kHz) of the most limited core */
+function cpu_freq() {
+	let best = null;
+	for (let c in sort(fs.lsdir(CPUDIR) ?? [])) {
+		if (!match(c, /^cpu[0-9]+$/)) continue;
+		let d = `${CPUDIR}/${c}/cpufreq`;
+		let hw = sysint(`${d}/cpuinfo_max_freq`), cap = sysint(`${d}/scaling_max_freq`);
+		if (!(hw > 0) || !(cap > 0)) continue;
+		if (best == null || cap / hw < best.cap / best.hw)
+			best = { hw, cap, cur: sysint(`${d}/scaling_cur_freq`) };
+	}
+	return best;
+}
+
+function sample_thermal() {
+	if (!cfg.system.enabled || cfg.system.temp_warn < 0) return null;
+	let zones = thermal_zones(), cool = thermal_cooling(), fq = cpu_freq();
+	if (!length(zones) && !length(cool)) return null;
+
+	let hottest = null, worst_z = null;
+	for (let z in zones) {
+		if (hottest == null || z.temp > hottest.temp) hottest = z;
+		if (worst_z == null || z.temp - z.warn > worst_z.temp - worst_z.warn) worst_z = z;
+	}
+	let hot = worst_z != null && worst_z.temp >= worst_z.warn;
+	let cool_ok = worst_z == null || worst_z.temp < worst_z.warn - 5;
+	if (hot) sys.temp_n++;
+	else if (cool_ok) sys.temp_n = 0;
+	if (hottest != null && (therm.max_temp == null || hottest.temp > therm.max_temp)) {
+		therm.max_temp = hottest.temp;
+		therm.max_ts = now();
+	}
+	load_flag('temp', sys.temp_n >= 2, sys.temp_n == 0, 'temp_high',
+		{ zone: worst_z?.type, temp: worst_z?.temp, warn: worst_z?.warn });
+
+	/* throttling */
+	let by_cool = false;
+	for (let c in cool) if (c.throttle && c.state > 0) by_cool = true;
+	let capped = fq != null && fq.cap < fq.hw * 0.99;
+	let by_freq = capped && worst_z != null && worst_z.temp >= worst_z.warn - 10;
+	let thr = by_cool || by_freq;
+	if (thr) sys.thr_off = 0;
+	else sys.thr_off++;
+	let mhz = fq ? int((fq.cur ?? fq.cap) / 1000) : null;
+	let cap_mhz = fq ? int(fq.cap / 1000) : null, max_mhz = fq ? int(fq.hw / 1000) : null;
+	load_flag('thr', thr, sys.thr_off >= 3, 'throttle',
+		{ temp: hottest?.temp, mhz: cap_mhz ?? mhz, max_mhz, zone: hottest?.type, cool: by_cool });
+
+	let t = mono();
+	if (therm.last != null) {
+		let dt = t - therm.last;
+		if (sys.thr) therm.thr_s += dt;
+		if (sys.temp) therm.hot_s += dt;
+	}
+	therm.last = t;
+	therm.seen = true;
+
+	let fan = null;
+	for (let c in cool) if (c.fan) fan = { state: c.state, max: c.max };
+	return {
+		zones, temp: hottest?.temp, zone: hottest?.type, warn: worst_z?.warn, trip: worst_z?.trip,
+		hot: sys.temp, throttle: sys.thr, mhz, cap_mhz, max_mhz, fan,
+		cool: filter(cool, (c) => c.throttle || c.fan),
+		max_temp: therm.max_temp, max_ts: therm.max_ts, hot_s: int(therm.hot_s), thr_s: int(therm.thr_s)
+	};
 }
 
 /* -------------------------------------------------------------------- DNS */
@@ -3222,6 +3786,12 @@ function iptv_out(devres) {
 			push(reasons, { c: 'proxy_down', name: igmp.last_name });
 			o.level = level;
 		}
+		o.igmpq = igmpq_out();
+		if (o.igmpq?.silent) {
+			level = worst(level, 'warn');
+			push(reasons, { c: 'igmp_noquery', since: o.igmpq.since });
+			o.level = level;
+		}
 	}
 	o.channels = chn_out(o);
 	return o;
@@ -3443,6 +4013,92 @@ function sample_iptv(devres) {
 	return iptv_out(devres);
 }
 
+/* -------------------------------------- IGMP queries of the operator */
+
+/*
+ * "Does the operator still ask?": the operator's router keeps the IPTV
+ * memberships alive by sending an IGMP general query (to 224.0.0.1) about
+ * every 125 s and the decoders (through the router's proxy) answer it.
+ * When the queries stop, the memberships time out after about two intervals
+ * - 260 s with the defaults - and the stream stops, again and again every
+ * few minutes: the freezes look random but are an operator-side fault.
+ * The helper (isp-tester-tsmon -Q) sees the queries on the port towards the
+ * ISP and reports how many came and how long ago the last general one was.
+ * The bridge's own "IGMP timers" (sysfs) are only this router's settings:
+ * they say nothing about what the operator actually sends. Silence is judged
+ * against the interval seen (the median of the last gaps, else the query's
+ * own interval, else 125 s): more than two of them (plus the response time)
+ * without a general query = the memberships can expire. Only when queries
+ * were seen before, so an operator that never sends any is not reported as
+ * "stopped" but shown as "none seen".
+ */
+
+function igmpq_ingest(m, t, pid) {
+	if (type(m) != 'object') { igq.on = false; return; }
+	igq.on = true;
+	if (igq.pid != pid) {
+		/* a new helper counts from zero; time without it is unknown, not silence */
+		igq.pid = pid;
+		igq.gen = 0;
+		igq.since = t;
+		igq.silent = false;
+	}
+	let gen = m.gen ?? 0;
+	if (gen > igq.gen) {
+		let ts = t - ((m.gen_age ?? -1) >= 0 ? m.gen_age : 0);
+		if (gen - igq.gen == 1 && igq.last_ts != null && ts > igq.last_ts) {
+			push(igq.ivals, round(ts - igq.last_ts, 0));
+			if (length(igq.ivals) > IGQ_RING) shift(igq.ivals);
+		}
+		if (igq.silent) {
+			igq.silent = false;
+			emit('info', 'iptv', 'igmp', 'igmp_noquery_ok', { dur: round(ts - igq.silent_ref, 0), src: m.src }, ts);
+		}
+		igq.total += gen - igq.gen;
+		igq.gen = gen;
+		igq.last_ts = ts;
+		igq.ever = true;
+	}
+	if (m.src) igq.src = m.src;
+	igq.ver = m.ver || igq.ver;
+	igq.qqic = (m.qqic > 0) ? m.qqic : igq.qqic;
+	igq.max_resp = (m.max_resp > 0) ? m.max_resp : igq.max_resp;
+}
+
+/* the interval between the operator's general queries, in s */
+function igmpq_expected() {
+	let e = (length(igq.ivals) >= 3) ? median(igq.ivals) : (igq.qqic > 0 ? igq.qqic : 125);
+	return max(10, round(e, 0));
+}
+
+/* silence longer than this lets the memberships expire (s) */
+function igmpq_limit() {
+	return 2 * igmpq_expected() + ((igq.max_resp > 0) ? igq.max_resp / 10 : 10);
+}
+
+function igmpq_check(t) {
+	if (!igq.on || !igq.ever || igq.silent) return;
+	let ref = max(igq.last_ts ?? 0, igq.since ?? t);
+	let sil = t - ref;
+	if (sil > igmpq_limit()) {
+		igq.silent = true;
+		igq.silent_ref = ref;
+		/* dated from when the memberships began to expire, so a freeze at that moment falls inside the period */
+		emit('warn', 'iptv', 'igmp', 'igmp_noquery', { silent: round(sil, 0), expected: igmpq_expected(), src: igq.src,
+			ver: igq.ver, since: ref }, min(t, ref + 2 * igmpq_expected()));
+	}
+}
+
+function igmpq_out() {
+	if (!cfg.iptv.igmp_query || !igq.on) return null;
+	let t = now(), seen_for = t - (igq.since ?? t);
+	return { gen: igq.total, last: igq.last_ts, age: igq.last_ts != null ? round(t - igq.last_ts, 0) : null,
+		expected: igmpq_expected(), limit: igmpq_limit(), silent: igq.silent, since: igq.silent ? igq.silent_ref : null,
+		src: igq.src, ver: igq.ver, qqic: igq.qqic, max_resp: igq.max_resp, seen_for: round(seen_for, 0),
+		/* nothing at all in more than the time the memberships last */
+		never: !igq.ever && seen_for > igmpq_limit() + 60 };
+}
+
 /* ----------------------------------------------- IPTV picture quality */
 
 /*
@@ -3460,14 +4116,26 @@ function sample_iptv(devres) {
  * reported separately and never counted as errors of the ISP.
  */
 
+/* the IPTV streams themselves are looked at only for the picture quality, the channel names and the decoders' DHCP */
+function tsm_stream() {
+	return cfg.iptv.quality || cfg.iptv.names || (cfg.iptv.dhcp && cfg.iptv.vlan);
+}
+
+/* the operator's queries come in on the port towards the ISP, not on a decoder's port */
+function igq_want() {
+	return cfg.iptv.igmp_query && cfg.iptv.igmp && tsq_target()?.dir == 'in';
+}
+
 function tsm_want() {
-	return iptv_on() && (cfg.iptv.quality || cfg.iptv.names || (cfg.iptv.dhcp && cfg.iptv.vlan));
+	return iptv_on() && (tsm_stream() || igq_want());
 }
 
 function tsm_args(tg) {
 	let a = [ '-i', tg.dev, '-d', tg.dir, '-g', `${max(0, cfg.iptv.q_gap)}`, '-o', TSQ_STATE ];
 	if (tg.vid) push(a, '-v', `${int(tg.vid)}`);
-	if (cfg.iptv.dhcp) push(a, '-D');
+	if (cfg.iptv.dhcp && tsm_stream()) push(a, '-D');
+	if (igq_want()) push(a, '-Q');
+	if (!tsm_stream()) push(a, '-I');
 	return join(' ', a);
 }
 
@@ -3478,6 +4146,8 @@ function tsm_stop() {
 	tsq.seen = {};
 	tsq.drops = null;
 	tsq.flow = null;
+	igq.on = false;
+	igq.pid = null;
 	if (p) system([ '/bin/sh', '-c', `kill ${int(p.pid())} 2>/dev/null` ]);
 	fs.unlink(TSQ_STATE);
 }
@@ -3541,6 +4211,7 @@ function tsm_read() {
 	tsq.err = null;
 	if (t - tsq.started > 120) tsq.fails = 0;
 	dhcp_ingest(r);
+	igmpq_ingest(r.igmp, t, r.pid);
 
 	/* the socket overflowed: this router could not keep up, so lost packets
 	 * in this interval may be its own, not the ISP's */
@@ -3660,6 +4331,7 @@ function tsm_poll() {
 		return;
 	}
 	tsm_read();
+	igmpq_check(now());
 	chn.err = tsq.err;
 }
 
@@ -3998,6 +4670,9 @@ function refresh_wan_device() {
 
 	wan_session(st);
 
+	/* the physical port (for ethtool -m): without the VLAN, not pppoe-* */
+	if (valid_dev(st.device)) wansess.phys = replace(st.device, /\.[0-9]+$/, '');
+
 	if (st.up === false) return;      /* keep last known device / gateway while WAN is down */
 	let dev = st.l3_device ?? st.device ?? '';
 	if (cfg.wan.auto_device && valid_dev(dev)) cfg.wan.device = dev;
@@ -4260,6 +4935,7 @@ function tick() {
 	sample_proxy();
 	if (!iptv_fast()) igmp_poll();
 	sample_system();
+	let thermal = sample_thermal();
 	read_log();
 	dns_judge_servers();
 	let dns_res = sample_dns();
@@ -4308,6 +4984,12 @@ function tick() {
 
 		let wd = cfg.wan.device ? res[cfg.wan.device] : null;
 		if (wd?.delta) bloat_tick(now(), wd.delta.rx_bps, wd.delta.tx_bps);
+		if (wd?.delta) hogs_tick(now(), wd.delta.rx_bps, wd.delta.tx_bps);
+		sample_sfp();
+		let sfp_res = sfp_out();
+		if (sfp_res?.los) { level = worst(level, 'warn'); push(reasons, { c: 'sfp_los', since: sfp.los_since }); }
+		else if (sfp_res?.drop) { level = worst(level, 'warn'); push(reasons, { c: 'sfp_weak', rx: sfp_res.rx, base: sfp_res.base }); }
+		if (sfp_res?.alarm) { level = worst(level, 'warn'); push(reasons, { c: 'sfp_alarm', flags: sfp_res.flags }); }
 		if (bloat.active) {
 			level = worst(level, 'warn');
 			push(reasons, { c: 'bufferbloat_now', add: bloat.max_add, load: bloat.last?.load, dir: bloat.last?.dir });
@@ -4337,6 +5019,8 @@ function tick() {
 			trace: cfg.wan.trace ? { tool: MTR ? 'mtr' : (TRACEROUTE ? 'traceroute' : null), running: !!trace.proc, last: trace.last || null,
 				n: trace.n, cooldown: cfg.wan.trace_cooldown } : null,
 			bloat: bloat_out(),
+			hogs: hogs_out(),
+			sfp: sfp_res,
 			v6,
 			dns: dns_res,
 			rx_kbps: wd?.delta ? round(wd.delta.rx_bps / 1000, 0) : null,
@@ -4396,6 +5080,13 @@ function tick() {
 		let hv = { lvl: LEVEL[overall] };
 		if (maint_on()) hv.maint = 1;
 		if (me.cpu != null) hv['self:cpu'] = me.total;
+		if (thermal?.temp != null) hv.temp = thermal.temp;
+		if (thermal) hv.thr = thermal.throttle ? 1 : 0;
+		if (wan?.sfp?.ok) {
+			if (wan.sfp.rx != null) hv['sfp:rx'] = wan.sfp.rx;
+			if (wan.sfp.tx != null) hv['sfp:tx'] = wan.sfp.tx;
+			if (wan.sfp.temp != null) hv['sfp:temp'] = wan.sfp.temp;
+		}
 		if (wan?.rx_kbps != null) {
 			hv['wan:rx'] = wan.rx_kbps;
 			hv['wan:tx'] = wan.tx_kbps;
@@ -4472,6 +5163,7 @@ function tick() {
 		data: { dir: RUNDIR, link: (fs.lstat(RUNDIR)?.type == 'link') ? fs.readlink(RUNDIR) : null, archive: arch.info },
 		ntp: ntp_out(),
 		self: me,
+		thermal,
 		watchdog: { timeout: WATCHDOG, mode: wd.mode, last: wd.last || null, err: wd.err },
 		maint: maint.until != null ? { until: maint.until, since: maint.since, note: maint.note, active: maint_on() } : null,
 		notify: cfg.notify.enabled ? { service: cfg.notify.service, pending: length(notif.pending),
