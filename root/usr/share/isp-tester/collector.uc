@@ -38,11 +38,11 @@
 
 import * as fs from 'fs';
 import * as uloop from 'uloop';
-import { RUNDIR, NO_UBUS, VARDIR, PROC, FETCH, LOGREAD, BRIDGE, PROXIES, TSMON, MTR, TRACEROUTE, TRACEROUTE6, LEVEL, now, mono, num, valid_host, valid_dev, valid_group, write_atomic, round, absf, kill_pids, worst, ETHTOOL } from './lib/common.uc';
-import { trace_parse_mtr, trace_parse_tr, trace_judge, median, sfp_median, parse_log_line, uniq_list } from './lib/parsers.uc';
+import { RUNDIR, NO_UBUS, VARDIR, SYSNET, PROC, FETCH, LOGREAD, BRIDGE, PROXIES, TSMON, MTR, TRACEROUTE, TRACEROUTE6, LEVEL, now, mono, num, valid_host, valid_dev, valid_group, write_atomic, round, absf, kill_pids, worst, ETHTOOL } from './lib/common.uc';
+import { urlenc, trace_parse_mtr, trace_parse_tr, trace_judge, median, sfp_median, parse_log_line, uniq_list } from './lib/parsers.uc';
 import { rd, read_dev, default_gateway, sfp_read, cd_unixsock, cd_rrd, pid_usage, bridge_mdb, read_cpus, meminfo, dnsmasq_pids, base, is_uplink, bridge_json } from './lib/sysinfo.uc';
 import { load_config } from './lib/config.uc';
-import { tstamp, MSG } from './lib/messages.uc';
+import { tstamp, MSG, event_msg } from './lib/messages.uc';
 
 /* ------------------------------------------------------------------ state */
 
