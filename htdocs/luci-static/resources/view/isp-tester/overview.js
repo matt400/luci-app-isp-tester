@@ -216,6 +216,7 @@ function reasonText(r) {
 	case 'wan_if_down':     return _('WAN interface %s is down (no PPPoE/DHCP session) for %s').format(r.iface, fmtDur(Date.now() / 1000 - r.since));
 	case 'no_ping_source':  return _('No ping data: enable the Ping plugin of luci-app-statistics (collectd) and add the ISP gateway and far hosts there.');
 	case 'proxy_down':      return _('Multicast proxy %s is not running').format(r.name || '');
+	case 'igmp_noquery':    return _('The operator has stopped sending IGMP queries');
 	case 'cpu_high':        return (r.cpu == null) ? _('Router CPU busy') : _('Router CPU busy: %d%% (%s)').format(r.cpu, r.core || 'cpu');
 	case 'mem_low':         return _('Router is low on RAM: %d%% free').format(r.pct);
 	case 'conntrack_full':  return _('Connection table %d%% full').format(r.pct);
@@ -288,6 +289,8 @@ function eventText(e) {
 	case 'wan_if_up':       return _('WAN interface %s up again after %s').format(d.iface, fmtDur(d.dur)) + (d.ip ? ' · ' + d.ip : '');
 	case 'wan_reconnect':   return _('WAN session restarted (previous one lasted %s)').format(fmtDur(d.prev));
 	case 'wan_ip_change':   return _('WAN address changed %s → %s').format(d.from, d.to);
+	case 'igmp_noquery':    return _('No IGMP query from the operator for %s (usually every %s)').format(fmtDur(d.silent), fmtDur(d.expected));
+	case 'igmp_noquery_ok': return _('IGMP queries from the operator again after %s').format(fmtDur(d.dur));
 	case 'proxy_down':      return _('Multicast proxy %s STOPPED').format(d.name);
 	case 'proxy_up':        return _('Multicast proxy %s running again after %s').format(d.name, fmtDur(d.dur));
 	case 'proxy_restart':   return _('Multicast proxy %s restarted').format(d.name);
@@ -1066,6 +1069,7 @@ return view.extend({
 			membership_interval: br && br.membership_interval,
 			query_interval: br && br.query_interval,
 			igmp: st.iptv && st.iptv.igmp,
+			igmpq: st.iptv && st.iptv.igmpq,
 			iptv_on: !!st.iptv,
 			/* devices whose Wi-Fi is watched, on this or the second router */
 			wifi_watched: ((st.wifi && st.wifi.stations) || []).length +
@@ -1475,8 +1479,18 @@ return view.extend({
 				E('span', {}, t.bridge.querier == null ? '–' : (t.bridge.querier === '1' ? _('on') : _('off'))));
 		}
 
+		if (t.igmpq) {
+			var q = t.igmpq, qs;
+			if (q.gen > 0)
+				qs = [ dot(q.silent ? 'fail' : 'ok'), _('last query %s ago').format(fmtDur(q.age)) + ' · ' + _('every ~%s').format(fmtDur(q.expected)) +
+					(q.src ? ' · ' + q.src : '') + (q.ver ? ' (IGMPv' + q.ver + ')' : '') + (q.silent ? ' · ' + _('SILENT, memberships can expire') : '') ];
+			else
+				qs = [ dot(q.never ? 'warn' : 'ok'), q.never ? _('none seen in %s').format(fmtDur(q.seen_for)) : _('waiting for the first query') ];
+			kv.push(E('span', { 'class': 'k', 'title': _('General IGMP queries sent by the operator on the IPTV VLAN, seen by the router. Without them the memberships time out.') },
+				_('ISP IGMP queries')), E('span', {}, qs));
+		}
 		if (t.bridge && t.bridge.membership_interval)
-			kv.push(E('span', { 'class': 'k' }, _('IGMP timers')), E('span', {},
+			kv.push(E('span', { 'class': 'k', 'title': _('Settings of this router\'s bridge, not what the operator sends – see "ISP IGMP queries".') }, _('IGMP timers')), E('span', {},
 				_('membership %d s, query %d s').format(t.bridge.membership_interval, t.bridge.query_interval || 0)));
 		if (t.bridge && t.bridge.mdb)
 			kv.push(E('span', { 'class': 'k' }, _('Bridge groups')), E('span', { 'class': 'ispt-groups' },
