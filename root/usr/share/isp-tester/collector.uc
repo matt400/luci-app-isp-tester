@@ -531,6 +531,11 @@ const MSG = {
 		igmp_noquery: 'No IGMP query from the operator for %s (usually every %s)', igmp_noquery_ok: 'IGMP queries from the operator again after %s',
 		sfp_rx_drop: 'Optical signal weak: RX %s dBm (usually %s dBm)', sfp_los: 'NO LIGHT from the line on %s (SFP RX)',
 		sfp_alarm: 'SFP module alarm: %s', sfp_gone: 'SFP module on %s does not answer any more',
+		sfp_rx_drop_ok: 'Optical signal back to %s dBm after %s', sfp_los_ok: 'Light is back after %s (RX %s dBm)',
+		sfp_alarm_ok: 'SFP module alarm over after %s', sfp_gone_ok: 'SFP module on %s answers again after %s',
+		cpu_high_ok: 'Router CPU load normal again after %s', mem_low_ok: 'Router RAM OK again after %s',
+		conntrack_full_ok: 'Connection table OK again after %s', temp_high_ok: 'Router temperature normal again after %s',
+		throttle_ok: 'Router CPU at full speed again after %s',
 		temp_high: 'Router hot: %s %s C (limit %s C)', throttle: 'Router CPU throttled by heat: %s MHz instead of %s MHz (%s C)',
 		user_mark: 'Problem reported by user: %s', test: 'Test message - notifications work.',
 		peer_lost: 'Router %s does not report any more', peer_back: 'Router %s reports again after %s',
@@ -573,6 +578,11 @@ const MSG = {
 		igmp_noquery: 'Brak zapytań IGMP od operatora od %s (zwykle co %s)', igmp_noquery_ok: 'Zapytania IGMP od operatora wróciły po %s',
 		sfp_rx_drop: 'Słaby sygnał optyczny: RX %s dBm (zwykle %s dBm)', sfp_los: 'BRAK ŚWIATŁA z linii na %s (RX SFP)',
 		sfp_alarm: 'Alarm modułu SFP: %s', sfp_gone: 'Moduł SFP na %s przestał odpowiadać',
+		sfp_rx_drop_ok: 'Sygnał optyczny wrócił do %s dBm po %s', sfp_los_ok: 'Światło z linii wróciło po %s (RX %s dBm)',
+		sfp_alarm_ok: 'Alarm modułu SFP minął po %s', sfp_gone_ok: 'Moduł SFP na %s znów odpowiada po %s',
+		cpu_high_ok: 'Obciążenie CPU routera znów w normie po %s', mem_low_ok: 'RAM routera znów w normie po %s',
+		conntrack_full_ok: 'Tablica połączeń znów w normie po %s', temp_high_ok: 'Temperatura routera znów w normie po %s',
+		throttle_ok: 'Procesor routera znów działa z pełną prędkością po %s',
 		temp_high: 'Router przegrzany: %s %s C (próg %s C)', throttle: 'Procesor routera dławiony przez temperaturę: %s MHz zamiast %s MHz (%s C)',
 		user_mark: 'Problem zgłoszony ręcznie: %s', test: 'Wiadomość testowa - powiadomienia działają.',
 		peer_lost: 'Router %s przestał się zgłaszać', peer_back: 'Router %s znów się zgłasza po %s',
@@ -638,6 +648,11 @@ function event_text(e, lang) {
 	case 'sfp_rx_drop': return sprintf(f, d.rx, d.base ?? '?');
 	case 'sfp_los': case 'sfp_gone': return sprintf(f, d.dev);
 	case 'sfp_alarm': return sprintf(f, join(', ', d.flags ?? []));
+	case 'sfp_rx_drop_ok': return sprintf(f, d.rx, dur_txt(d.dur));
+	case 'sfp_los_ok': return sprintf(f, dur_txt(d.dur), d.rx ?? '?');
+	case 'sfp_gone_ok': return sprintf(f, d.dev, dur_txt(d.dur));
+	case 'sfp_alarm_ok': case 'cpu_high_ok': case 'mem_low_ok': case 'conntrack_full_ok': case 'temp_high_ok': case 'throttle_ok':
+		return sprintf(f, dur_txt(d.dur));
 	case 'igmp_noquery': return sprintf(f, dur_txt(d.silent), dur_txt(d.expected));
 	case 'igmp_noquery_ok': return sprintf(f, dur_txt(d.dur));
 	case 'link_hogs': return sprintf(f, d.load, d.dir == 'up' ? (lang == 'pl' ? 'wysyłanie' : 'upload') : (lang == 'pl' ? 'pobieranie' : 'download'),
@@ -708,7 +723,9 @@ function event_msg(e, lang) {
  * port coming up or a target recovering from an unsent warning stays quiet */
 const RECOVERY = { wan_up: true, stream_resume: true, stream_lost: true, stream_off: true, link_up: true,
 	wan_if_up: true, proxy_up: true, target_ok: true, dev_present: true, peer_back: true, wifi_weak_ok: true,
-	bufferbloat_ok: true, v6_up: true, v6_if_up: true, v6_pd_back: true, v6_route_back: true, dns_ok: true, dns_server_ok: true };
+	bufferbloat_ok: true, v6_up: true, v6_if_up: true, v6_pd_back: true, v6_route_back: true, dns_ok: true, dns_server_ok: true,
+	igmp_noquery_ok: true, sfp_los_ok: true, sfp_rx_drop_ok: true, sfp_alarm_ok: true, sfp_gone_ok: true,
+	cpu_high_ok: true, mem_low_ok: true, conntrack_full_ok: true, temp_high_ok: true, throttle_ok: true };
 
 function urlenc(s) {
 	let out = '';
@@ -1660,7 +1677,7 @@ function bloat_tick(t, rx, tx) {
 	/* line speed: a 30 s rate, so a burst or an uneven tick does not count; forgotten by ~8 %/day */
 	let n = length(bloat.ring), w = 0, sr = 0, stx = 0;
 	for (let i = n - 1; i >= 0 && bloat.ring[i][0] > t - 30; i--) { sr += bloat.ring[i][1]; stx += bloat.ring[i][2]; w++; }
-	let dec = 0.99999 ** cfg.interval;
+	let dec = 0.999999 ** cfg.interval;
 	bloat.peak_rx = max(bloat.peak_rx * dec, w ? sr / w : 0);
 	bloat.peak_tx = max(bloat.peak_tx * dec, w ? stx / w : 0);
 	if (t - bloat.peak_saved >= 600) {

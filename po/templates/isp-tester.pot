@@ -2504,6 +2504,15 @@ msgstr ""
 msgid "The settings file cannot be read."
 msgstr ""
 
+msgid "The archive is too big once unpacked."
+msgstr ""
+
+msgid "The settings file cannot be written."
+msgstr ""
+
+msgid "The data cannot be written (no space left?)."
+msgstr ""
+
 msgid "Failed: %s"
 msgstr ""
 

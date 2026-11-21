@@ -2506,6 +2506,15 @@ msgstr "Nie wybrano niczego do przywrócenia."
 msgid "The settings file cannot be read."
 msgstr "Nie można odczytać pliku ustawień."
 
+msgid "The archive is too big once unpacked."
+msgstr "Archiwum jest za duże po rozpakowaniu."
+
+msgid "The settings file cannot be written."
+msgstr "Nie można zapisać pliku ustawień."
+
+msgid "The data cannot be written (no space left?)."
+msgstr "Nie można zapisać danych (brak miejsca?)."
+
 msgid "Failed: %s"
 msgstr "Niepowodzenie: %s"
 

@@ -21,9 +21,14 @@ setup_data_dir() {
 	if [ -n "$dir" ] && [ -d "$dir" ] && mkdir -p "$dir/isp-tester" 2>/dev/null; then
 		[ "$(readlink "$DATA")" = "$dir/isp-tester" ] && return 0
 		if [ -d "$DATA" ] && [ ! -L "$DATA" ]; then
-			# keep what was collected in RAM so far
-			cp -a "$DATA/." "$dir/isp-tester/" 2>/dev/null
-			rm -rf "$DATA"
+			# keep what was collected in RAM so far; when it cannot be copied
+			# (stick full or read-only) it is not deleted: stay in RAM
+			if cp -a "$DATA/." "$dir/isp-tester/" 2>/dev/null; then
+				rm -rf "$DATA"
+			else
+				logger -t isp-tester "cannot copy the data to $dir/isp-tester, keeping data in RAM"
+				return 0
+			fi
 		fi
 		rm -f "$DATA"
 		ln -s "$dir/isp-tester" "$DATA"
@@ -47,7 +52,9 @@ start_service() {
 	# when it stops - hung in a command, stuck - procd kills and restarts it
 	local interval wd
 	config_get interval general interval 10
-	wd=$(( ${interval:-10} * 6 ))
+	# a value like "10s" or "1.5" would stop the arithmetic (and the start)
+	case "$interval" in ''|*[!0-9]*) interval=10 ;; esac
+	wd=$(( interval * 6 ))
 	[ "$wd" -lt 60 ] && wd=60
 
 	procd_open_instance

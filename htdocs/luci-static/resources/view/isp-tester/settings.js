@@ -38,7 +38,10 @@ var BK_ERR = {
 	no_manifest: _('This is not an ISP Tester backup.'),
 	bad_config: _('The settings in the archive are not a valid settings file.'),
 	nothing: _('Nothing was chosen to restore.'),
-	no_config: _('The settings file cannot be read.')
+	no_config: _('The settings file cannot be read.'),
+	too_large: _('The archive is too big once unpacked.'),
+	write_config: _('The settings file cannot be written.'),
+	write_data: _('The data cannot be written (no space left?).')
 };
 
 function bkError(r) {
@@ -230,7 +233,12 @@ function renderUpdates() {
 				window.setTimeout(function() { poll(n + 1); }, 2000);
 			}
 		}).catch(function() {
-			/* rpcd restarts while the package is installed */
+			/* rpcd restarts while the package is installed; not for ever */
+			if (n > 90) {
+				note(_('The update takes unusually long. Reload the page later.'), 'ispt-update-err');
+				btn.disabled = false;
+				return;
+			}
 			window.setTimeout(function() { poll(n + 1); }, 2000);
 		});
 	}
