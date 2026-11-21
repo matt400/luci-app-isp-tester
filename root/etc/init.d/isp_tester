@@ -52,7 +52,14 @@ start_service() {
 	procd_close_instance
 }
 
+# a clean stop (also on reload): the next start does not call the gap a crash
+stop_service() {
+	mkdir -p /var/run/isp-tester
+	date +%s > /var/run/isp-tester/stopped
+}
+
 service_triggers() {
+
 	procd_add_reload_trigger isp_tester
 }
 

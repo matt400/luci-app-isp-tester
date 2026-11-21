@@ -320,8 +320,28 @@ function eventText(e) {
 	case 'dns_server_bad':  return _('DNS server %s: %d of %d queries retried or failed within %s (%d retried = no answer in time, %d failed = SERVFAIL/REFUSED)').format(e.src, d.bad, d.sent, fmtDur(d.win), d.retried, d.failed) +
 		(d.lat != null ? ' · ' + _('average %d ms').format(d.lat) : '');
 	case 'dns_server_ok':   return _('DNS server %s answers normally again').format(e.src);
+	case 'router_reboot':   return _('ROUTER RESTARTED – up since %s').format(fmtTime(d.boot)) + (d.ram ? ' · ' + _('earlier data was in RAM and is lost') : '');
+	case 'data_gap':        return _('NOT MEASURED from %s to %s (%s): %s').format(d.from ? fmtTime(d.from) : '?', fmtTime(d.to), fmtDur(d.len), gapWhy(d.why));
 	default:                return e.type;
 	}
+}
+
+function gapWhy(w) {
+	switch (w) {
+	case 'reboot':  return _('the router restarted');
+	case 'stopped': return _('monitoring was turned off');
+	case 'crash':   return _('the collector stopped unexpectedly');
+	case 'hung':    return _('the collector hung and was restarted by the watchdog');
+	case 'stall':   return _('the collector was blocked');
+	default:        return w || '?';
+	}
+}
+
+/* periods without measurements [{ from, to, why }] that touch [from, to] */
+function gapsIn(events, from, to) {
+	return events.filter(function(e) { return e.type === 'data_gap' && !e.host && e.d && e.d.to >= from && (e.d.from || e.d.to) <= to; })
+		.map(function(e) { return { from: e.d.from || e.d.to, to: e.d.to, why: e.d.why }; })
+		.sort(function(a, b) { return a.from - b.from; });
 }
 
 var MARKS = [
@@ -604,8 +624,9 @@ function lineChart(t, series, opts) {
 	]);
 }
 
-/* thin green/yellow/red strip showing overall health over time */
-function statusRibbon(t, lvls, from, to) {
+/* thin green/yellow/red strip showing overall health over time; grey
+ * hatched = not measured (router off, monitoring off) */
+function statusRibbon(t, lvls, from, to, gaps) {
 	var W = 800, H = 22, L = 46, R = 8;
 	var span = Math.max(1, to - from), step = medianStep(t);
 	var x = function(ts) { return L + (ts - from) / span * (W - L - R); };
@@ -620,6 +641,14 @@ function statusRibbon(t, lvls, from, to) {
 		var x0 = Math.max(L, x(t[k] - step)), x1 = Math.min(W - R, x(t[k]));
 		svg += '<rect x="' + x0.toFixed(1) + '" y="4" width="' + Math.max(0.8, x1 - x0).toFixed(1) + '" height="14" fill="' + (col[v] || '#999') + '"/>';
 	}
+	svg += '<defs><pattern id="ispt-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">' +
+		'<rect width="3" height="6" fill="#888" opacity="0.55"/></pattern></defs>';
+	(gaps || []).forEach(function(g) {
+		var x0 = Math.max(L, x(g.from)), x1 = Math.min(W - R, x(g.to));
+		if (x1 <= x0) return;
+		svg += '<rect x="' + x0.toFixed(1) + '" y="4" width="' + Math.max(0.8, x1 - x0).toFixed(1) + '" height="14" fill="url(#ispt-hatch)">' +
+			'<title>' + esc(_('Not measured: %s').format(gapWhy(g.why))) + '</title></rect>';
+	});
 	svg += '<text x="' + (L - 4) + '" y="15" text-anchor="end" opacity="0.7">' + esc(_('State')) + '</text></svg>';
 
 	var div = E('div', { 'class': 'ispt-svgwrap' });
@@ -1300,7 +1329,7 @@ return view.extend({
 		var lossMax = function(data) { return data.some(function(v) { return v >= 100; }); };
 
 		if (s.lvl)
-			out.push(statusRibbon(t, s.lvl, w.from, w.to));
+			out.push(statusRibbon(t, s.lvl, w.from, w.to, gapsIn(this.events(), w.from, w.to)));
 
 		var targets = (st.wan && st.wan.targets) || [];
 		/* a target that never answers has only a loss series (rtt is always null) */
@@ -1335,7 +1364,7 @@ return view.extend({
 				if (e.type !== 'stream_stall') return;
 				var end = null;
 				for (var j = i + 1; j < evs.length; j++)
-					if (evs[j].type === 'stream_resume' || evs[j].type === 'stream_lost' || evs[j].type === 'monitor_start') { end = evs[j].ts; break; }
+					if (evs[j].type === 'stream_resume' || evs[j].type === 'stream_lost' || evs[j].type === 'monitor_start' || evs[j].type === 'data_gap') { end = evs[j].ts; break; }
 				if (end == null) end = (st.iptv && st.iptv.state === 'stalled') ? st.ts : e.ts + (st.interval || 10);
 				if (end >= w.from && e.ts <= w.to)
 					stallBands.push({ from: e.ts, to: end, color: '#d64541', title: _('Stream stopped for %s').format(fmtDur(end - e.ts)) });
@@ -1369,7 +1398,7 @@ return view.extend({
 				if (e.type !== 'bufferbloat') return;
 				var end = null;
 				for (var j = i + 1; j < evs2.length; j++)
-					if (evs2[j].type === 'bufferbloat_ok' || evs2[j].type === 'monitor_start') { end = evs2[j].ts; break; }
+					if (evs2[j].type === 'bufferbloat_ok' || evs2[j].type === 'monitor_start' || evs2[j].type === 'data_gap') { end = evs2[j].ts; break; }
 				if (end == null) end = (st.wan && st.wan.bloat && st.wan.bloat.active) ? st.ts : e.ts + 60;
 				if (end >= w.from && e.ts <= w.to)
 					bloatBands.push({ from: e.ts, to: end, color: '#e0a100', title: _('Bufferbloat: ping +%d ms').format(e.d.add) });
@@ -1452,10 +1481,12 @@ return view.extend({
 				if (e.type !== startType) return;
 				if (startType === 'stream_stall' && byDecoder(e)) return;
 				for (var j = i + 1; j < own.length; j++)
-					if (endTypes.indexOf(own[j].type) >= 0) {
+					if (endTypes.indexOf(own[j].type) >= 0 || own[j].type === 'data_gap' || own[j].type === 'monitor_start') {
 						/* a channel change is not a freeze */
 						if (own[j].d && own[j].d.igmp === 'zap') return;
-						var d = (own[j].d && own[j].d.dur) || (own[j].ts - e.ts);
+						/* not measured any more: it lasted at least until then */
+						var cut = own[j].type === 'data_gap' || own[j].type === 'monitor_start';
+						var d = (!cut && own[j].d && own[j].d.dur) || (own[j].ts - e.ts);
 						total += d;
 						if (d > longest) longest = d;
 						break;
@@ -1469,6 +1500,16 @@ return view.extend({
 		var count = function(f) { return own.filter(f).length; };
 		var hostArea = function(e) { return (e.host ? e.host + ' · ' : '') + areaName(e.area); };
 		var peerNames = ((st.peers && st.peers.list) || []).map(function(p) { return p.name; }).join(', ');
+
+		/* times without measurements, and how much of the period was measured */
+		var allEv = this.events();
+		var gaps = gapsIn(allEv, w.from, w.to);
+		var firstTs = allEv.reduce(function(m, e) { return (!e.host && e.ts < m) ? e.ts : m; }, Infinity);
+		if (firstTs > w.from + 60 && firstTs < w.to)
+			gaps.unshift({ from: w.from, to: firstTs, why: 'before' });
+		var unmeasured = 0;
+		gaps.forEach(function(g) { unmeasured += Math.max(0, Math.min(g.to, w.to) - Math.max(g.from, w.from)); });
+		var coverage = Math.max(0, 100 - unmeasured * 100 / Math.max(1, w.to - w.from));
 
 		var x = function(v) { return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
 		var row = function(k, v) { return '<tr><th>' + x(k) + '</th><td>' + x(v) + '</td></tr>'; };
@@ -1484,7 +1525,18 @@ return view.extend({
 			'<button onclick="window.print()" style="float:right">' + x(_('Print / save as PDF')) + '</button>' +
 			'<h1>' + x(_('Connection fault report')) + '</h1>' +
 			'<p class="muted">' + x(_('Period: %s – %s · generated %s by luci-app-isp-tester').format(fmtTime(w.from), fmtTime(w.to), fmtTime(Date.now() / 1000))) + '</p>' +
+			'<h2>' + x(_('Measurement coverage')) + '</h2><table>' +
+			row(_('Measured'), _('%s%% of the period').format(coverage.toFixed(coverage >= 99.95 ? 0 : 1)) +
+				(gaps.length ? ' · ' + _('not measured: %s in %d periods (listed below)').format(fmtDur(unmeasured), gaps.length) : ' · ' + _('without interruption'))) +
+			row(_('Router restarts'), _('%d×').format(allEv.filter(function(e) { return e.type === 'router_reboot' && !e.host && e.ts >= w.from && e.ts <= w.to; }).length)) +
+			'</table>' +
+			(gaps.length ? '<p class="muted">' + x(_('The router did not measure at these times; nothing in this report covers them:')) + '</p><table class="ev">' +
+				gaps.map(function(g) {
+					return '<tr><td>' + x(fmtTime(Math.max(g.from, w.from))) + ' – ' + x(fmtTime(Math.min(g.to, w.to))) + '</td><td>' + x(fmtDur(Math.min(g.to, w.to) - Math.max(g.from, w.from))) +
+						'</td><td>' + x(g.why === 'before' ? _('monitoring had not started yet (or older data was deleted)') : gapWhy(g.why)) + '</td></tr>';
+				}).join('') + '</table>' : '') +
 			'<h2>' + x(_('Connection')) + '</h2><table>' +
+
 			row(_('WAN interface / device'), (st.wan ? st.wan.interface + ' / ' + st.wan.device : '–')) +
 			(st.wan && st.wan.session ? row(_('Session'), (st.wan.session.proto || '') + ' · ' + (st.wan.session.ip || '')) : '') +
 			row(_('Ping targets'), targets || '–') +

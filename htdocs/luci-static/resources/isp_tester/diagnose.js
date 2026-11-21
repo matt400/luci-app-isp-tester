@@ -58,7 +58,7 @@ function periods(sorted, types, until) {
 			var k = e.type.replace(/_ok$/, '');
 			if (types.indexOf(k) >= 0 && open[k] != null) { out.push({ from: open[k], to: e.ts }); open[k] = null; }
 		}
-		else if (e.type === 'monitor_start') {
+		else if (e.type === 'monitor_start' || e.type === 'data_gap') {
 			Object.keys(open).forEach(function(k) { if (open[k] != null) { out.push({ from: open[k], to: e.ts }); open[k] = null; } });
 		}
 	});
@@ -127,7 +127,7 @@ return baseclass.extend({
 			return bloats.some(function(b) {
 				var end = b.ts + 3600;
 				for (var i = 0; i < sorted.length; i++)
-					if (sorted[i].ts > b.ts && (sorted[i].type === 'bufferbloat_ok' || sorted[i].type === 'monitor_start')) { end = sorted[i].ts; break; }
+					if (sorted[i].ts > b.ts && (sorted[i].type === 'bufferbloat_ok' || sorted[i].type === 'monitor_start' || sorted[i].type === 'data_gap')) { end = sorted[i].ts; break; }
 				return ts >= b.ts - 60 && ts <= end + 60;
 			});
 		};
@@ -190,7 +190,7 @@ return baseclass.extend({
 
 		/* what IGMP did during each freeze is stored on the matching resume event */
 		var igmpOf = function(s) {
-			var r = nextOf(sorted, s.ts, function(e) { return e.type === 'stream_resume' || e.type === 'stream_lost' || e.type === 'monitor_start'; });
+			var r = nextOf(sorted, s.ts, function(e) { return e.type === 'stream_resume' || e.type === 'stream_lost' || e.type === 'monitor_start' || e.type === 'data_gap'; });
 			return (r && r.type === 'stream_resume' && r.d) ? r.d.igmp : null;
 		};
 		/* decoder restarts (both routers): a freeze while a decoder was away is the decoder, not the stream */
@@ -241,7 +241,7 @@ return baseclass.extend({
 		 * for a while before falling back - "the Internet is slow" */
 		var v6Total = 0, v6Long = 0;
 		v6Down.forEach(function(e) {
-			var r = nextOf(sorted, e.ts + 1, function(x) { return x.type === 'v6_up' || x.type === 'monitor_start'; });
+			var r = nextOf(sorted, e.ts + 1, function(x) { return x.type === 'v6_up' || x.type === 'monitor_start' || x.type === 'data_gap'; });
 			var d = (r && r.type === 'v6_up' && r.d) ? r.d.dur : 0;
 			v6Total += d; if (d > v6Long) v6Long = d;
 		});
@@ -384,6 +384,13 @@ return baseclass.extend({
 		add('home', 1, 'port_errors', portErr, { devs: uniq(portErr, 'src').join(', ') });
 		add('home', 2, 'dev_missing', portMissing, { devs: uniq(portMissing, 'src').join(', ') });
 
+		/* ---- what is not known: the router was off or did not measure */
+		var reboots = by(function(e) { return e.type === 'router_reboot'; });
+		add('home', 1, 'router_reboot', reboots);
+		var gapLen = 0, gaps = by(function(e) { return e.type === 'data_gap'; });
+		gaps.forEach(function(e) { gapLen += Math.max(0, Math.min(e.d.to, to) - Math.max(e.d.from || e.d.to, from)); });
+		add('info', 0, 'not_measured', gaps, { len: gapLen });
+
 		/* ---- verdict */
 		var isp = 0, home = 0;
 		findings.forEach(function(f) {
@@ -507,6 +514,9 @@ return baseclass.extend({
 		case 'port_link':       return _('Link drops on %s (%d×) – cable, connector, power of the connected device, or switch.').format(a.devs, f.n);
 		case 'port_errors':     return _('Errors/drops on %s (%d×) – cable or connector.').format(a.devs, f.n);
 		case 'dev_missing':     return _('Network device %s disappeared (%d×) – driver, configuration or reboot.').format(a.devs, f.n);
+		case 'router_reboot':   return _('The router restarted %d× – a power cut, a crash or on purpose. Problems at those moments are not the ISP\'s.').format(f.n);
+		case 'not_measured':    return _('Not measured for %s in this period (%d×: router off, monitoring off) – nothing is known about that time.').format(fmtSec(a.len), f.n);
+
 		default:                return f.code;
 		}
 	}

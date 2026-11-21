@@ -494,7 +494,8 @@ const MSG = {
 		v6_pd_lost: 'IPv6 prefix lost (%s)', v6_pd_back: 'IPv6 prefix back after %s: %s', v6_pd_change: 'IPv6 prefix changed %s -> %s',
 		v6_no_route: 'No IPv6 default route (no router advertisement) on %s', v6_route_back: 'IPv6 default route back after %s',
 		dns_fail: 'DNS: %d%% of the queries sent upstream unanswered (%d of %d in %ss)', dns_ok: 'DNS OK again after %s (at worst %d%% unanswered)',
-		dns_server_bad: 'DNS server %s: %d of %d queries retried or failed in %s', dns_server_ok: 'DNS server %s OK again'
+		dns_server_bad: 'DNS server %s: %d of %d queries retried or failed in %s', dns_server_ok: 'DNS server %s OK again',
+		router_reboot: 'Router restarted (up since %s)', data_gap: 'No measurements from %s to %s (%s): %s'
 	},
 	pl: {
 		link_down: '%s: BRAK ŁĄCZA', link_up: '%s: łącze wróciło po %s', link_flap: '%s: łącze mrugnęło',
@@ -523,9 +524,15 @@ const MSG = {
 		v6_pd_lost: 'Utrata prefiksu IPv6 (%s)', v6_pd_back: 'Prefiks IPv6 wrócił po %s: %s', v6_pd_change: 'Zmiana prefiksu IPv6 %s -> %s',
 		v6_no_route: 'Brak domyślnej trasy IPv6 (brak RA) na %s', v6_route_back: 'Domyślna trasa IPv6 wróciła po %s',
 		dns_fail: 'DNS: %d%% zapytań wysłanych dalej bez odpowiedzi (%d z %d w %ss)', dns_ok: 'DNS znów OK po %s (najgorzej %d%% bez odpowiedzi)',
-		dns_server_bad: 'Serwer DNS %s: %d z %d zapytań ponowionych lub nieudanych w %s', dns_server_ok: 'Serwer DNS %s znów OK'
+		dns_server_bad: 'Serwer DNS %s: %d z %d zapytań ponowionych lub nieudanych w %s', dns_server_ok: 'Serwer DNS %s znów OK',
+		router_reboot: 'Router uruchomiony ponownie (działa od %s)', data_gap: 'Brak pomiarów od %s do %s (%s): %s'
 	}
 };
+
+const GAP_WHY_EN = { reboot: 'router restarted', stopped: 'monitoring was off', crash: 'the collector stopped unexpectedly',
+	hung: 'the collector hung (restarted by the watchdog)', stall: 'the collector was blocked' };
+const GAP_WHY_PL = { reboot: 'restart routera', stopped: 'monitorowanie wyłączone', crash: 'collector nieoczekiwanie się zatrzymał',
+	hung: 'collector się zawiesił (zrestartowany przez watchdog)', stall: 'collector był zablokowany' };
 
 function dur_txt(s) {
 	s = int(s ?? 0);
@@ -586,6 +593,9 @@ function event_text(e, lang) {
 	case 'dns_ok': return sprintf(f, dur_txt(d.dur), d.max_pct);
 	case 'dns_server_bad': return sprintf(f, e.src, d.bad, d.sent, dur_txt(d.win));
 	case 'dns_server_ok': return sprintf(f, e.src);
+	case 'router_reboot': return sprintf(f, tstamp(d.boot));
+	case 'data_gap': return sprintf(f, d.from ? tstamp(d.from) : '?', tstamp(d.to), dur_txt(d.len),
+		(lang == 'pl' ? GAP_WHY_PL : GAP_WHY_EN)[d.why] ?? d.why);
 	default: return f;
 	}
 }
@@ -818,6 +828,63 @@ function emit(lvl, area, src, typ, data, ts) {
 	store_event(e);
 	save_events();
 	peer_queue(e);
+}
+
+/* ----------------------------------------------------- reboots and gaps */
+
+/*
+ * "The router did not measure from X to Y": without it the ISP can say the
+ * report is incomplete. The collector notes that it is alive once a minute
+ * (alive.json in RUNDIR, so on USB it survives a reboot) with the kernel's
+ * boot id. At start:
+ *   - another boot id: the router restarted -> router_reboot (boot time from
+ *     /proc/uptime) and data_gap from the last sign of life to now
+ *   - same boot, a gap longer than a few intervals -> data_gap: monitoring
+ *     was off (the init script marks a clean stop), or the collector died
+ *   - data in RAM after a reboot: nothing survived, only router_reboot
+ * While running: a tick that came far too late (blocked) -> data_gap.
+ */
+const ALIVE = `${RUNDIR}/alive.json`;
+const STOPPED = `${VARDIR}/stopped`;
+const BOOT_ID = trim(fs.readfile(`${PROC}/sys/kernel/random/boot_id`) ?? '') || null;
+let alive_ts = 0;
+
+function uptime_s() {
+	return num(split(trim(fs.readfile(`${PROC}/uptime`) ?? ''), ' ')[0], null);
+}
+
+function alive_save(t) {
+	alive_ts = t;
+	write_atomic(ALIVE, sprintf('%J', { ts: t, boot_id: BOOT_ID, started, host: HOSTNAME }));
+}
+
+function gap_check() {
+	let t = now(), up = uptime_s(), a;
+	try { a = json(fs.readfile(ALIVE) || 'null'); } catch (e) { a = null; }
+	let st;
+	try { st = json(fs.readfile(`${VARDIR}/state.json`) || 'null'); } catch (e) { st = null; }
+	let stop = num(trim(fs.readfile(STOPPED) ?? ''), null);
+	fs.unlink(STOPPED);
+
+	/* last sign of life: alive.json, the state of the same boot, own events */
+	let last = (type(a?.ts) == 'int') ? a.ts : null;
+	if (type(st?.ts) == 'int' && (last == null || st.ts > last)) last = st.ts;
+	for (let i = length(events) - 1; i >= 0 && i >= length(events) - 50; i--)
+		if (!events[i].host && events[i].ts <= t && (last == null || events[i].ts > last)) last = events[i].ts;
+
+	let boot = (up != null) ? int(t - up) : null;
+	let rebooted = (a?.boot_id && BOOT_ID) ? a.boot_id != BOOT_ID : (up != null && up < 900 && st == null);
+
+	if (rebooted) {
+		emit('warn', 'system', 'router', 'router_reboot', { boot, uptime: int(up ?? 0), last, ram: a == null }, boot ?? t);
+		if (last != null)
+			emit('info', 'system', 'collector', 'data_gap', { from: last, to: t, len: t - last, why: 'reboot', boot }, last);
+	}
+	else if (last != null && t - last > cfg.interval * 3 + 30) {
+		let why = (stop != null && stop >= last - 5) ? 'stopped' : 'crash';
+		emit('info', 'system', 'collector', 'data_gap', { from: last, to: t, len: t - last, why }, last);
+	}
+	alive_save(t);
 }
 
 /* the cards show this router only: events of the second router (e.host)
@@ -3726,6 +3793,7 @@ function handle_clear_request() {
 }
 
 function tick() {
+	if (now() - alive_ts >= 60) alive_save(now());
 	arch_check();
 	handle_clear_request();
 	handle_marks();
@@ -3744,6 +3812,9 @@ function tick() {
 	let m = mono();
 	let dt = (last_mono != null) ? m - last_mono : 0;
 	last_mono = m;
+	/* this tick came far too late: nothing was measured in between */
+	if (dt > cfg.interval * 3 + 10)
+		emit('info', 'system', 'collector', 'data_gap', { from: int(now() - dt), to: now(), len: int(dt), why: 'stall' }, int(now() - dt));
 
 	let devs = monitored_devices();
 	let res = {};
@@ -3976,7 +4047,10 @@ chn_load();
 history_min = load_hist('history.json', cfg.long_history);
 
 arch_check();
-emit('info', 'system', 'collector', 'monitor_start', { interval: cfg.interval, iptv_interval: iptv_fast() ? cfg.iptv.sample_interval : null });
+gap_check();
+emit('info', 'system', 'collector', 'monitor_start', { interval: cfg.interval, iptv_interval: iptv_fast() ? cfg.iptv.sample_interval : null,
+	uptime: int(uptime_s() ?? 0) });
+
 
 uloop.init();
 peer_start();

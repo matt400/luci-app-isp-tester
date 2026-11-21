@@ -42,6 +42,7 @@ Target: **OpenWrt 24.10 and 25.12** (ucode + rpcd + LuCI JS). No compiled code, 
 | **Ports** | `/sys/class/net/<dev>` counters and link state | link down/up, link flapping between samples, speed change (e.g. 1 Gbit → 100 Mbit), RX/TX/CRC errors, drops |
 | **Router** | `/proc`: CPU per core (incl. softirq), RAM, connection tracking table. Only read to explain problems; for graphs use *Status → Realtime Graphs* or luci-app-statistics | router overloaded, low RAM, connection table full |
 | **You** | **⚑ Problem now** button | your report with the time of the click and an optional note |
+| **Gaps** | the collector's own sign of life (`alive.json`, once a minute) + the kernel's boot id and `/proc/uptime` | **router restarted** (up since …), **not measured from X to Y** (router restarted, monitoring off, collector stopped or blocked) – listed in the report |
 | **Decoders** (bridged IPTV VLAN) | bridge MAC table (`bridge -s fdb`: which MAC behind which port, seconds since its last frame) + link of that port | *decoder restarted* (away N s; port link down / vanished from the MAC table / silent while the stream stopped), *switched off*, *back* – freezes during a restart are not counted against the ISP |
 | **Path snapshot** | one `mtr -r` (when installed) or busybox `traceroute` when a loss starts or the WAN is down, at most every 10 min | *loss starts at hop N (IP) and carries on to the destination* – the hops fold out on the timeline and are in the report |
 | **Bufferbloat** | collectd's ping matched with the WAN traffic of the same interval (device counters); line speed = highest 30 s rate seen or set | *bufferbloat: ping +N ms with the link X % full* / *over*; WAN traffic chart with the periods marked; card: ping idle vs. full link |
@@ -118,6 +119,16 @@ Each finding is weighted (repeated occurrences count up to 5×). The verdict is 
 Everything is kept in RAM in `/tmp/isp-tester/`, so flash is never written. The data survives a collector restart (e.g. after saving settings) but is lost on reboot, so download the CSVs before restarting the router.
 
 To keep it across reboots, mount a USB stick (*System → Mount Points*) and set **Settings → General → Keep data on** to it (e.g. `/mnt/sda1`). `/tmp/isp-tester` then becomes a link to `<folder>/isp-tester`. If the stick is not mounted at start, the data stays in RAM. Do not point it at the internal flash. The current state (`state.json`) always stays in RAM in `/var/run/isp-tester/`.
+
+### Reboots and gaps: "the router did not measure from X to Y"
+
+A report with holes in it is easy for the ISP to dismiss, so the holes are named. Once a minute the collector writes `alive.json` (in the data folder, so on USB it survives a reboot) with the kernel's boot id. At start it compares:
+
+- **another boot id** → *Router restarted – up since …* (from `/proc/uptime`) and *Not measured from <last sign of life> to <now>: the router restarted*;
+- **same boot**, a pause longer than a few intervals → *Not measured …: monitoring was turned off* (the init script marks a clean stop) or *the collector stopped unexpectedly*;
+- while running, a tick that came far too late → *… the collector was blocked*.
+
+With the data in RAM nothing survives a reboot, so only *Router restarted* is logged. The state strip above the charts shows such periods hatched grey; outages and freezes that were open when the measurement stopped end there (their length does not include the time nobody measured). The report for the ISP starts with **Measurement coverage**: the share of the period that was measured, the router restarts, and every period without measurements with its reason.
 
 ### Archive: 7 / 30 days, weekly report
 
@@ -229,6 +240,8 @@ How it works: UDP (default port 51477), one JSON message per datagram, signed wi
 | `archive/ev-*.jsonl`, `archive/h-*.jsonl` | with data on USB: events and 10-minute summaries per day (see *Archive*) |
 | `wanpeak.json` | highest WAN rate seen (line speed for the bufferbloat check) |
 | `/var/run/isp-tester/peers.json` | receiver: last event number stored per second router (always RAM) |
+| `/tmp/isp-tester/alive.json` | last sign of life of the collector and the boot id (once a minute) |
+
 
 ## Choosing what to measure IPTV on
 
