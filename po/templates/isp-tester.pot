@@ -1846,3 +1846,42 @@ msgstr ""
 
 msgid "Upload speed (Mbit/s)"
 msgstr ""
+
+msgid "7 d"
+msgstr ""
+
+msgid "30 d"
+msgstr ""
+
+msgid "loading the archive…"
+msgstr ""
+
+msgid "IPTV bitrate (10 min average)"
+msgstr ""
+
+msgid "Interface errors per 10 minutes"
+msgstr ""
+
+msgid "Preparing the report…"
+msgstr ""
+
+msgid "The archive of the last %d days on USB is deleted too."
+msgstr ""
+
+msgid "Archive on USB"
+msgstr ""
+
+msgid "With the data on USB, every event and a 10-minute summary of the charts are also kept per day for this long, so the overview can show 7 or 30 days and the report for the ISP can cover a whole week. Appended once per event and once per 10 minutes, never rewritten. Without a USB folder it stays off (RAM is too small)."
+msgstr ""
+
+msgid "Off"
+msgstr ""
+
+msgid "7 days"
+msgstr ""
+
+msgid "30 days"
+msgstr ""
+
+msgid "90 days"
+msgstr ""

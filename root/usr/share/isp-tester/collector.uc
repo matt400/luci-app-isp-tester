@@ -142,6 +142,8 @@ function default_config() {
 		max_events: 1000,
 		history: 360,
 		long_history: 1440,
+		/* days kept in RUNDIR/archive when RUNDIR is on USB (data_dir); 0 = off */
+		archive_days: 30,
 		warn_window: 900,
 		logread: true,
 		wan: {
@@ -257,6 +259,7 @@ function load_config() {
 		c.max_events  = num(g.max_events, c.max_events);
 		c.history     = num(g.history, c.history);
 		c.long_history = num(g.long_history, c.long_history);
+		c.archive_days = num(g.archive_days, c.archive_days);
 		c.warn_window = num(g.warn_window, c.warn_window);
 		c.err_cooldown = num(g.err_cooldown, c.err_cooldown);
 		c.drop_warn   = num(g.drop_warn, c.drop_warn);
@@ -353,6 +356,9 @@ function load_config() {
 	if (c.wifi.reconnect_s < 5) c.wifi.reconnect_s = 5;
 
 	if (c.wan.trace_cooldown < 60) c.wan.trace_cooldown = 60;
+	c.archive_days = int(c.archive_days);
+	if (c.archive_days < 0) c.archive_days = 0;
+	if (c.archive_days > 366) c.archive_days = 366;
 	if (c.wan.bloat_ms < 5) c.wan.bloat_ms = 5;
 	if (c.wan.bloat_load < 30 || c.wan.bloat_load > 100) c.wan.bloat_load = 70;
 	if (!(c.wan.down_mbit >= 0)) c.wan.down_mbit = 0;
@@ -681,8 +687,56 @@ function save_events() {
 	write_atomic(`${RUNDIR}/events.json`, sprintf('%J', events));
 }
 
+/* ---------------------------------------------------------------- archive */
+
+/*
+ * Longer history (7 / 30 days) when RUNDIR is on USB (data_dir): one file
+ * per UTC day in RUNDIR/archive, appended to and never rewritten (easy on
+ * the flash), read by the web page directly:
+ *   ev-YYYYMMDD.jsonl  every event, one JSON object per line
+ *   h-YYYYMMDD.jsonl   10-minute aggregates { t, s: { key: value } }
+ * In RAM it stays off: 30 days would not fit. Files older than
+ * archive_days are deleted once an hour.
+ */
+const ARCH = `${RUNDIR}/archive`;
+let arch = { on: false, checked: 0, info: null };
+
+function arch_day(ts) {
+	let g = gmtime(ts);
+	return sprintf('%04d%02d%02d', g.year, g.mon, g.mday);
+}
+
+function arch_append(kind, ts, obj) {
+	if (!arch.on) return;
+	let fh = fs.open(`${ARCH}/${kind}-${arch_day(ts)}.jsonl`, 'a');
+	if (!fh) return;
+	fh.write(sprintf('%J\n', obj));
+	fh.close();
+}
+
+/* once an hour: on USB?, delete old days, sizes for the status */
+function arch_check() {
+	let t = now();
+	if (arch.checked && t - arch.checked < 3600) return;
+	arch.checked = t;
+	arch.on = cfg.archive_days > 0 && fs.lstat(RUNDIR)?.type == 'link';
+	if (!arch.on) { arch.info = null; return; }
+	if (!fs.stat(ARCH)) fs.mkdir(ARCH);
+	let keep = arch_day(t - cfg.archive_days * 86400), days = {}, size = 0, oldest = null;
+	for (let n in (fs.lsdir(ARCH) ?? [])) {
+		let m = match(n, /^(ev|h)-([0-9]{8})\.jsonl$/);
+		if (!m) continue;
+		if (m[2] < keep) { fs.unlink(`${ARCH}/${n}`); continue; }
+		days[m[2]] = true;
+		size += fs.stat(`${ARCH}/${n}`)?.size ?? 0;
+		if (oldest == null || m[2] < oldest) oldest = m[2];
+	}
+	arch.info = { days: cfg.archive_days, have: length(keys(days)), oldest, size };
+}
+
 /* store one event (own or received from the second router) */
 function store_event(e) {
+	arch_append('ev', e.ts, e);
 	push(events, e);
 	if (length(events) > cfg.max_events)
 		events = slice(events, length(events) - cfg.max_events);
@@ -754,23 +808,39 @@ const AGG_MODE = { rtt: 'avg', rttmax: 'max', loss: 'max', jit: 'max',
 	'iptv:kbps': 'avg', 'iptv:min': 'min', 'iptv:cc': 'sum', err: 'sum', drop: 'sum', lvl: 'max' };
 
 let agg = null;
+let agg10 = null;     /* 10-minute aggregates for the archive */
 
 function agg_mode(k) {
 	return AGG_MODE[k] ?? AGG_MODE[split(k, ':')[0]] ?? 'avg';
 }
 
-function agg_flush() {
-	if (!agg) return;
+function agg_vals(a) {
 	let vals = {};
-	for (let k, a in agg.v) {
+	for (let k, x in a.v) {
 		switch (agg_mode(k)) {
-		case 'max': vals[k] = a.max; break;
-		case 'min': vals[k] = a.min; break;
-		case 'sum': vals[k] = a.sum; break;
-		default:    vals[k] = round(a.sum / a.n, 1);
+		case 'max': vals[k] = x.max; break;
+		case 'min': vals[k] = x.min; break;
+		case 'sum': vals[k] = x.sum; break;
+		default:    vals[k] = round(x.sum / x.n, 1);
 		}
 	}
-	hist_add(history_min, agg.t, vals, cfg.long_history);
+	return vals;
+}
+
+function agg_put(a, vals) {
+	for (let k, v in vals) {
+		if (v == null) continue;
+		let x = a.v[k] ??= { sum: 0, n: 0, min: v, max: v };
+		x.sum += v;
+		x.n++;
+		if (v < x.min) x.min = v;
+		if (v > x.max) x.max = v;
+	}
+}
+
+function agg_flush() {
+	if (!agg) return;
+	hist_add(history_min, agg.t, agg_vals(agg), cfg.long_history);
 	write_atomic(`${RUNDIR}/history.json`, sprintf('%J', history_min));
 	agg = null;
 }
@@ -779,14 +849,16 @@ function agg_add(t, vals) {
 	let m = t - t % 60;
 	if (agg && agg.t != m) agg_flush();
 	agg ??= { t: m, v: {} };
-	for (let k, v in vals) {
-		if (v == null) continue;
-		let a = agg.v[k] ??= { sum: 0, n: 0, min: v, max: v };
-		a.sum += v;
-		a.n++;
-		if (v < a.min) a.min = v;
-		if (v > a.max) a.max = v;
+	agg_put(agg, vals);
+
+	if (!arch.on) { agg10 = null; return; }
+	let m10 = t - t % 600;
+	if (agg10 && agg10.t != m10) {
+		arch_append('h', agg10.t, { t: agg10.t, s: agg_vals(agg10) });
+		agg10 = null;
 	}
+	agg10 ??= { t: m10, v: {} };
+	agg_put(agg10, vals);
 }
 
 /* --------------------------------------------------------------- devices */
@@ -3143,10 +3215,15 @@ function handle_clear_request() {
 	else
 		fs.unlink(`${RUNDIR}/samples.csv`);
 	csv_rows = 0;
+	agg10 = null;
+	for (let n in (fs.lsdir(ARCH) ?? []))
+		if (match(n, /^(ev|h)-[0-9]{8}\.jsonl$/)) fs.unlink(`${ARCH}/${n}`);
+	arch.checked = 0;
 	emit('info', 'system', 'collector', 'cleared', {});
 }
 
 function tick() {
+	arch_check();
 	handle_clear_request();
 	handle_marks();
 	handle_notify_test();
@@ -3334,7 +3411,7 @@ function tick() {
 		counts: { h1: count_events(t - 3600), h24: count_events(t - 86400) },
 		history,
 		csv_rows,
-		data: { dir: RUNDIR, link: (fs.lstat(RUNDIR)?.type == 'link') ? fs.readlink(RUNDIR) : null },
+		data: { dir: RUNDIR, link: (fs.lstat(RUNDIR)?.type == 'link') ? fs.readlink(RUNDIR) : null, archive: arch.info },
 		notify: cfg.notify.enabled ? { service: cfg.notify.service, pending: length(notif.pending),
 			last_ok: notif.last_ok, last_fail: notif.last_fail, last_err: notif.last_err, fetch: FETCH != null } : null
 	};
@@ -3371,6 +3448,7 @@ history = load_hist('state.json', cfg.history);
 chn_load();
 history_min = load_hist('history.json', cfg.long_history);
 
+arch_check();
 emit('info', 'system', 'collector', 'monitor_start', { interval: cfg.interval, iptv_interval: iptv_fast() ? cfg.iptv.sample_interval : null });
 
 uloop.init();

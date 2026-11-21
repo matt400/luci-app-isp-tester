@@ -17,6 +17,10 @@ config general 'general'
 	# keep timeline, history and CSV in this folder (e.g. a USB stick, /mnt/sda1)
 	# instead of RAM, so they survive a reboot. Avoid the internal flash.
 	option data_dir ''
+	# with data_dir: keep every event and 10-minute summaries per day for
+	# this many days in <data_dir>/isp-tester/archive (7/30-day view, weekly
+	# report); 0 = off
+	option archive_days '30'
 	# turn messages of other services in the system log (pppd, udhcpc,
 	# igmpproxy, kernel, dnsmasq) into timeline events
 	option logread '1'

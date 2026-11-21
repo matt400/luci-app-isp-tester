@@ -115,6 +115,17 @@ Everything is kept in RAM in `/tmp/isp-tester/`, so flash is never written. The 
 
 To keep it across reboots, mount a USB stick (*System → Mount Points*) and set **Settings → General → Keep data on** to it (e.g. `/mnt/sda1`). `/tmp/isp-tester` then becomes a link to `<folder>/isp-tester`. If the stick is not mounted at start, the data stays in RAM. Do not point it at the internal flash. The current state (`state.json`) always stays in RAM in `/var/run/isp-tester/`.
 
+### Archive: 7 / 30 days, weekly report
+
+With the data on USB, **Settings → General → Archive on USB** (default 30 days) also keeps, per UTC day, in `/tmp/isp-tester/archive/`:
+
+| File | Content |
+|---|---|
+| `ev-YYYYMMDD.jsonl` | every event of that day (also those of the second router), one JSON object per line |
+| `h-YYYYMMDD.jsonl` | the chart data as 10-minute summaries (average / max / min as on the 24 h charts) |
+
+The files are only appended to – one line per event and one per 10 minutes, never rewritten – which is easy on the stick; days older than the limit are deleted once an hour. The overview then offers **7 d** and **30 d**, and ◀ ▶ go back beyond 24 h: the page reads the day files it needs. The charts use the 10-minute summaries there, the timeline and the analysis use the archived events, and **Report for the ISP** covers the selected period – choose *7 d* for a weekly report. *Download timeline (CSV)* exports the selected period. In RAM the archive stays off (30 days would not fit); *Clear logs* deletes it too.
+
 ## Path snapshot at a loss
 
 When a target starts losing packets (or everything is down), the collector runs one traceroute to a far target – the gateway alone would show nothing beyond hop 1. `mtr` (package `mtr`, 10 rounds at 0.5 s) is used when installed and gives loss per hop; otherwise busybox `traceroute -q 3`. The result is one event on the timeline: click it to fold out the hops.
@@ -174,6 +185,8 @@ How it works: UDP (default port 51477), one JSON message per datagram, signed wi
 | `events.json` | timeline (ring buffer, default 1000 entries) |
 | `samples.csv` | one row per interval (ring buffer, default 8640 rows = 24 h at 10 s) |
 | `samples.prev.csv` | previous CSV after the column layout changed (config change) |
+| `archive/ev-*.jsonl`, `archive/h-*.jsonl` | with data on USB: events and 10-minute summaries per day (see *Archive*) |
+| `wanpeak.json` | highest WAN rate seen (line speed for the bufferbloat check) |
 | `/var/run/isp-tester/peers.json` | receiver: last event number stored per second router (always RAM) |
 
 ## Choosing what to measure IPTV on

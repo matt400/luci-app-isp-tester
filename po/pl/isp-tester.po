@@ -1848,3 +1848,42 @@ msgstr "Z Twojej taryfy. Puste = najwyższa zaobserwowana."
 
 msgid "Upload speed (Mbit/s)"
 msgstr "Prędkość wysyłania (Mbit/s)"
+
+msgid "7 d"
+msgstr "7 dni"
+
+msgid "30 d"
+msgstr "30 dni"
+
+msgid "loading the archive…"
+msgstr "wczytuję archiwum…"
+
+msgid "IPTV bitrate (10 min average)"
+msgstr "Bitrate IPTV (średnia 10 min)"
+
+msgid "Interface errors per 10 minutes"
+msgstr "Błędy interfejsów na 10 minut"
+
+msgid "Preparing the report…"
+msgstr "Przygotowuję raport…"
+
+msgid "The archive of the last %d days on USB is deleted too."
+msgstr "Archiwum z ostatnich %d dni na USB też zostanie usunięte."
+
+msgid "Archive on USB"
+msgstr "Archiwum na USB"
+
+msgid "With the data on USB, every event and a 10-minute summary of the charts are also kept per day for this long, so the overview can show 7 or 30 days and the report for the ISP can cover a whole week. Appended once per event and once per 10 minutes, never rewritten. Without a USB folder it stays off (RAM is too small)."
+msgstr "Gdy dane są na USB, każde zdarzenie i 10-minutowe podsumowanie wykresów są też trzymane dzień po dniu przez tyle czasu, więc przegląd może pokazać 7 lub 30 dni, a raport dla operatora objąć cały tydzień. Dopisywane raz na zdarzenie i raz na 10 minut, nigdy nie przepisywane. Bez folderu na USB jest wyłączone (za mało RAM)."
+
+msgid "Off"
+msgstr "Wyłączone"
+
+msgid "7 days"
+msgstr "7 dni"
+
+msgid "30 days"
+msgstr "30 dni"
+
+msgid "90 days"
+msgstr "90 dni"

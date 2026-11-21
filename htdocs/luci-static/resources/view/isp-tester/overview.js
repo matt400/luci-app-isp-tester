@@ -641,6 +641,24 @@ function csvCell(v) {
 /* ------------------------------------------------------------------ view */
 
 var RANGES = [ [ 3600, _('1 h') ], [ 6 * 3600, _('6 h') ], [ 24 * 3600, _('24 h') ] ];
+/* with the archive on USB */
+var LONG_RANGES = [ [ 7 * 86400, _('7 d') ], [ 30 * 86400, _('30 d') ] ];
+var ARCH_DIR = '/tmp/isp-tester/archive';
+
+/* archive files are per UTC day: "20261121" */
+function utcDay(ts) {
+	var d = new Date(ts * 1000);
+	return String(d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate());
+}
+
+function parseLines(text) {
+	var out = [];
+	String(text || '').split('\n').forEach(function(l) {
+		if (!l) return;
+		try { out.push(JSON.parse(l)); } catch (e) {}
+	});
+	return out;
+}
 
 function readJson(path) {
 	return fs.read_direct(path).then(function(t) {
@@ -663,6 +681,9 @@ return view.extend({
 	end: null,            /* window end (null = live / now) */
 	allEvents: [],
 	minHist: null,
+	/* archive on USB: per UTC day { ev: [...], h: [...], at: load time } */
+	arch: {},
+	archLoading: null,
 
 	load: function() {
 		return Promise.all([ callStatus(), callEvents(200, ''), readJson('/tmp/isp-tester/events.json'), readJson('/tmp/isp-tester/history.json') ]);
@@ -687,12 +708,75 @@ return view.extend({
 
 	events: function() {
 		var recent = (this.last && this.last[1] && this.last[1].events) || [];
-		return mergeEvents(recent, this.allEvents || []);
+		var older = this.allEvents || [];
+		for (var d in this.arch) older = older.concat(this.arch[d].ev);
+		return mergeEvents(recent, older);
+	},
+
+	/* ---- archive (7 / 30 days, only with the data on USB) */
+	archInfo: function() {
+		var st = this.last && this.last[0] && this.last[0].state;
+		return (st && st.data && st.data.archive) || null;
+	},
+
+	ranges: function() {
+		var a = this.archInfo();
+		return a ? RANGES.concat(LONG_RANGES.filter(function(r) { return r[0] <= a.days * 86400; })) : RANGES;
+	},
+
+	rangeName: function(range) {
+		var r = this.ranges().concat(LONG_RANGES).filter(function(x) { return x[0] === range; })[0];
+		return r ? r[1] : fmtDur(range);
+	},
+
+	/* the window reaches past the last 24 h (all that history.json can hold) */
+	needsArchive: function(w) {
+		if (!this.archInfo()) return false;
+		return (w.to - w.from) > 86400 || w.from < this.now() - 86400 - 600;
+	},
+
+	archDays: function(w) {
+		var days = [];
+		for (var t = w.from - (w.from % 86400); t <= w.to; t += 86400) days.push(utcDay(t));
+		return days;
+	},
+
+	/* load the days of the window that are missing (today again after a minute) */
+	ensureArchive: function(w) {
+		var self = this;
+		if (!this.needsArchive(w)) return Promise.resolve(false);
+		if (this.archLoading) return this.archLoading;
+		var today = utcDay(Date.now() / 1000);
+		var todo = this.archDays(w).filter(function(d) {
+			var a = self.arch[d];
+			return !a || (d === today && Date.now() - a.at > 60000);
+		});
+		if (!todo.length) return Promise.resolve(false);
+		this.archLoading = Promise.all(todo.map(function(d) {
+			var rd = function(kind) { return fs.read_direct(ARCH_DIR + '/' + kind + '-' + d + '.jsonl').then(parseLines).catch(function() { return []; }); };
+			return Promise.all([ rd('ev'), rd('h') ]).then(function(r) { self.arch[d] = { ev: r[0], h: r[1], at: Date.now() }; });
+		})).then(function() { self.archLoading = null; return true; });
+		return this.archLoading;
+	},
+
+	/* 10-minute aggregates of the window, in the history format { t, s } */
+	archHist: function(w) {
+		var rows = [];
+		var self = this;
+		this.archDays(w).forEach(function(d) { if (self.arch[d]) rows = rows.concat(self.arch[d].h); });
+		rows.sort(function(a, b) { return a.t - b.t; });
+		var keys = {};
+		rows.forEach(function(r) { for (var k in (r.s || {})) keys[k] = true; });
+		var h = { t: rows.map(function(r) { return r.t; }), s: {} };
+		Object.keys(keys).forEach(function(k) { h.s[k] = rows.map(function(r) { return (r.s && r.s[k] != null) ? r.s[k] : null; }); });
+		return h;
 	},
 
 	/* chart data for the window: fine 10 s data when live and it covers the window, 1-minute aggregates otherwise */
 	chartData: function(st, w) {
 		var fine = st.history || { t: [], s: {} };
+		if (this.needsArchive(w))
+			return { h: this.archHist(w), fine: false, coarse: true };
 		if (w.live && fine.t.length && fine.t[0] <= w.from + (st.interval || 10) * 2)
 			return { h: fine, fine: true };
 		if (w.live && this.range <= 3600 && !(this.minHist && this.minHist.t.length))
@@ -706,16 +790,17 @@ return view.extend({
 			return E('button', { 'class': 'cbi-button' + (active ? ' active' : ''), 'title': title || '', 'click': fn }, label);
 		};
 		var winText = w.live
-			? _('last %s (live)').format(RANGES.filter(function(r) { return r[0] === self.range; })[0][1])
+			? _('last %s (live)').format(this.rangeName(this.range))
 			: fmtTime(w.from).substr(5, 11) + ' – ' + fmtTime(w.to).substr(5, 11);
 
-		return E('div', { 'class': 'ispt-nav' }, RANGES.map(function(r) {
+		return E('div', { 'class': 'ispt-nav' }, this.ranges().map(function(r) {
 			return btn(r[1], self.range === r[0], function() { self.setWindow(r[0], self.end); });
 		}).concat([
 			btn('◀', false, function() { var x = self.win(); self.setWindow(self.range, x.to - self.range / 2); }, _('Earlier')),
 			btn('▶', false, function() { var x = self.win(); if (!x.live) self.setWindow(self.range, x.to + self.range / 2); }, _('Later')),
 			btn(_('Now'), w.live, function() { self.setWindow(self.range, null); }),
-			E('span', { 'class': 'win' }, winText)
+			E('span', { 'class': 'win' }, winText),
+			this.archLoading ? E('span', { 'class': 'ispt-muted' }, _('loading the archive…')) : ''
 		]));
 	},
 
@@ -727,7 +812,7 @@ return view.extend({
 		var ispPct = total ? Math.round(r.isp * 100 / total) : 0;
 
 		var head = E('div', { 'class': 'head' }, [
-			E('div', { 'class': 'ispt-muted' }, _('Probable cause (%s)').format(w.live ? _('last %s').format(RANGES.filter(function(x) { return x[0] === this.range; }, this)[0][1]) : _('selected period'))),
+			E('div', { 'class': 'ispt-muted' }, _('Probable cause (%s)').format(w.live ? _('last %s').format(this.rangeName(this.range)) : _('selected period'))),
 			E('div', { 'class': 'verdict' }, [ dot(r.verdict === 'none' || r.verdict === 'minor' ? 'ok' : r.verdict === 'mixed' ? 'warn' : 'fail'), diagnose.verdictText(r.verdict) ]),
 			total ? E('div', {}, [
 				E('div', { 'class': 'ispt-scale' }, [
@@ -1179,7 +1264,7 @@ return view.extend({
 					stallBands.push({ from: e.ts, to: end, color: '#d64541', title: _('Stream stopped for %s').format(fmtDur(end - e.ts)) });
 			});
 			var ibr = [ {
-				name: cd.fine ? _('IPTV bitrate') : _('IPTV bitrate (1 min average)'), color: '#7a59c0',
+				name: cd.fine ? _('IPTV bitrate') : cd.coarse ? _('IPTV bitrate (10 min average)') : _('IPTV bitrate (1 min average)'), color: '#7a59c0',
 				data: kb.map(function(v) { return v == null ? null : v / 1000; }),
 				fmt: function(v) { return fmtRate(v * 1000); }
 			} ];
@@ -1228,7 +1313,7 @@ return view.extend({
 			errSeries.push({ name: k.substr(4), color: COLORS[ci++ % COLORS.length], data: data });
 		});
 		if (errSeries.length)
-			out.push(lineChart(t, errSeries, { from: w.from, to: w.to, title: cd.fine ? _('Interface errors per interval') : _('Interface errors per minute'), min_max: 1, legend: true }));
+			out.push(lineChart(t, errSeries, { from: w.from, to: w.to, title: cd.fine ? _('Interface errors per interval') : cd.coarse ? _('Interface errors per 10 minutes') : _('Interface errors per minute'), min_max: 1, legend: true }));
 
 		var hasData = t.some(function(ts) { return ts >= w.from && ts <= w.to; });
 
@@ -1263,9 +1348,16 @@ return view.extend({
 
 	/* ---- printable report for the ISP */
 	openReport: function() {
+		var self = this, w = this.win();
+		if (!(this.last && this.last[0] && this.last[0].state)) return Promise.resolve();
+		/* the window first: a popup opened after waiting for the archive would be blocked */
+		var win = window.open('', '_blank');
+		if (win) win.document.write('<p style="font:14px sans-serif">' + esc(_('Preparing the report…')) + '</p>');
+		return this.ensureArchive(w).then(function() { self.writeReport(w, win); });
+	},
+
+	writeReport: function(w, win) {
 		var res = this.last && this.last[0], st = res && res.state;
-		if (!st) return;
-		var w = this.win();
 		var r = this.analyze(st, w);
 		var evs = this.events().filter(function(e) { return e.ts >= w.from && e.ts <= w.to; }).sort(function(a, b) { return a.ts - b.ts; });
 		var own = evs.filter(function(e) { return !e.host; });
@@ -1350,7 +1442,6 @@ return view.extend({
 			}).join('') + '</table>' +
 			'<p class="muted">' + x(_('Measured continuously on the customer\'s router. Times are local router time.')) + '</p></body></html>';
 
-		var win = window.open('', '_blank');
 		if (!win) {
 			download('isp-tester-report-' + stamp() + '.html', html, 'text/html');
 			return;
@@ -1484,13 +1575,20 @@ return view.extend({
 	},
 
 	exportEvents: function() {
-		return callEvents(0, '').then(function(res) {
-			var lines = [ 'time,level,area,source,event,message' ];
-			(res.events || []).slice().reverse().forEach(function(e) {
-				lines.push([ fmtTime(e.ts), e.lvl, e.area, e.src, e.type, eventText(e) ].map(csvCell).join(','));
+		var self = this, w = this.win();
+		var rows = function(list) {
+			var lines = [ 'time,level,router,area,source,event,message' ];
+			list.forEach(function(e) {
+				lines.push([ fmtTime(e.ts), e.lvl, e.host || '', e.area, e.src, e.type, eventText(e) ].map(csvCell).join(','));
 			});
 			download('isp-tester-events-' + stamp() + '.csv', lines.join('\n') + '\n');
-		});
+		};
+		/* a window beyond the last 24 h: its events, from the archive */
+		if (this.needsArchive(w))
+			return this.ensureArchive(w).then(function() {
+				rows(self.events().filter(function(e) { return e.ts >= w.from && e.ts <= w.to; }).reverse());
+			});
+		return callEvents(0, '').then(function(res) { rows((res.events || []).slice().reverse()); });
 	},
 
 	toggleEnabled: function(on) {
@@ -1509,6 +1607,7 @@ return view.extend({
 		var self = this;
 		ui.showModal(_('Clear logs'), [
 			E('p', _('This deletes the timeline, charts and CSV measurements. Download them first if you need them for your ISP.')),
+			this.archInfo() ? E('p', { 'class': 'ispt-warn-text' }, _('The archive of the last %d days on USB is deleted too.').format(this.archInfo().days)) : '',
 			E('div', { 'class': 'right' }, [
 				E('button', { 'class': 'cbi-button', 'click': ui.hideModal }, _('Cancel')), ' ',
 				E('button', { 'class': 'cbi-button cbi-button-negative', 'click': function() {
@@ -1517,6 +1616,7 @@ return view.extend({
 						/* drop the cached full timeline / 24 h history so old entries do not linger */
 						self.allEvents = [];
 						self.minHist = null;
+						self.arch = {};
 						ui.addNotification(null, E('p', _('Logs will be cleared within one interval.')), 'info');
 					});
 				} }, _('Clear'))
@@ -1527,9 +1627,14 @@ return view.extend({
 	/* ---- assembly */
 	redraw: function() {
 		if (!this.root || !this.last) return;
+		var self = this;
 		var res = this.last[0];
 		var st = res.state;
 		var w = this.win();
+
+		/* a window into the archive: draw what is there, again once the days are loaded */
+		if (st && this.needsArchive(w) && !this.archLoading)
+			this.ensureArchive(w).then(function(loaded) { if (loaded) self.redraw(); });
 
 		var parts = [ this.renderBanner(res) ];
 		if (st) {

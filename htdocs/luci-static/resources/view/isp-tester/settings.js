@@ -263,6 +263,15 @@ return view.extend({
 		o.placeholder = '/mnt/sda1';
 		o.optional = true;
 
+		o = s.option(form.ListValue, 'archive_days', _('Archive on USB'),
+			_('With the data on USB, every event and a 10-minute summary of the charts are also kept per day for this long, so the overview can show 7 or 30 days and the report for the ISP can cover a whole week. Appended once per event and once per 10 minutes, never rewritten. Without a USB folder it stays off (RAM is too small).'));
+		o.value('0', _('Off'));
+		o.value('7', _('7 days'));
+		o.value('30', _('30 days'));
+		o.value('90', _('90 days'));
+		o.default = '30';
+		o.depends({ data_dir: '', '!reverse': true });
+
 		o = s.option(form.Flag, 'logread', _('Read the system log'),
 			_('Turns messages of other services into timeline events: pppd (LCP echo timeouts, authentication, PPPoE discovery), udhcpc (lease lost), igmpproxy/mcproxy errors, kernel (network driver hang, connection table full, out of memory), dnsmasq (query limit).'));
 		o.default = '1';
