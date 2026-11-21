@@ -63,7 +63,9 @@ return {
 			args: { limit: 200, area: '' },
 			call: function(req) {
 				let ev = read_json('events.json', []);
-				let limit = +(req.args.limit ?? 200);
+				let limit = int(+(req.args.limit ?? 200));
+				/* "abc" would compare false with everything and return nothing */
+				if (limit != limit) limit = 200;
 				let area = req.args.area ?? '';
 				let out = [];
 

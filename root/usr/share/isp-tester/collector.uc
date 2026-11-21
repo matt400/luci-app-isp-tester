@@ -42,8 +42,8 @@ import { parse_log_line } from './lib/parsers.uc';
 import { read_dev, pid_usage, read_cpus, meminfo } from './lib/sysinfo.uc';
 import { load_config } from './lib/config.uc';
 import { tstamp } from './lib/messages.uc';
-import { iptv_init, vl, tsq, dec, igmp_poll, sample_proxy, dhcp_log_line, dhcp_tick, dec_poll, iptv_on, iptv_fast, chn_load, chn_now, handle_chn_forget, iptv_fast_sample, sample_iptv, tsm_poll } from './lib/iptv.uc';
-import { wan_init, targets, source, wansess, wanst, trace, bloat, sfp, target_why, target_level, bloat_load_peak, bloat_tick, bloat_out, sample_sfp, sfp_out, gateway_ip, sample_pings, v6_out, dns_log_line, dns_judge_servers, sample_dns, refresh_wan6, refresh_wan_device } from './lib/wan.uc';
+import { iptv_init, iptv_shift, vl, tsq, dec, igmp_poll, sample_proxy, dhcp_log_line, dhcp_tick, dec_poll, iptv_on, iptv_fast, chn_load, chn_now, handle_chn_forget, iptv_fast_sample, sample_iptv, tsm_poll } from './lib/iptv.uc';
+import { wan_init, wan_shift, targets, source, wansess, wanst, trace, bloat, sfp, target_why, target_level, bloat_load_peak, bloat_tick, bloat_out, sample_sfp, sfp_out, gateway_ip, sample_pings, v6_out, dns_log_line, dns_judge_servers, sample_dns, refresh_wan6, refresh_wan_device } from './lib/wan.uc';
 import { clock_init, clk, clk_fields, clk_check, ntp_poll, ntp_out, clk_init } from './lib/clock.uc';
 import { peer_init, peer_queue, peer_start, peer_hb, peer_tick, peer_out } from './lib/peer.uc';
 import { notify_init, notify_queue, notify_flush, notify_test, notify_status } from './lib/notify.uc';
@@ -60,8 +60,16 @@ let ubus_conn = null;     /* one ubus connection, (re)opened on demand */
 
 /* names of the ubus objects matching re; list() with a pattern would return
  * their method signatures, not their names */
+let ubus_list = { ts: null, names: null, conn: null };
 function ubus_objects(re) {
-	return filter(ubus_conn?.list() ?? [], (n) => type(n) == 'string' && match(n, re) != null);
+	/* the list of all objects is asked once a minute (and again on a new
+	 * connection), not on every tick for the few dnsmasq objects in it */
+	let m = mono();
+	if (ubus_list.names == null || ubus_list.conn != ubus_conn || m - ubus_list.ts >= 60) {
+		let l = ubus_conn?.list();
+		ubus_list = { ts: m, names: (type(l) == 'array') ? l : [], conn: ubus_conn };
+	}
+	return filter(ubus_list.names, (n) => type(n) == 'string' && match(n, re) != null);
 }
 /* a cooldown since `last` is over; also when the clock was set back
  * before `last`, which would otherwise keep the events away until the
@@ -246,8 +254,12 @@ function recent_level(area, src) {
 	let lvl = 'ok', cutoff = now() - cfg.warn_window;
 	for (let i = length(events) - 1; i >= 0; i--) {
 		let e = events[i];
-		if (e.host || e.m) continue;
+		/* the list is in time order: stop at the first old one, also when it
+		 * is the second router's or from a maintenance (those used to be
+		 * skipped before the check, so a long run of them was scanned to
+		 * the start of the list) */
 		if (e.ts < cutoff) break;
+		if (e.host || e.m) continue;
 		if (e.area != area || (src != null && e.src != src)) continue;
 		if (e.lvl == 'warn' || e.lvl == 'err') lvl = 'warn';
 	}
@@ -258,8 +270,8 @@ function count_events(since) {
 	let n = { warn: 0, err: 0 };
 	for (let i = length(events) - 1; i >= 0; i--) {
 		let e = events[i];
-		if (e.host || e.m) continue;
 		if (e.ts < since) break;
+		if (e.host || e.m) continue;
 		if (e.lvl == 'warn') n.warn++;
 		else if (e.lvl == 'err') n.err++;
 	}
@@ -341,6 +353,9 @@ function agg_flush() {
 
 function agg_add(t, vals) {
 	let m = t - t % 60;
+	/* a clock set back (not by clk_fix: the clock was trusted) would flush
+	 * the open minute with a time after the new one: it is dropped */
+	if (agg && agg.t > m) agg = null;
 	if (agg && agg.t != m) agg_flush();
 	agg ??= { t: m, v: {} };
 	agg_put(agg, vals);
@@ -553,7 +568,7 @@ function load_flag(key, on, off, typ, data) {
 
 function sample_system() {
 	if (!cfg.system.enabled) return null;
-	let o = { level: 'ok', reasons: [] };
+	let o = {};
 
 	let c = read_cpus();
 	if (c && sys.prev) {
@@ -603,14 +618,8 @@ function sample_system() {
 	if (o.ct_pct != null && y.conntrack_warn > 0)
 		load_flag('ct', o.ct_pct >= y.conntrack_warn, o.ct_pct < y.conntrack_warn - 5, 'conntrack_full', { pct: o.ct_pct, n: o.ct, max: o.ct_max });
 
-	if (sys.cpu) push(o.reasons, { c: 'cpu_high', cpu: o.cpu_max, core: o.core });
-	if (sys.mem) push(o.reasons, { c: 'mem_low', pct: o.mem_pct });
-	if (sys.ct)  push(o.reasons, { c: 'conntrack_full', pct: o.ct_pct });
-	if (length(o.reasons)) o.level = 'warn';
-	else if (recent_level('system', 'router') != 'ok') {
-		o.level = 'warn';
-		push(o.reasons, { c: 'recent_events' });
-	}
+	/* no card of its own (only events for the analysis): no level or
+	 * reasons to work out, no scan of the timeline for them */
 	return o;
 }
 
@@ -813,8 +822,11 @@ function csv_append(row) {
 
 	/* trim with 10% slack to avoid rewriting the file on every tick */
 	if (csv_rows > cfg.max_samples + int(cfg.max_samples / 10) + 1) {
-		let lines = split(trim(fs.readfile(path)), '\n');
-		let keep = slice(lines, length(lines) - cfg.max_samples);
+		let data = fs.readfile(path);
+		/* deleted or unreadable meanwhile (stick pulled): start it again */
+		if (data == null) { csv_header = null; return; }
+		let lines = split(trim(data), '\n');
+		let keep = slice(lines, max(1, length(lines) - cfg.max_samples));
 		write_atomic(path, csv_header + '\n' + join('\n', keep) + '\n');
 		csv_rows = length(keep);
 	}
@@ -838,7 +850,8 @@ function push_tick() {
 	/* a "running" left behind by a send that was killed (dbclient itself
 	 * gives up after 300 s) counts as failed, not as sent */
 	if (st && !st.ok && (st.state != 'running' || now() - (st.ts ?? 0) > 900)) wait = min(wait, 1800);
-	if (st?.ts && now() - st.ts < wait) return;
+	/* (a try "in the future" after the clock was set back counts as over) */
+	if (st?.ts && now() - st.ts < wait && now() >= st.ts) return;
 	system(`/bin/sh ${PUSH_SH} send >/dev/null 2>&1 &`);
 }
 
@@ -866,7 +879,10 @@ function tick() {
 	watchdog_ping();
 	clk_check();
 	ntp_poll();
-	if (now() - alive_ts >= 60) alive_save(now());
+	/* with due(): after the clock was set back it would not be written
+	 * again until the clock caught up, and a reboot meanwhile would date the
+	 * data gap from the old time */
+	if (due(now(), alive_ts, 60)) alive_save(now());
 	handle_clear_request();
 	push_tick();
 	handle_marks();
@@ -1106,6 +1122,18 @@ function tick() {
 	notify_flush(false);
 }
 
+/* the clock was stepped while not trusted (clk_fix): the wall times this
+ * run noted are moved too, or durations (link up "after 3 days", the load
+ * flags' "normal again after") would carry the step */
+function shift_run(by) {
+	started += by;
+	for (let d, ds in devstate) if (type(ds.since) == 'int') ds.since += by;
+	for (let k in [ 'cpu_since', 'mem_since', 'ct_since' ]) if (sys[k]) sys[k] += by;
+	if (logst.min_ts != null) logst.min_ts += by;
+	wan_shift(by);
+	iptv_shift(by);
+}
+
 /* ------------------------------------------------------------------ main */
 
 fs.mkdir(RUNDIR);
@@ -1133,7 +1161,7 @@ let load_hist = (name, max) => {
 iptv_init({ cfg, emit, recent_level, events: () => events });
 wan_init({ cfg, emit, ubus: () => (ubus_conn ??= require('ubus').connect()), ubus_drop: () => { ubus_conn = null; }, ubus_objects });
 clock_init({ events: () => events, history: () => history, history_min: () => history_min,
-	agg_shift: (by) => { if (agg) agg.t += by; }, shift_started: (by) => { started += by; },
+	agg_shift: (by) => { if (agg) agg.t += by; }, shift_started: shift_run,
 	reset_alive: () => { alive_ts = 0; }, emit, save_events, uptime_s });
 peer_init({ cfg, hostname: HOSTNAME, started: () => started, maint_on, maint_until: () => maint.until,
 	store_event, save_events, emit });
@@ -1182,3 +1210,8 @@ if (iptv_fast()) {
 }
 
 uloop.run();
+
+/* uloop ends on SIGTERM / SIGINT (procd's stop, a restart after saving the
+ * settings): what is still waiting is written, so the last half second of
+ * events is not lost */
+try { flush_events(); } catch (e) {}

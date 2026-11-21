@@ -23,7 +23,8 @@ let iptv = {
 	acc: null                               /* per-tick aggregate of the fast samples */
 };
 /* bridged IPTV VLAN (see vlan_sample) */
-let vl = { bridge: null, upstream: null, ports: [], stats: null, mdb: null, error: null, cnt: null };
+let vl = { bridge: null, upstream: null, ports: [], stats: null, mdb: null, error: null, cnt: null,
+	key: null, topo_m: null };       /* port list the topology was worked out for, and when */
 /* joined = group -> when it was joined (0 = already there at start) */
 let igmp = { groups: null, joined: {}, hist: [], proxy: null, proxy_seen: false, proxy_since: now() };
 /* picture quality (see tsm_poll): proc/args = the running helper and its
@@ -145,8 +146,9 @@ function proxy_process() {
 		return { name: igmp.proxy, pid: igmp.pid };
 	/* no proxy seen since the start (bridged IPTV needs none): look once a
 	 * minute only; nothing is reported until one has been seen */
-	let t = now();
-	if (!igmp.proxy_seen && t - (igmp.scan_ts ?? 0) < 60) return null;
+	/* monotonic: after the clock was set back it would not look for an hour */
+	let t = mono();
+	if (!igmp.proxy_seen && igmp.scan_ts != null && t - igmp.scan_ts < 60) return null;
 	igmp.scan_ts = t;
 	for (let pid in (fs.lsdir(PROC) ?? [])) {
 		if (!match(pid, /^[0-9]+$/)) continue;
@@ -312,29 +314,38 @@ function vlan_sample() {
 		}
 	}
 
-	/* the bridge itself is listed when it is a member too (br.236 exists) */
-	let br = C.cfg.iptv.bridge || null;
-	if (!br)
-		for (let p in ports) {
-			let m = base(fs.readlink(`${SYSNET}/${p}/master`));
-			if (m) { br = m; break; }
+	/* which bridge and which port leads to the ISP: worked out again only
+	 * when the ports of the VLAN change, else once a minute (this runs every
+	 * second; the sysfs reads per port were most of its work) */
+	let key = join(',', ports), mt = mono();
+	if (key != vl.key || mt - (vl.topo_m ?? 0) >= 60) {
+		vl.key = key;
+		vl.topo_m = mt;
+		/* the bridge itself is listed when it is a member too (br.236 exists) */
+		let br = C.cfg.iptv.bridge || null;
+		if (!br)
+			for (let p in ports) {
+				let m = base(fs.readlink(`${SYSNET}/${p}/master`));
+				if (m) { br = m; break; }
+			}
+		vl.bridge = br;
+		vl.ports = filter(ports, (p) => p != br);
+		/* routers where every port is a switch (DSA) port: the one named "wan" */
+		vl.upstream = C.cfg.iptv.upstream || filter(vl.ports, is_uplink)[0] ||
+			filter(vl.ports, (p) => match(p, /^wan/))[0] || null;
+
+		if (br) {
+			let on = rd(br, 'bridge/vlan_stats_enabled');
+			if (on == '0') {
+				fs.writefile(`${SYSNET}/${br}/bridge/vlan_stats_enabled`, '1');
+				on = rd(br, 'bridge/vlan_stats_enabled');
+			}
+			vl.stats = on;
 		}
-	vl.bridge = br;
-	vl.ports = filter(ports, (p) => p != br);
-	/* routers where every port is a switch (DSA) port: the one named "wan" */
-	vl.upstream = C.cfg.iptv.upstream || filter(vl.ports, is_uplink)[0] ||
-		filter(vl.ports, (p) => match(p, /^wan/))[0] || null;
+	}
+	let br = vl.bridge;
 
 	if (!length(vl.ports)) { vl.error = 'vlan_not_found'; vl.cnt = null; return; }
-
-	if (br) {
-		let on = rd(br, 'bridge/vlan_stats_enabled');
-		if (on == '0') {
-			fs.writefile(`${SYSNET}/${br}/bridge/vlan_stats_enabled`, '1');
-			on = rd(br, 'bridge/vlan_stats_enabled');
-		}
-		vl.stats = on;
-	}
 
 	/* upstream port's RX (equals the VLAN-wide counter unless per-port) */
 	let s = vl.upstream ? st[vl.upstream] : null;
@@ -391,8 +402,8 @@ function dec_stream_hit(from, to) {
 	let evs = C.events();
 	for (let i = length(evs) - 1; i >= 0; i--) {
 		let e = evs[i];
-		if (e.host) continue;
 		if (e.ts < from - 60) break;
+		if (e.host) continue;
 		if (e.area == 'iptv' && e.ts >= from - 10 && e.ts <= to + 5 &&
 		    (e.type == 'stream_stall' || e.type == 'stream_off' || e.type == 'stream_lost')) return true;
 	}
@@ -1088,12 +1099,12 @@ function tsm_start(tg) {
 		tsq.err = 'helper_failed';
 		/* 10 s, 20 s, 40 s ... at most 5 min between restarts */
 		let wait = min(300, 10 * (2 ** min(tsq.fails - 1, 5)));
-		tsq.next = now() + wait;
+		tsq.next = mono() + wait;
 		warn(`isp-tester: ${TSMON} ended (exit ${code}), starting again in ${wait} s\n`);
 	});
 	if (!p) {
 		tsq.err = 'helper_failed';
-		tsq.next = now() + 60;
+		tsq.next = mono() + 60;
 		return;
 	}
 	tsq.proc = p;
@@ -1122,7 +1133,7 @@ function tsm_read() {
 		warn(`isp-tester: ${TSMON} does not update ${TSQ_STATE}, restarting it\n`);
 		tsm_stop();
 		tsq.err = 'helper_stalled';
-		tsq.next = t + 10;
+		tsq.next = mono() + 10;
 		return;
 	}
 	if (age > 30) tsq.err = 'helper_stalled';
@@ -1249,7 +1260,8 @@ function tsm_poll() {
 	/* the ISP-side port of the VLAN changed */
 	if (tsq.proc && tsq.args != tsm_args(tg)) tsm_stop();
 	if (!tsq.proc) {
-		if (now() >= tsq.next) tsm_start(tg);
+		/* monotonic: a clock set back must not hold the restart for an hour */
+		if (mono() >= tsq.next) tsm_start(tg);
 		chn.err = (tsq.err == 'helper_failed') ? tsq.err : null;
 		return;
 	}
@@ -1258,5 +1270,15 @@ function tsm_poll() {
 	chn.err = tsq.err;
 }
 
+/* the clock was stepped while not trusted (see clock.uc clk_fix): the wall
+ * times noted since the start move with it, so durations stay right */
+function iptv_shift(by) {
+	let mv = (o, ks) => { for (let k in ks) if (type(o[k]) == 'int') o[k] += by; };
+	mv(iptv, [ 'since', 'stall_since', 'low_w', 'prev_w' ]);
+	mv(igmp, [ 'proxy_since', 'last_change' ]);
+	mv(tsq, [ 'started', 'drop_ts' ]);
+	for (let g, t in igmp.joined) if (t > 0) igmp.joined[g] = t + by;
+	for (let mac, d in dec.list) mv(d, [ 'since', 'gone_at', 'seen', 'last_active', 'quiet_from' ]);
+}
 
-export { iptv_init, iptv, vl, igmp, igq, tsq, chn, dhl, dec, IGQ_RING, TSQ_STATE, TSQ_WIN, TSQ_DROP_SHOW, CHN_MAX, igmp_groups, igmp_poll, igmp_classify, proxy_process, sample_proxy, dhcp_src, dhcp_seen, dhcp_ingest, dhcp_log_line, dhcp_tick, vlan_sample, dec_fdb, dec_stream_hit, dec_poll, tsq_out, iptv_on, iptv_fast, tsq_target, chn_load, chn_save, chn_name, chn_now, chn_current, chn_learn, chn_missing, chn_out, handle_chn_forget, igmpq_ingest, igmpq_expected, igmpq_limit, igmpq_check, igmpq_out, iptv_out, nobody_subscribed, iptv_flag_stall, iptv_update, iptv_counters, iptv_fast_sample, sample_iptv, tsm_stream, igq_want, tsm_want, tsm_args, tsm_stop, tsm_start, tsq_level, tsm_read, tsm_poll };
+export { iptv_init, iptv_shift, iptv, vl, igmp, igq, tsq, chn, dhl, dec, IGQ_RING, TSQ_STATE, TSQ_WIN, TSQ_DROP_SHOW, CHN_MAX, igmp_groups, igmp_poll, igmp_classify, proxy_process, sample_proxy, dhcp_src, dhcp_seen, dhcp_ingest, dhcp_log_line, dhcp_tick, vlan_sample, dec_fdb, dec_stream_hit, dec_poll, tsq_out, iptv_on, iptv_fast, tsq_target, chn_load, chn_save, chn_name, chn_now, chn_current, chn_learn, chn_missing, chn_out, handle_chn_forget, igmpq_ingest, igmpq_expected, igmpq_limit, igmpq_check, igmpq_out, iptv_out, nobody_subscribed, iptv_flag_stall, iptv_update, iptv_counters, iptv_fast_sample, sample_iptv, tsm_stream, igq_want, tsm_want, tsm_args, tsm_stop, tsm_start, tsq_level, tsm_read, tsm_poll };
