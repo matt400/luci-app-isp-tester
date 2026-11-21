@@ -1758,3 +1758,93 @@ msgstr "Gdy zaczynają się straty (albo łącze leży), uruchamiany jest jeden 
 
 msgid "At most every (s)"
 msgstr "Najwyżej co (s)"
+
+msgid "Bufferbloat %d×: the ping went up by as much as %d ms only while the link was full (%s) – your own traffic fills a buffer in the modem or at the ISP. Not an outage and not the ISP's fault: SQM (luci-app-sqm, cake) set a bit below the line speed fixes it."
+msgstr "Bufferbloat %d×: ping rósł nawet o %d ms tylko wtedy, gdy łącze było pełne (%s) – własny ruch zapełnia bufor w modemie lub u operatora. To nie awaria i nie wina operatora: pomoże SQM (luci-app-sqm, cake) ustawione nieco poniżej prędkości łącza."
+
+msgid "upload"
+msgstr "wysyłanie"
+
+msgid "download"
+msgstr "pobieranie"
+
+msgid "download and upload"
+msgstr "pobieranie i wysyłanie"
+
+msgid "%d high-ping warnings at those times are not counted against the ISP."
+msgstr "%d ostrzeżeń o wysokim pingu w tych chwilach nie liczy się przeciw operatorowi."
+
+msgid "Ping is up by %d ms while the link is %d%% full (%s) – bufferbloat, not an outage"
+msgstr "Ping wyższy o %d ms przy łączu zajętym w %d%% (%s) – bufferbloat, nie awaria"
+
+msgid "BUFFERBLOAT: ping %s → %s (+%d ms) with the link %d%% full (%s %s of %s Mbit/s)"
+msgstr "BUFFERBLOAT: ping %s → %s (+%d ms) przy łączu zajętym w %d%% (%s %s z %s Mbit/s)"
+
+msgid "Bufferbloat over after %s (at most +%d ms)"
+msgstr "Bufferbloat minął po %s (najwyżej +%d ms)"
+
+msgid "measuring…"
+msgstr "mierzę…"
+
+msgid "%s at low load; the link has not been full yet"
+msgstr "%s przy małym obciążeniu; łącze nie było jeszcze pełne"
+
+msgid "lags only when the link is full (bufferbloat)"
+msgstr "lagi tylko przy pełnym łączu (bufferbloat)"
+
+msgid "sometimes higher at full link"
+msgstr "czasem wyższy przy pełnym łączu"
+
+msgid "no extra delay at full link"
+msgstr "bez dodatkowego opóźnienia przy pełnym łączu"
+
+msgid "Line speed"
+msgstr "Prędkość łącza"
+
+msgid "highest seen"
+msgstr "najwyższa zaobserwowana"
+
+msgid "set"
+msgstr "ustawiona"
+
+msgid "Ping of the gateway at low load and with the link full, from collectd and the WAN traffic of the same interval"
+msgstr "Ping bramy przy małym obciążeniu i przy pełnym łączu, z collectd i ruchu WAN z tego samego przedziału"
+
+msgid "Ping idle / full link"
+msgstr "Ping w spoczynku / pełne łącze"
+
+msgid "Bufferbloat: ping +%d ms"
+msgstr "Bufferbloat: ping +%d ms"
+
+msgid "Download"
+msgstr "Pobieranie"
+
+msgid "Upload"
+msgstr "Wysyłanie"
+
+msgid "WAN traffic (Mbit/s) – yellow = bufferbloat (ping up while the link is full)"
+msgstr "Ruch WAN (Mbit/s) – żółte = bufferbloat (ping w górę przy pełnym łączu)"
+
+msgid "Detect bufferbloat"
+msgstr "Wykrywaj bufferbloat"
+
+msgid "Compares the ping from collectd with the WAN traffic of the same interval: when the ping goes up only while the link is full, the lag is your own traffic filling a buffer (modem, ISP) – not an outage, and SQM fixes it. No speed test is run: the line speed is the highest rate seen, or the values below."
+msgstr "Porównuje ping z collectd z ruchem WAN z tego samego przedziału: gdy ping rośnie tylko przy pełnym łączu, lag to własny ruch zapełniający bufor (modem, operator) – nie awaria, a SQM to naprawia. Bez własnego speedtestu: prędkość łącza to najwyższa zaobserwowana albo wartości poniżej."
+
+msgid "Ping increase (ms)"
+msgstr "Wzrost pingu (ms)"
+
+msgid "Above the ping at low load, twice in a row."
+msgstr "Ponad ping przy małym obciążeniu, dwa razy z rzędu."
+
+msgid "Link full from (%)"
+msgstr "Łącze pełne od (%)"
+
+msgid "Download speed (Mbit/s)"
+msgstr "Prędkość pobierania (Mbit/s)"
+
+msgid "Of your plan. Empty = the highest rate seen."
+msgstr "Z Twojej taryfy. Puste = najwyższa zaobserwowana."
+
+msgid "Upload speed (Mbit/s)"
+msgstr "Prędkość wysyłania (Mbit/s)"

@@ -1756,3 +1756,93 @@ msgstr ""
 
 msgid "At most every (s)"
 msgstr ""
+
+msgid "Bufferbloat %d×: the ping went up by as much as %d ms only while the link was full (%s) – your own traffic fills a buffer in the modem or at the ISP. Not an outage and not the ISP's fault: SQM (luci-app-sqm, cake) set a bit below the line speed fixes it."
+msgstr ""
+
+msgid "upload"
+msgstr ""
+
+msgid "download"
+msgstr ""
+
+msgid "download and upload"
+msgstr ""
+
+msgid "%d high-ping warnings at those times are not counted against the ISP."
+msgstr ""
+
+msgid "Ping is up by %d ms while the link is %d%% full (%s) – bufferbloat, not an outage"
+msgstr ""
+
+msgid "BUFFERBLOAT: ping %s → %s (+%d ms) with the link %d%% full (%s %s of %s Mbit/s)"
+msgstr ""
+
+msgid "Bufferbloat over after %s (at most +%d ms)"
+msgstr ""
+
+msgid "measuring…"
+msgstr ""
+
+msgid "%s at low load; the link has not been full yet"
+msgstr ""
+
+msgid "lags only when the link is full (bufferbloat)"
+msgstr ""
+
+msgid "sometimes higher at full link"
+msgstr ""
+
+msgid "no extra delay at full link"
+msgstr ""
+
+msgid "Line speed"
+msgstr ""
+
+msgid "highest seen"
+msgstr ""
+
+msgid "set"
+msgstr ""
+
+msgid "Ping of the gateway at low load and with the link full, from collectd and the WAN traffic of the same interval"
+msgstr ""
+
+msgid "Ping idle / full link"
+msgstr ""
+
+msgid "Bufferbloat: ping +%d ms"
+msgstr ""
+
+msgid "Download"
+msgstr ""
+
+msgid "Upload"
+msgstr ""
+
+msgid "WAN traffic (Mbit/s) – yellow = bufferbloat (ping up while the link is full)"
+msgstr ""
+
+msgid "Detect bufferbloat"
+msgstr ""
+
+msgid "Compares the ping from collectd with the WAN traffic of the same interval: when the ping goes up only while the link is full, the lag is your own traffic filling a buffer (modem, ISP) – not an outage, and SQM fixes it. No speed test is run: the line speed is the highest rate seen, or the values below."
+msgstr ""
+
+msgid "Ping increase (ms)"
+msgstr ""
+
+msgid "Above the ping at low load, twice in a row."
+msgstr ""
+
+msgid "Link full from (%)"
+msgstr ""
+
+msgid "Download speed (Mbit/s)"
+msgstr ""
+
+msgid "Of your plan. Empty = the highest rate seen."
+msgstr ""
+
+msgid "Upload speed (Mbit/s)"
+msgstr ""

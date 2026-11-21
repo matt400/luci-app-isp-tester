@@ -111,8 +111,20 @@ return baseclass.extend({
 
 		var wanDev = ctx.wan_device;
 		var isJitter = function(e) { return e.type === 'target_degraded' && e.d && e.d.why === 'jitter'; };
-		var isLoss = function(e) { return e.area === 'wan' && (e.type === 'target_degraded' || e.type === 'target_fail') && !isJitter(e); };
-		var gwJitter = by(function(e) { return e.area === 'wan' && e.src === 'gateway' && isJitter(e); });
+		/* bufferbloat periods: high ping there is the own traffic, not the ISP */
+		var bloats      = by(function(e) { return e.type === 'bufferbloat'; });
+		var inBloat = function(ts) {
+			return bloats.some(function(b) {
+				var end = b.ts + 3600;
+				for (var i = 0; i < sorted.length; i++)
+					if (sorted[i].ts > b.ts && (sorted[i].type === 'bufferbloat_ok' || sorted[i].type === 'monitor_start')) { end = sorted[i].ts; break; }
+				return ts >= b.ts - 60 && ts <= end + 60;
+			});
+		};
+		/* a high ping / jitter (no loss) while the link was full belongs to the bufferbloat finding */
+		var bloatLag = function(e) { return e.type === 'target_degraded' && e.d && !(e.d.loss > 0) && inBloat(e.ts); };
+		var isLoss = function(e) { return e.area === 'wan' && (e.type === 'target_degraded' || e.type === 'target_fail') && !isJitter(e) && !bloatLag(e); };
+		var gwJitter = by(function(e) { return e.area === 'wan' && e.src === 'gateway' && isJitter(e) && !bloatLag(e); });
 
 		var wanLinkDown = by(function(e) { return e.type === 'link_down' && (e.area === 'wan' || e.src === wanDev); });
 		var wanDown     = by(function(e) { return e.type === 'wan_down'; });
@@ -199,6 +211,14 @@ return baseclass.extend({
 			add('info', 0, 'one_target', farOnly, { host: farHosts[0] });
 
 		add('edge', 1, 'wan_errors', wanErr, { dev: wanDev });
+
+		/* lags only with the link full: own traffic fills a buffer; SQM at home fixes it */
+		if (bloats.length) {
+			var maxAdd = 0, dirs = {};
+			bloats.forEach(function(e) { maxAdd = Math.max(maxAdd, e.d.add || 0); dirs[e.d.dir || 'down'] = true; });
+			add('home', 1, 'bufferbloat', bloats, { add: maxAdd, dir: Object.keys(dirs).join('+'),
+				lags: by(bloatLag).length });
+		}
 
 		/* PPPoE/DHCP session dropped while the cable link stayed up */
 		add('isp', 2, 'wan_session', wanSess.filter(function(e) { return !near(wanLinkDown, e.ts, 60); }));
@@ -403,6 +423,9 @@ return baseclass.extend({
 		case 'router_load':     return _('The router was overloaded %d× (no problems at those moments).').format(f.n);
 		case 'marks_seen':      return _('%d of %d of your reports match a measured problem.').format(f.n, a.total);
 		case 'marks_unseen':    return _('%d of %d of your reports have nothing measured around them – the problem is not visible on this router: check the IPTV device setting, or the cause is the decoder, the TV or Wi-Fi.').format(f.n, a.total);
+		case 'bufferbloat':     return _('Bufferbloat %d×: the ping went up by as much as %d ms only while the link was full (%s) – your own traffic fills a buffer in the modem or at the ISP. Not an outage and not the ISP\'s fault: SQM (luci-app-sqm, cake) set a bit below the line speed fixes it.').format(f.n, a.add,
+			a.dir === 'up' ? _('upload') : a.dir === 'down' ? _('download') : _('download and upload')) +
+			(a.lags ? ' ' + _('%d high-ping warnings at those times are not counted against the ISP.').format(a.lags) : '');
 		case 'trace_hop':       return _('Path snapshots (%d): the loss started at hop %d (%s) and carried on to the destination (%d× there) – inside the ISP\'s network or beyond; the hops before it were fine. Show this to the ISP.').format(f.n, a.hop, a.ip, a.same);
 		case 'trace_first_hop': return _('Path snapshots (%d): the loss started already at the first hop (%s) – the access line or the ISP\'s first router.').format(f.n, a.ip);
 		case 'marks_wifi':      return _('%d of %d of your reports came with a Wi-Fi drop or weak signal of %s, and nothing on the line – the cause is Wi-Fi.').format(f.n, a.total, a.devs);

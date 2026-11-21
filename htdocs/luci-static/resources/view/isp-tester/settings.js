@@ -318,6 +318,31 @@ return view.extend({
 		o.placeholder = '600';
 		o.depends('trace', '1');
 
+		o = s.option(form.Flag, 'bloat', _('Detect bufferbloat'),
+			_('Compares the ping from collectd with the WAN traffic of the same interval: when the ping goes up only while the link is full, the lag is your own traffic filling a buffer (modem, ISP) – not an outage, and SQM fixes it. No speed test is run: the line speed is the highest rate seen, or the values below.'));
+		o.default = '1';
+		o.rmempty = false;
+
+		o = s.option(form.Value, 'bloat_ms', _('Ping increase (ms)'), _('Above the ping at low load, twice in a row.'));
+		o.datatype = 'range(5,1000)';
+		o.placeholder = '30';
+		o.depends('bloat', '1');
+
+		o = s.option(form.Value, 'bloat_load', _('Link full from (%)'));
+		o.datatype = 'range(30,100)';
+		o.placeholder = '70';
+		o.depends('bloat', '1');
+
+		o = s.option(form.Value, 'down_mbit', _('Download speed (Mbit/s)'), _('Of your plan. Empty = the highest rate seen.'));
+		o.datatype = 'ufloat';
+		o.optional = true;
+		o.depends('bloat', '1');
+
+		o = s.option(form.Value, 'up_mbit', _('Upload speed (Mbit/s)'), _('Of your plan. Empty = the highest rate seen.'));
+		o.datatype = 'ufloat';
+		o.optional = true;
+		o.depends('bloat', '1');
+
 		/* ---- IPTV */
 		s = m.section(form.NamedSection, 'iptv', 'iptv', _('IPTV'),
 			_('Usually it is enough to enter the IPTV VLAN of your ISP. The bridge, the port towards the ISP and the decoder ports are then found automatically.'));

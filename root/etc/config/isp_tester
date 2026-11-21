@@ -40,6 +40,13 @@ config wan 'wan'
 	# trace_cooldown seconds: shows at which hop the loss starts
 	option trace '1'
 	option trace_cooldown '600'
+	# bufferbloat: ping (collectd) vs. WAN traffic of the same interval
+	option bloat '1'
+	option bloat_ms '30'
+	option bloat_load '70'
+	# speed of the plan in Mbit/s; unset = the highest rate seen
+	#option down_mbit '300'
+	#option up_mbit '50'
 
 config iptv 'iptv'
 	option enabled '1'

@@ -149,7 +149,9 @@ function default_config() {
 			loss_warn: 1, loss_fail: 50, rtt_warn: 80, jitter_warn: 0,
 			collectd_socket: '', rrd_dir: '',
 			/* one traceroute/mtr when a loss starts, at most every trace_cooldown s */
-			trace: true, trace_cooldown: 600
+			trace: true, trace_cooldown: 600,
+			/* bufferbloat: ping vs. WAN load; down/up_mbit 0 = learn the line's speed */
+			bloat: true, bloat_ms: 30, bloat_load: 70, down_mbit: 0, up_mbit: 0
 		},
 		iptv: {
 			enabled: true, vlan: 0, upstream: '', device: '', direction: 'rx', bridge: '',
@@ -218,6 +220,11 @@ function load_config() {
 		c.wan.gateway     = w.gateway ?? '';
 		c.wan.trace          = bool(w.trace, true);
 		c.wan.trace_cooldown = num(w.trace_cooldown, c.wan.trace_cooldown);
+		c.wan.bloat          = bool(w.bloat, true);
+		c.wan.bloat_ms       = num(w.bloat_ms, c.wan.bloat_ms);
+		c.wan.bloat_load     = num(w.bloat_load, c.wan.bloat_load);
+		c.wan.down_mbit      = num(w.down_mbit, c.wan.down_mbit);
+		c.wan.up_mbit        = num(w.up_mbit, c.wan.up_mbit);
 
 		/* where luci-app-statistics keeps collectd's data */
 		let us = cur.get_all('luci_statistics', 'collectd_unixsock') || {};
@@ -346,6 +353,10 @@ function load_config() {
 	if (c.wifi.reconnect_s < 5) c.wifi.reconnect_s = 5;
 
 	if (c.wan.trace_cooldown < 60) c.wan.trace_cooldown = 60;
+	if (c.wan.bloat_ms < 5) c.wan.bloat_ms = 5;
+	if (c.wan.bloat_load < 30 || c.wan.bloat_load > 100) c.wan.bloat_load = 70;
+	if (!(c.wan.down_mbit >= 0)) c.wan.down_mbit = 0;
+	if (!(c.wan.up_mbit >= 0)) c.wan.up_mbit = 0;
 
 	c.peer.port = int(c.peer.port);
 	if (c.peer.port < 1 || c.peer.port > 65535) c.peer.port = 51477;
@@ -427,6 +438,7 @@ const MSG = {
 		user_mark: 'Problem reported by user: %s', test: 'Test message - notifications work.',
 		peer_lost: 'Router %s does not report any more', peer_back: 'Router %s reports again after %s',
 		trace: 'Traceroute to %s: %s',
+		bufferbloat: 'Bufferbloat: ping +%s ms with the link %d%% full (%s)', bufferbloat_ok: 'Bufferbloat over after %s (up to +%s ms)',
 		wifi_reconnect: 'Wi-Fi: %s dropped and reconnected after %s (%s)', wifi_leave: 'Wi-Fi: %s disconnected (%s)',
 		wifi_join: 'Wi-Fi: %s connected again after %s', wifi_roam: 'Wi-Fi: %s moved %s -> %s', wifi_weak: 'Wi-Fi: %s weak signal %d dBm', wifi_weak_ok: 'Wi-Fi: %s signal OK again after %s'
 	},
@@ -447,6 +459,7 @@ const MSG = {
 		user_mark: 'Problem zgłoszony ręcznie: %s', test: 'Wiadomość testowa - powiadomienia działają.',
 		peer_lost: 'Router %s przestał się zgłaszać', peer_back: 'Router %s znów się zgłasza po %s',
 		trace: 'Traceroute do %s: %s',
+		bufferbloat: 'Bufferbloat: ping +%s ms przy łączu zajętym w %d%% (%s)', bufferbloat_ok: 'Bufferbloat minął po %s (do +%s ms)',
 		wifi_reconnect: 'Wi-Fi: %s rozłączył się i wrócił po %s (%s)', wifi_leave: 'Wi-Fi: %s rozłączony (%s)',
 		wifi_join: 'Wi-Fi: %s znów połączony po %s', wifi_roam: 'Wi-Fi: %s przeszedł %s -> %s', wifi_weak: 'Wi-Fi: %s słaby sygnał %d dBm', wifi_weak_ok: 'Wi-Fi: %s sygnał znów OK po %s'
 	}
@@ -490,6 +503,8 @@ function event_text(e, lang) {
 	case 'trace': return sprintf(f, d.host, d.first_bad
 		? sprintf(lang == 'pl' ? 'straty od hopa %d (%s)' : 'loss starts at hop %d (%s)', d.first_bad, d.bad_ip ?? '?')
 		: (lang == 'pl' ? 'bez strat do celu' : 'no loss to the destination'));
+	case 'bufferbloat': return sprintf(f, d.add, d.load, d.dir == 'up' ? (lang == 'pl' ? 'wysyłanie' : 'upload') : (lang == 'pl' ? 'pobieranie' : 'download'));
+	case 'bufferbloat_ok': return sprintf(f, dur_txt(d.dur), d.max_add);
 	case 'wifi_reconnect': return sprintf(f, e.src, dur_txt(d.away), d.iface ?? '?');
 	case 'wifi_leave': return sprintf(f, e.src, d.iface ?? '?');
 	case 'wifi_join': return sprintf(f, e.src, dur_txt(d.away));
@@ -515,7 +530,8 @@ function event_msg(e, lang) {
  * only when the fault itself was sent (same area + source), so e.g. a decoder
  * port coming up or a target recovering from an unsent warning stays quiet */
 const RECOVERY = { wan_up: true, stream_resume: true, stream_lost: true, stream_off: true, link_up: true,
-	wan_if_up: true, proxy_up: true, target_ok: true, dev_present: true, peer_back: true, wifi_weak_ok: true };
+	wan_if_up: true, proxy_up: true, target_ok: true, dev_present: true, peer_back: true, wifi_weak_ok: true,
+	bufferbloat_ok: true };
 
 function urlenc(s) {
 	let out = '';
@@ -1075,6 +1091,144 @@ function trace_target(t) {
 	for (let k, x in targets)
 		if (x.active && x.label != 'gateway') return x;
 	return t;
+}
+
+/* ---------------------------------------------------------- bufferbloat */
+
+/*
+ * "Lags only when the link is full": collectd's ping (one average per its
+ * interval) is matched with the WAN traffic of the same interval, read
+ * from the WAN device's counters every tick. The line's speed is the
+ * highest 30 s rate seen (slowly forgotten, kept in RUNDIR) unless set in
+ * the settings. Ping at low load (< 20 %) is the base; ping at a load of
+ * bloat_load % or more that is bloat_ms above the base, twice in a row,
+ * is bufferbloat: the own traffic fills a buffer (modem, ISP) - not an
+ * outage, and fixable at home with SQM. No own speed test.
+ */
+const BLOAT_IDLE = 0.2;
+let bloat = { ring: [], peak_rx: 0, peak_tx: 0, peak_saved: 0, idle: [], seen: {},
+	active: false, since: null, bad_n: 0, ok_n: 0, max_add: 0, first: null,
+	stat: { idle_n: 0, idle_sum: 0, load_n: 0, load_sum: 0, bloat_n: 0 }, last: null };
+
+function bloat_load_peak() {
+	let j;
+	try { j = json(fs.readfile(`${RUNDIR}/wanpeak.json`) || 'null'); } catch (e) { j = null; }
+	if (type(j) == 'object') {
+		bloat.peak_rx = +j.rx || 0;
+		bloat.peak_tx = +j.tx || 0;
+	}
+}
+
+function median(a) {
+	if (!length(a)) return null;
+	let s = sort([ ...a ], (x, y) => x - y), n = length(s);
+	return (n % 2) ? s[n >> 1] : (s[n / 2 - 1] + s[n / 2]) / 2;
+}
+
+/* the target whose ping is used: the gateway (the first buffer on the way) */
+function bloat_target() {
+	let best = null;
+	for (let k, t in targets) {
+		if (!t.active || !t.res) continue;
+		if (t.label == 'gateway') return t;
+		best ??= t;
+	}
+	return best;
+}
+
+/* every tick: WAN traffic in bit/s; checks a new collectd value when there is one */
+function bloat_tick(t, rx, tx) {
+	if (!cfg.wan.bloat || rx == null) return;
+	push(bloat.ring, [ t, rx, tx ]);
+	while (length(bloat.ring) && bloat.ring[0][0] < t - 900) shift(bloat.ring);
+
+	/* line speed: a 30 s rate, so a burst or an uneven tick does not count; forgotten by ~8 %/day */
+	let n = length(bloat.ring), w = 0, sr = 0, stx = 0;
+	for (let i = n - 1; i >= 0 && bloat.ring[i][0] > t - 30; i--) { sr += bloat.ring[i][1]; stx += bloat.ring[i][2]; w++; }
+	let dec = 0.99999 ** cfg.interval;
+	bloat.peak_rx = max(bloat.peak_rx * dec, w ? sr / w : 0);
+	bloat.peak_tx = max(bloat.peak_tx * dec, w ? stx / w : 0);
+	if (t - bloat.peak_saved >= 600) {
+		bloat.peak_saved = t;
+		write_atomic(`${RUNDIR}/wanpeak.json`, sprintf('%J', { rx: round(bloat.peak_rx, 0), tx: round(bloat.peak_tx, 0), ts: t }));
+	}
+
+	let tg = bloat_target();
+	if (!tg) return;
+	let ts = tg.res.ts, prev = bloat.seen[tg.host];
+	if (ts == prev) return;
+	bloat.seen[tg.host] = ts;
+	if (prev == null || tg.res.rtt == null || tg.res.loss >= 100) return;
+
+	/* average traffic over the same interval as the ping value */
+	let cr = 0, ct = 0, m = 0;
+	for (let x in bloat.ring)
+		if (x[0] > prev && x[0] <= ts + 1) { cr += x[1]; ct += x[2]; m++; }
+	if (!m) return;
+	cr /= m;
+	ct /= m;
+	let cap_rx = cfg.wan.down_mbit > 0 ? cfg.wan.down_mbit * 1e6 : bloat.peak_rx;
+	let cap_tx = cfg.wan.up_mbit > 0 ? cfg.wan.up_mbit * 1e6 : bloat.peak_tx;
+	/* a speed that was never seen above 1 Mbit/s cannot tell what "full" is */
+	let lr = cap_rx >= 1e6 ? cr / cap_rx : 0, lt = cap_tx >= 1e6 ? ct / cap_tx : 0;
+	let load = max(lr, lt), dir = (lt > lr) ? 'up' : 'down';
+	let rtt = tg.res.rtt;
+
+	bloat.last = { ts, rtt, load: round(min(load, 1) * 100, 0), dir, rx: round(cr / 1000, 0), tx: round(ct / 1000, 0) };
+	if (load < BLOAT_IDLE) {
+		push(bloat.idle, rtt);
+		if (length(bloat.idle) > 60) shift(bloat.idle);
+		bloat.stat.idle_n++;
+		bloat.stat.idle_sum += rtt;
+	}
+	let base = (length(bloat.idle) >= 5) ? median(bloat.idle) : null;
+	let full = load * 100 >= cfg.wan.bloat_load;
+	let add = (base != null) ? rtt - base : null;
+	let bad = full && add != null && add >= cfg.wan.bloat_ms;
+	if (full && base != null) {
+		bloat.stat.load_n++;
+		bloat.stat.load_sum += rtt;
+		if (bad) bloat.stat.bloat_n++;
+	}
+
+	if (bad) {
+		bloat.ok_n = 0;
+		bloat.bad_n++;
+		bloat.first ??= { ts: prev, rtt, add, load: bloat.last.load, dir };
+		if (bloat.active) bloat.max_add = max(bloat.max_add, add);
+		else if (bloat.bad_n >= 2) {
+			bloat.active = true;
+			bloat.since = bloat.first.ts;
+			bloat.max_add = max(add, bloat.first.add);
+			emit('warn', 'wan', tg.label, 'bufferbloat', { host: tg.host, base: round(base, 1), rtt: round(rtt, 1),
+				add: round(add, 0), load: bloat.last.load, dir, rx_mbit: round(cr / 1e6, 1), tx_mbit: round(ct / 1e6, 1),
+				cap_rx_mbit: round(cap_rx / 1e6, 1), cap_tx_mbit: round(cap_tx / 1e6, 1),
+				learned: !(cfg.wan.down_mbit > 0 && cfg.wan.up_mbit > 0) }, bloat.since);
+		}
+	}
+	else {
+		bloat.bad_n = 0;
+		bloat.first = null;
+		if (bloat.active && ++bloat.ok_n >= 2) {
+			bloat.active = false;
+			emit('info', 'wan', tg.label, 'bufferbloat_ok', { host: tg.host, dur: ts - bloat.since, max_add: round(bloat.max_add, 0) });
+		}
+	}
+}
+
+function bloat_out() {
+	if (!cfg.wan.bloat) return null;
+	let s = bloat.stat, base = median(bloat.idle);
+	return {
+		active: bloat.active, since: bloat.since, base: round(base, 1),
+		idle_avg: s.idle_n ? round(s.idle_sum / s.idle_n, 1) : null,
+		load_avg: s.load_n ? round(s.load_sum / s.load_n, 1) : null,
+		idle_n: s.idle_n, load_n: s.load_n, bloat_n: s.bloat_n,
+		cap_rx: round((cfg.wan.down_mbit > 0 ? cfg.wan.down_mbit * 1e6 : bloat.peak_rx) / 1000, 0),
+		cap_tx: round((cfg.wan.up_mbit > 0 ? cfg.wan.up_mbit * 1e6 : bloat.peak_tx) / 1000, 0),
+		learned: !(cfg.wan.down_mbit > 0 && cfg.wan.up_mbit > 0),
+		last: bloat.last, ms: cfg.wan.bloat_ms, load_pct: cfg.wan.bloat_load
+	};
 }
 
 function check_wan_down() {
@@ -3043,6 +3197,11 @@ function tick() {
 			push(reasons, { c: 'no_ping_source', error: source.error, plugin: source.ping_plugin });
 
 		let wd = cfg.wan.device ? res[cfg.wan.device] : null;
+		if (wd?.delta) bloat_tick(now(), wd.delta.rx_bps, wd.delta.tx_bps);
+		if (bloat.active) {
+			level = worst(level, 'warn');
+			push(reasons, { c: 'bufferbloat_now', add: bloat.max_add, load: bloat.last?.load, dir: bloat.last?.dir });
+		}
 		if (wd && wd.level != 'ok') {
 			level = worst(level, wd.level);
 			for (let r in wd.reasons) push(reasons, r);
@@ -3055,6 +3214,7 @@ function tick() {
 		wan = { level, reasons, targets: tl, device: cfg.wan.device, interface: cfg.wan.interface,
 			trace: cfg.wan.trace ? { tool: MTR ? 'mtr' : (TRACEROUTE ? 'traceroute' : null), running: !!trace.proc, last: trace.last || null,
 				n: trace.n, cooldown: cfg.wan.trace_cooldown } : null,
+			bloat: bloat_out(),
 			rx_kbps: wd?.delta ? round(wd.delta.rx_bps / 1000, 0) : null,
 			tx_kbps: wd?.delta ? round(wd.delta.tx_bps / 1000, 0) : null,
 			source: { type: source.type, error: source.error, sock_error: source.sock_error, ping_plugin: source.ping_plugin, gateway: gateway_ip() },
@@ -3102,6 +3262,10 @@ function tick() {
 	let t = now();
 	if (dt > 0) {
 		let hv = { lvl: LEVEL[overall] };
+		if (wan?.rx_kbps != null) {
+			hv['wan:rx'] = wan.rx_kbps;
+			hv['wan:tx'] = wan.tx_kbps;
+		}
 		for (let x in (wan?.targets ?? [])) {
 			hv[`rtt:${x.label}`] = x.rtt;
 			hv[`loss:${x.label}`] = x.loss;
@@ -3211,6 +3375,7 @@ emit('info', 'system', 'collector', 'monitor_start', { interval: cfg.interval, i
 
 uloop.init();
 peer_start();
+bloat_load_peak();
 refresh_wan_device();
 /* the log so far is history: only remember where it ends */
 read_log();

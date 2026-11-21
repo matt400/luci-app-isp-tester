@@ -217,6 +217,7 @@ function reasonText(r) {
 	case 'ts_helper_stalled': return _('Picture quality: the measuring helper (isp-tester-tsmon) stopped, it is restarted automatically – see the system log.');
 	case 'ts_no_target':    return _('Picture quality: no IPTV interface to listen on (check the VLAN or device in Settings).');
 	case 'ts_drops':        return _('The router was too busy to count every IPTV packet in the last minutes, so some errors may be its own (see the IPTV card).');
+	case 'bufferbloat_now': return _('Ping is up by %d ms while the link is %d%% full (%s) – bufferbloat, not an outage').format(r.add, r.load, r.dir === 'up' ? _('upload') : _('download'));
 	case 'wifi_weak_now':   return _('%s: weak Wi-Fi signal (%d dBm)').format(r.name, r.signal);
 	case 'wifi_no_ubus':    return _('Wi-Fi: cannot reach ubus');
 	case 'wifi_no_hostapd': return _('Wi-Fi: no access point (hostapd) running on this router');
@@ -279,6 +280,10 @@ function eventText(e) {
 	case 'user_mark':       return _('You reported: %s').format(markText(d.what)) + (d.note ? ' – „' + d.note + '”' : '');
 	case 'log':             return logText(d.kind) + ' – ' + d.prog + ': „' + d.msg + '”' + (d.n > 1 ? ' (%d×)'.format(d.n) : '');
 	case 'trace':           return traceText(e);
+	case 'bufferbloat':     return _('BUFFERBLOAT: ping %s → %s (+%d ms) with the link %d%% full (%s %s of %s Mbit/s)').format(
+		fmtMs(d.base), fmtMs(d.rtt), d.add, d.load, d.dir === 'up' ? _('upload') : _('download'),
+		d.dir === 'up' ? d.tx_mbit : d.rx_mbit, d.dir === 'up' ? d.cap_tx_mbit : d.cap_rx_mbit);
+	case 'bufferbloat_ok':  return _('Bufferbloat over after %s (at most +%d ms)').format(fmtDur(d.dur), d.max_add);
 	case 'wifi_reconnect':  return (d.roam
 		? _('Wi-Fi: %s moved from %s to %s (gap %s)').format(e.src, d.from, d.iface, fmtDur(d.away))
 		: _('Wi-Fi: %s DROPPED and reconnected after %s').format(e.src, fmtDur(d.away))) + wifiNote(d);
@@ -321,6 +326,18 @@ function logText(k) {
 	case 'dns_limit':      return _('DNS server overloaded (query limit)');
 	default:               return _('System log');
 	}
+}
+
+/* "lags only when the link is full?" from the collector's ping/load statistics */
+function bloatText(b) {
+	if (b.idle_avg == null) return _('measuring…');
+	if (!b.load_n) return _('%s at low load; the link has not been full yet').format(fmtMs(b.idle_avg));
+	var add = b.load_avg - (b.base != null ? b.base : b.idle_avg);
+	var share = b.bloat_n / b.load_n;
+	return '%s / %s (+%s) – '.format(fmtMs(b.base != null ? b.base : b.idle_avg), fmtMs(b.load_avg), fmtMs(add)) +
+		(share >= 0.5 ? _('lags only when the link is full (bufferbloat)')
+			: share > 0 ? _('sometimes higher at full link')
+			: _('no extra delay at full link'));
 }
 
 /* the result of a traceroute/mtr snapshot, in one line */
@@ -890,6 +907,13 @@ return view.extend({
 			kv.push(E('span', { 'class': 'k' }, _('Address')), E('span', {}, (ss.ip || '–') +
 				(ss.reconnects ? ' · ' + _('%d reconnects since start').format(ss.reconnects) : '')));
 		}
+		if (w.bloat) {
+			var b = w.bloat;
+			kv.push(E('span', { 'class': 'k' }, _('Line speed')), E('span', {},
+				(b.cap_rx >= 1000 ? '↓ %s / ↑ %s'.format(fmtRate(b.cap_rx), fmtRate(b.cap_tx)) : '–') + ' (' + (b.learned ? _('highest seen') : _('set')) + ')'));
+			kv.push(E('span', { 'class': 'k', 'title': _('Ping of the gateway at low load and with the link full, from collectd and the WAN traffic of the same interval') }, _('Ping idle / full link')),
+				E('span', { 'class': b.active ? 'ispt-warn-text' : '' }, bloatText(b)));
+		}
 
 		return E('div', { 'class': 'ispt-card l-' + lvl(w.level) }, [
 			E('h3', {}, [ _('Internet'), chip(w.level) ]),
@@ -1174,6 +1198,26 @@ return view.extend({
 				fmt: function(v) { return v.toFixed(1); },
 				min_max: 1
 			}));
+		}
+
+		if (s['wan:rx']) {
+			var evs2 = this.events().filter(function(e) { return !e.host; }).sort(function(a, b) { return a.ts - b.ts; });
+			var bloatBands = [];
+			evs2.forEach(function(e, i) {
+				if (e.type !== 'bufferbloat') return;
+				var end = null;
+				for (var j = i + 1; j < evs2.length; j++)
+					if (evs2[j].type === 'bufferbloat_ok' || evs2[j].type === 'monitor_start') { end = evs2[j].ts; break; }
+				if (end == null) end = (st.wan && st.wan.bloat && st.wan.bloat.active) ? st.ts : e.ts + 60;
+				if (end >= w.from && e.ts <= w.to)
+					bloatBands.push({ from: e.ts, to: end, color: '#e0a100', title: _('Bufferbloat: ping +%d ms').format(e.d.add) });
+			});
+			var mb = function(v) { return v == null ? null : v / 1000; };
+			out.push(lineChart(t, [
+				{ name: _('Download'), color: '#3b6fc0', data: s['wan:rx'].map(mb), fmt: function(v) { return fmtRate(v * 1000); } },
+				{ name: _('Upload'), color: '#2a9d5b', data: (s['wan:tx'] || []).map(mb), fmt: function(v) { return fmtRate(v * 1000); } }
+			], { from: w.from, to: w.to, title: _('WAN traffic (Mbit/s) – yellow = bufferbloat (ping up while the link is full)'),
+				bands: bloatBands, fmt: function(v) { return v.toFixed(v < 10 ? 1 : 0); }, min_max: 1, legend: true }));
 		}
 
 		var errSeries = [], ci = 0;
