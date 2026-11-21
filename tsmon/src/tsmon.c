@@ -96,8 +96,8 @@ struct group {
 	unsigned kbps, pps;
 	uint8_t last_cc[NPID];
 	uint8_t dup[NPID];
-	/* channel name */
-	int psi_done, pat_seen, sdt_seen;
+	/* channel name; pat_new / sdt_new: read since the last psi_reset() */
+	int psi_done, pat_seen, sdt_seen, pat_new, sdt_new;
 	int pat[MAX_SVC], npat;
 	struct service svc[MAX_SVC];
 	int nsvc;
@@ -313,12 +313,12 @@ static void parse_section(struct group *g, const uint8_t *s, int n)
 			int pn = (s[p] << 8) | s[p + 1];
 			if (pn && g->npat < MAX_SVC) g->pat[g->npat++] = pn;
 		}
-		g->pat_seen = 1;
+		g->pat_seen = g->pat_new = 1;
 	}
 	else if (tid == 0x42) {
 		/* SDT of this transport stream (0x46 = other streams: skip) */
 		int p = 11;
-		g->sdt_seen = 1;
+		g->sdt_seen = g->sdt_new = 1;
 		while (p + 5 <= n - 4) {
 			int sid = (s[p] << 8) | s[p + 1];
 			int dl = ((s[p + 3] & 0x0f) << 8) | s[p + 4];
@@ -355,7 +355,11 @@ static void parse_section(struct group *g, const uint8_t *s, int n)
 			p = dend;
 		}
 	}
-	if (g->pat_seen && g->nsvc) {
+	/* done only with both tables read again: on a refresh the PAT (sent
+	 * every 100 ms) comes long before the SDT (every 2 s), and the service
+	 * known from the last read matched it at once, so a renamed channel
+	 * kept its old name for good */
+	if (g->pat_new && g->sdt_new && g->nsvc) {
 		for (int i = 0; i < g->npat; i++)
 			for (int j = 0; j < g->nsvc; j++)
 				if (g->svc[j].sid == g->pat[i]) { g->psi_done = 1; return; }
@@ -429,6 +433,7 @@ static const struct service *group_service(const struct group *g)
 static void psi_reset(struct group *g)
 {
 	g->psi_done = 0;
+	g->pat_new = g->sdt_new = 0;
 	g->psi[0].len = g->psi[1].len = -1;
 }
 
@@ -1005,8 +1010,27 @@ static int run_live(const char *dev, int vid, int dir_out, const char *state)
 		struct pollfd pfd = { .fd = fd, .events = POLLIN };
 		int r = poll(&pfd, 1, timeout);
 		if (r < 0 && errno != EINTR) die(5, "poll: %s", strerror(errno));
-		if (r > 0 && (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)))
+		if (r > 0 && (pfd.revents & (POLLHUP | POLLNVAL)))
 			die(6, "%s: device went away", dev);
+		if (r > 0 && (pfd.revents & POLLERR)) {
+			/* the link went down (cable, the ONT, the switch restarting): the
+			 * kernel flags the socket with ENETDOWN and passes packets again
+			 * when it comes back. That is exactly a moment worth measuring
+			 * through - ending here made every short link drop a "helper
+			 * failed" with a restart delay and lost counters. Only a device
+			 * that is gone or was created anew (other index) ends it. */
+			int err = 0;
+			socklen_t el = sizeof(err);
+			getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &el);
+			if (if_nametoindex(dev) != ifindex)
+				die(6, "%s: device went away", dev);
+			if (err != ENETDOWN && err != 0)
+				die(6, "%s: %s", dev, strerror(err));
+			if (!(pfd.revents & POLLIN)) {
+				usleep(200000);
+				r = 0;
+			}
+		}
 
 		/* read what is queued, but report at least once a second */
 		for (int burst = 0; r > 0 && burst < 4096; burst++) {
