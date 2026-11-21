@@ -142,10 +142,17 @@ function ntp_client() {
 	if (ntp.checked != null && t - ntp.checked < 60) return;
 	ntp.checked = t;
 	let c = null;
-	for (let pid in (fs.lsdir(PROC) ?? [])) {
-		if (!match(pid, /^[0-9]+$/)) continue;
-		let n = trim(fs.readfile(`${PROC}/${pid}/comm`) ?? '');
-		if (n == 'ntpd' || n == 'chronyd') { c = n; break; }
+	/* the client found last time still runs: no read of every process' name
+	 * in /proc (a few hundred files) once a minute */
+	if (ntp.pid != null && ntp.client != null && trim(fs.readfile(`${PROC}/${ntp.pid}/comm`) ?? '') == ntp.client)
+		c = ntp.client;
+	else {
+		ntp.pid = null;
+		for (let pid in (fs.lsdir(PROC) ?? [])) {
+			if (!match(pid, /^[0-9]+$/)) continue;
+			let n = trim(fs.readfile(`${PROC}/${pid}/comm`) ?? '');
+			if (n == 'ntpd' || n == 'chronyd') { c = n; ntp.pid = pid; break; }
+		}
 	}
 	let was = ntp.client;
 	ntp.client = c;
