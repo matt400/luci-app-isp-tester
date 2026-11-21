@@ -43,6 +43,7 @@ import { trace_parse_mtr, trace_parse_tr, trace_judge, median, sfp_median, parse
 import { rd, read_dev, default_gateway, sfp_read, cd_unixsock, cd_rrd, pid_usage, bridge_mdb, read_cpus, meminfo, dnsmasq_pids, base, is_uplink, bridge_json } from './lib/sysinfo.uc';
 import { load_config } from './lib/config.uc';
 import { tstamp, MSG } from './lib/messages.uc';
+import { clock_init, clk, ntp, clk_fields, clk_check, ntp_poll, ntp_out, clk_init } from './lib/clock.uc';
 import { peer_init, peer_queue, peer_start, peer_hb, peer_tick, peer_out } from './lib/peer.uc';
 import { notify_init, notify_queue, notify_flush, notify_test, notify_status } from './lib/notify.uc';
 
@@ -138,15 +139,6 @@ function save_events() {
  * the step, with the charts' points of this run, and only then written to
  * the archive. After an hour without a step they are kept as they are.
  */
-let clk = { on: false, off: null, steps: 0, last: null, hold: [], run_hist: 0, run_min: 0, m0: 0 };
-let ntp = { state: 'unknown', client: null, checked: 0, sync_ts: null, stratum: null, offset: null, poll: null, action: null };
-
-function clk_fields(typ) {
-	if (typ == 'data_gap') return [ 'd.to' ];
-	if (typ == 'router_reboot') return [ 'ts', 'd.boot' ];
-	return [ 'ts' ];
-}
-
 /*
  * Maintenance ("I am working on the network for 30 min"): events logged
  * meanwhile are kept but flagged (m: 1) - left out of the analysis, the
@@ -367,139 +359,6 @@ function agg_add(t, vals) {
 	if (agg && agg.t != m) agg_flush();
 	agg ??= { t: m, v: {} };
 	agg_put(agg, vals);
-}
-
-/* ------------------------------------------------------- the clock (2/2) */
-
-function clk_shift_hist(h, n, by) {
-	let len = length(h.t);
-	for (let i = max(0, len - n); i < len; i++) h.t[i] += by;
-}
-
-/* the clock was stepped by `by` seconds: move what this run logged before */
-function clk_fix(by) {
-	let n = 0;
-	for (let e in events) {
-		if (!e._fix) continue;
-		for (let k in e._fix) {
-			if (k == 'ts') e.ts += by;
-			else { let f = substr(k, 2); if (type(e.d[f]) == 'int') e.d[f] += by; }
-		}
-		if (e.type == 'data_gap') e.d.len = e.d.to - (e.d.from ?? e.d.to);
-		e.d.clock_fixed = by;
-		delete e._fix;
-		n++;
-	}
-	clk_shift_hist(history, clk.run_hist, by);
-	clk_shift_hist(history_min, clk.run_min, by);
-	if (agg) agg.t += by;
-	started += by;
-	alive_ts = 0;
-	return n;
-}
-
-/* stop marking: what was held back is final now */
-function clk_release() {
-	for (let e in events) delete e._fix;
-	clk.hold = [];
-	clk.on = false;
-	save_events();
-	write_atomic(`${RUNDIR}/history.json`, sprintf('%J', history_min));
-}
-
-/* every tick, before anything is measured */
-function clk_check() {
-	let off = time() - mono();
-	if (clk.off != null && absf(off - clk.off) >= 2.5) {
-		let by = int(round(off - clk.off, 0));
-		let n = clk.on ? clk_fix(by) : 0;
-		clk.steps++;
-		clk.last = { ts: now(), by };
-		if (clk.on) clk_release();
-		emit(absf(by) >= 60 ? 'warn' : 'info', 'system', 'clock', 'clock_step', { by, fixed: n, ntp: ntp.state });
-	}
-	clk.off = off;
-	if (clk.on && mono() - clk.m0 > 3600) clk_release();
-}
-
-function ntp_apply(j, quiet) {
-	if (type(j) != 'object' || !match(`${j.action ?? ''}`, /^(stratum|step|unsync|periodic)$/)) return;
-	let was = ntp.state;
-	ntp.action = j.action;
-	if (j.action == 'unsync' || j.stratum == 16) {
-		ntp.state = 'unsynced';
-		if (!quiet && was == 'synced') emit('warn', 'system', 'clock', 'ntp_unsync', { stratum: j.stratum });
-		return;
-	}
-	ntp.state = 'synced';
-	ntp.sync_ts = (type(j.ts) == 'int') ? j.ts : now();
-	ntp.stratum = j.stratum;
-	ntp.offset = j.offset;
-	ntp.poll = j.poll;
-	if (!quiet && was != 'synced')
-		emit('info', 'system', 'clock', 'ntp_sync', { stratum: j.stratum, offset: j.offset, after: int(uptime_s() ?? 0) });
-	/* confirmed without a step: the times were right */
-	if (clk.on) clk_release();
-}
-
-function ntp_lines(text, quiet) {
-	for (let l in split(trim(text ?? ''), '\n')) {
-		let j;
-		try { j = json(l); } catch (e) { continue; }
-		ntp_apply(j, quiet);
-	}
-}
-
-/* is there an NTP client at all (once a minute) */
-function ntp_client() {
-	let t = now();
-	if (t - ntp.checked < 60) return;
-	ntp.checked = t;
-	let c = null;
-	for (let pid in (fs.lsdir(PROC) ?? [])) {
-		if (!match(pid, /^[0-9]+$/)) continue;
-		let n = trim(fs.readfile(`${PROC}/${pid}/comm`) ?? '');
-		if (n == 'ntpd' || n == 'chronyd') { c = n; break; }
-	}
-	let was = ntp.client;
-	ntp.client = c;
-	if (!c && was !== null && !getenv('ISP_TESTER_CONFIG')) {
-		if (ntp.state != 'off') emit('warn', 'system', 'clock', 'ntp_off', {});
-		ntp.state = 'off';
-	}
-	else if (c && ntp.state == 'off') ntp.state = 'unknown';
-}
-
-function ntp_poll() {
-	let f = `${VARDIR}/ntp.pending`, w = `${VARDIR}/ntp.work`;
-	if (fs.stat(f) && fs.rename(f, w)) {
-		ntp_lines(fs.readfile(w), false);
-		fs.unlink(w);
-	}
-	ntp_client();
-}
-
-function ntp_out() {
-	let up = uptime_s() ?? 0;
-	let st = ntp.state;
-	/* nothing heard since boot, shortly after a reboot: not confirmed */
-	if (st == 'unknown' && up < 1800 && mono() - clk.m0 > 300) st = 'unsynced';
-	return { state: st, raw: ntp.state, client: ntp.client, sync_ts: ntp.sync_ts, stratum: ntp.stratum, offset: ntp.offset,
-		poll: ntp.poll, untrusted: clk.on, steps: clk.steps, last_step: clk.last, uptime: int(up) };
-}
-
-/* at start: what the NTP client reported this boot (RAM) */
-function clk_init() {
-	clk.m0 = mono();
-	clk.off = time() - mono();
-	ntp_lines(fs.readfile(`${VARDIR}/ntp.last`), true);
-	fs.unlink(`${VARDIR}/ntp.pending`);
-	ntp.checked = 0;
-	ntp_client();
-	let up = uptime_s();
-	/* shortly after boot and not confirmed yet: the clock may still be set */
-	clk.on = ntp.state != 'synced' && up != null && up < 3600 && !getenv('ISP_TESTER_CONFIG') ||
-		getenv('ISP_TESTER_CLOCKFIX') == '1';
 }
 
 /* --------------------------------------------------------------- devices */
@@ -3279,6 +3138,9 @@ let load_hist = (name, max) => {
 	}
 	return h;
 };
+clock_init({ events: () => events, history: () => history, history_min: () => history_min,
+	agg_shift: (by) => { if (agg) agg.t += by; }, shift_started: (by) => { started += by; },
+	reset_alive: () => { alive_ts = 0; }, emit, save_events, uptime_s });
 peer_init({ cfg, hostname: HOSTNAME, started: () => started, maint_on, maint_until: () => maint.until,
 	store_event, save_events, emit });
 maint_load();
