@@ -1974,3 +1974,645 @@ msgstr "Opcjonalnie: nazwa dla adresu MAC dekodera, wyświetlana zamiast adresu.
 
 msgid "e.g. Living room"
 msgstr "np. Salon"
+
+msgid "IPv6 did not work while IPv4 did (%d×, %s in total, longest %s) – browsers try IPv6 first, so pages load slowly or hang. ISP IPv6 (prefix, routing) – ask them to check it, or switch IPv6 off as a workaround."
+msgstr "IPv6 nie działało, gdy IPv4 działało (%d×, łącznie %s, najdłużej %s) – przeglądarki najpierw próbują IPv6, więc strony ładują się wolno albo wiszą. IPv6 operatora (prefiks, routing) – poproś o sprawdzenie albo tymczasowo wyłącz IPv6."
+
+msgid "IPv6 prefix from the ISP lost %d× / changed %d× – devices at home lose or change their IPv6 addresses, open connections break. ISP DHCPv6 (prefix delegation)."
+msgstr "Prefiks IPv6 od operatora utracony %d× / zmieniony %d× – urządzenia w domu tracą lub zmieniają adresy IPv6, otwarte połączenia się zrywają. DHCPv6 operatora (delegacja prefiksu)."
+
+msgid "No IPv6 router advertisement from the ISP (%d×) – the IPv6 default route vanished. ISP side (less often the router's firewall dropping ICMPv6)."
+msgstr "Brak ogłoszeń routera IPv6 (RA) od operatora (%d×) – zniknęła domyślna trasa IPv6. Po stronie operatora (rzadziej firewall routera blokujący ICMPv6)."
+
+msgid "IPv6 (DHCPv6) session dropped %d× while IPv4 stayed up – ISP DHCPv6."
+msgstr "Sesja IPv6 (DHCPv6) zerwana %d×, gdy IPv4 działało – DHCPv6 operatora."
+
+msgid "odhcp6c: no answer or no prefix from the ISP's DHCPv6 server (%d×)."
+msgstr "odhcp6c: brak odpowiedzi lub brak prefiksu z serwera DHCPv6 operatora (%d×)."
+
+msgid "Packet loss over IPv6 only (%d×) – ISP IPv6 routing."
+msgstr "Straty pakietów tylko po IPv6 (%d×) – routing IPv6 operatora."
+
+msgid "DNS failed %d× while ping worked – pages do not open although the line is fine. The upstream DNS server (the ISP's, or the one set in the router) does not answer: try another one."
+msgstr "DNS zawiódł %d×, gdy ping działał – strony się nie otwierają, choć łącze jest w porządku. Nadrzędny serwer DNS (operatora albo ustawiony w routerze) nie odpowiada: spróbuj innego."
+
+msgid "DNS server %s retried or failed many queries (%d×) – slow or overloaded; consider another server."
+msgstr "Serwer DNS %s ponawiał lub nie obsłużył wielu zapytań (%d×) – wolny lub przeciążony; rozważ inny serwer."
+
+msgid "The operator gave decoder %s a different address %d× – each change interrupts the picture; the operator's DHCP (address pool, lease)."
+msgstr "Operator dał dekoderowi %s inny adres %d× – każda zmiana przerywa obraz; DHCP operatora (pula adresów, dzierżawa)."
+
+msgid "Decoder %s: lease refused or not renewed in time (%d×) – the operator's DHCP server."
+msgstr "Dekoder %s: dzierżawa odrzucona lub nieodnowiona na czas (%d×) – serwer DHCP operatora."
+
+msgid "The router restarted %d× – a power cut, a crash or on purpose. Problems at those moments are not the ISP's."
+msgstr "Router uruchomił się ponownie %d× – zanik zasilania, awaria albo celowo. Problemy w tych chwilach nie są winą operatora."
+
+msgid "Not measured for %s in this period (%d×: router off, monitoring off) – nothing is known about that time."
+msgstr "Brak pomiarów przez %s w tym okresie (%d×: router wyłączony, monitorowanie wyłączone) – o tym czasie nic nie wiadomo."
+
+msgid "IPv6 does not work for %s while IPv4 does – pages load slowly (the browser tries IPv6 first)"
+msgstr "IPv6 nie działa od %s, choć IPv4 działa – strony ładują się wolno (przeglądarka najpierw próbuje IPv6)"
+
+msgid "IPv6 interface %s is down for %s"
+msgstr "Interfejs IPv6 %s nie działa od %s"
+
+msgid "No IPv6 prefix from the ISP for %s – the home network has no IPv6"
+msgstr "Brak prefiksu IPv6 od operatora od %s – sieć domowa nie ma IPv6"
+
+msgid "No IPv6 default route for %s – the ISP stopped sending router advertisements"
+msgstr "Brak domyślnej trasy IPv6 od %s – operator przestał wysyłać ogłoszenia routera (RA)"
+
+msgid "DNS: %d%% of the queries get no answer from the upstream server (for %s)"
+msgstr "DNS: %d%% zapytań bez odpowiedzi z nadrzędnego serwera (od %s)"
+
+msgid "DNS server %s retries or fails many queries"
+msgstr "Serwer DNS %s ponawia lub nie obsługuje wielu zapytań"
+
+msgid "IPv6 DOWN – no IPv6 target responds while IPv4 works (pages load slowly)"
+msgstr "IPv6 NIE DZIAŁA – żaden cel IPv6 nie odpowiada, choć IPv4 działa (strony ładują się wolno)"
+
+msgid "IPv6 works again after %s"
+msgstr "IPv6 znów działa po %s"
+
+msgid "IPv6 interface %s DOWN (DHCPv6 session lost)"
+msgstr "Interfejs IPv6 %s ROZŁĄCZONY (utrata sesji DHCPv6)"
+
+msgid "IPv6 interface %s up again after %s"
+msgstr "Interfejs IPv6 %s znów działa po %s"
+
+msgid "IPv6 prefix LOST (%s) – the home network has no IPv6"
+msgstr "UTRATA prefiksu IPv6 (%s) – sieć domowa nie ma IPv6"
+
+msgid "IPv6 prefix back after %s: %s"
+msgstr "Prefiks IPv6 wrócił po %s: %s"
+
+msgid "a different one"
+msgstr "inny niż wcześniej"
+
+msgid "IPv6 prefix CHANGED %s → %s – devices at home renumber, IPv6 connections break"
+msgstr "ZMIANA prefiksu IPv6 %s → %s – urządzenia w domu zmieniają adresy, połączenia IPv6 się zrywają"
+
+msgid "No IPv6 default route on %s – no router advertisement from the ISP for %s"
+msgstr "Brak domyślnej trasy IPv6 na %s – brak ogłoszeń routera (RA) od operatora przez %s"
+
+msgid "IPv6 default route back after %s"
+msgstr "Domyślna trasa IPv6 wróciła po %s"
+
+msgid "DNS FAILING: %d%% of the queries sent upstream got no answer (%d of %d within %s)"
+msgstr "DNS ZAWODZI: %d%% zapytań wysłanych dalej bez odpowiedzi (%d z %d w ciągu %s)"
+
+msgid "DNS answers again after %s (at worst %d%% unanswered)"
+msgstr "DNS znów odpowiada po %s (najgorzej %d%% bez odpowiedzi)"
+
+msgid "DNS server %s: %d of %d queries retried or failed within %s (%d retried = no answer in time, %d failed = SERVFAIL/REFUSED)"
+msgstr "Serwer DNS %s: %d z %d zapytań ponowionych lub nieudanych w ciągu %s (%d ponowionych = brak odpowiedzi na czas, %d nieudanych = SERVFAIL/REFUSED)"
+
+msgid "average %d ms"
+msgstr "średnio %d ms"
+
+msgid "DNS server %s answers normally again"
+msgstr "Serwer DNS %s znów odpowiada normalnie"
+
+msgid "ROUTER RESTARTED – up since %s"
+msgstr "RESTART ROUTERA – działa od %s"
+
+msgid "earlier data was in RAM and is lost"
+msgstr "wcześniejsze dane były w RAM i przepadły"
+
+msgid "Monitor restarted by the watchdog: it hung (last report %s before)"
+msgstr "Monitor zrestartowany przez watchdog: zawiesił się (ostatni raport %s wcześniej)"
+
+msgid "Monitor restarted after it stopped unexpectedly (last report %s before)"
+msgstr "Monitor uruchomiony ponownie po nieoczekiwanym zatrzymaniu (ostatni raport %s wcześniej)"
+
+msgid "NOT MEASURED from %s to %s (%s): %s"
+msgstr "BRAK POMIARÓW od %s do %s (%s): %s"
+
+msgid "Clock synchronized by NTP (stratum %s)"
+msgstr "Zegar zsynchronizowany przez NTP (stratum %s)"
+
+msgid "%s after boot"
+msgstr "%s po starcie"
+
+msgid "Clock NOT synchronized any more (NTP lost its servers) – times may drift"
+msgstr "Zegar już NIE jest zsynchronizowany (NTP stracił serwery) – czas może się rozjeżdżać"
+
+msgid "No NTP client running – the times in the log cannot be trusted"
+msgstr "Brak działającego klienta NTP – czasom w logu nie można ufać"
+
+msgid "Maintenance extended until %s"
+msgstr "Prace serwisowe przedłużone do %s"
+
+msgid "MAINTENANCE until %s: what happens meanwhile is not counted and not notified"
+msgstr "PRACE SERWISOWE do %s: to, co się w tym czasie dzieje, nie jest liczone ani powiadamiane"
+
+msgid "Maintenance over after %s"
+msgstr "Prace serwisowe zakończone po %s"
+
+msgid "ended by hand"
+msgstr "zakończone ręcznie"
+
+msgid "Decoder %s: address %s from the operator"
+msgstr "Dekoder %s: adres %s od operatora"
+
+msgid "lease %s"
+msgstr "dzierżawa %s"
+
+msgid "server %s"
+msgstr "serwer %s"
+
+msgid "Decoder %s asked for an address from scratch (restarted or lost its lease): %s"
+msgstr "Dekoder %s poprosił o adres od nowa (restart lub utrata dzierżawy): %s"
+
+msgid "Decoder %s: address CHANGED %s → %s – the operator gave it a new one, the picture may stop for a moment"
+msgstr "Dekoder %s: ZMIANA adresu %s → %s – operator dał nowy, obraz może na chwilę stanąć"
+
+msgid "Decoder %s: the operator REFUSED its lease (DHCPNAK)"
+msgstr "Dekoder %s: operator ODMÓWIŁ dzierżawy (DHCPNAK)"
+
+msgid "Decoder %s: lease of %s ran out without a renewal"
+msgstr "Dekoder %s: dzierżawa %s wygasła bez odnowienia"
+
+msgid "Decoder %s renewed its lease %s after it had run out"
+msgstr "Dekoder %s odnowił dzierżawę %s po jej wygaśnięciu"
+
+msgid "Clock set by %s%s"
+msgstr "Zegar przestawiony o %s%s"
+
+msgid "%d earlier entries of this boot moved to the right time"
+msgstr "%d wcześniejszych wpisów z tego uruchomienia przesunięto na właściwy czas"
+
+msgid "%s MB"
+msgstr "%s MB"
+
+msgid "%d kB"
+msgstr "%d kB"
+
+msgid "Share of the router's whole CPU (%d cores) used by the tester:"
+msgstr "Udział całego CPU routera (%d rdzeni) używany przez tester:"
+
+msgid "collector (with logread, bridge, rrdtool it runs): now %s%%, average %s%%, at most %s%%, RAM %s"
+msgstr "collector (z uruchamianymi logread, bridge, rrdtool): teraz %s%%, średnio %s%%, najwyżej %s%%, RAM %s"
+
+msgid "tsmon (IPTV picture): now %s%%, at most %s%%, RAM %s"
+msgstr "tsmon (obraz IPTV): teraz %s%%, najwyżej %s%%, RAM %s"
+
+msgid "the router restarted"
+msgstr "router uruchomił się ponownie"
+
+msgid "monitoring was turned off"
+msgstr "monitorowanie było wyłączone"
+
+msgid "the collector stopped unexpectedly"
+msgstr "collector nieoczekiwanie się zatrzymał"
+
+msgid "the collector hung and was restarted by the watchdog"
+msgstr "collector się zawiesił i został zrestartowany przez watchdog"
+
+msgid "the collector was blocked"
+msgstr "collector był zablokowany"
+
+msgid "DHCPv6: no answer or no prefix from the ISP"
+msgstr "DHCPv6: brak odpowiedzi lub brak prefiksu od operatora"
+
+msgid "%02d:00–%02d:59 every day"
+msgstr "%02d:00–%02d:59 codziennie"
+
+msgid "the whole day"
+msgstr "cały dzień"
+
+msgid "Maintenance (not counted)"
+msgstr "Prace serwisowe (nie liczone)"
+
+msgid "Not measured: %s"
+msgstr "Brak pomiarów: %s"
+
+msgid "MONITOR IS NOT WORKING"
+msgstr "MONITOR NIE DZIAŁA"
+
+msgid "The collector has not reported for %s – it seems to hang. The watchdog restarts it automatically after %s."
+msgstr "Collector nie zgłasza się od %s – wygląda na zawieszony. Watchdog zrestartuje go automatycznie po %s."
+
+msgid "The collector has not reported for %s, and the watchdog (%s) did not restart it – see the system log (logread -e isp-tester)."
+msgstr "Collector nie zgłasza się od %s, a watchdog (%s) go nie zrestartował – zajrzyj do logu systemowego (logread -e isp-tester)."
+
+msgid "Nothing is measured meanwhile; the gap will be in the report."
+msgstr "W tym czasie nic nie jest mierzone; przerwa będzie w raporcie."
+
+msgid "Tester itself: CPU %s%% · RAM %s"
+msgstr "Sam tester: CPU %s%% · RAM %s"
+
+msgid "You are about to re-plug cables or change settings: the next minutes are not counted as faults and send no notifications."
+msgstr "Zaraz przepinasz kable lub zmieniasz ustawienia: najbliższe minuty nie będą liczone jako awarie i nie wyślą powiadomień."
+
+msgid "🔧 Working on the network"
+msgstr "🔧 Pracuję przy sieci"
+
+msgid "The monitor restarted %d× in the last hour"
+msgstr "Monitor uruchamiał się ponownie %d× w ostatniej godzinie"
+
+msgid "it crashes or hangs; see the system log (logread -e isp-tester) and report it. Measurements have short gaps."
+msgstr "pada lub się zawiesza; zajrzyj do logu systemowego (logread -e isp-tester) i zgłoś to. Pomiary mają krótkie przerwy."
+
+msgid "Optional note, e.g. replacing the switch"
+msgstr "Opcjonalna notatka, np. wymiana switcha"
+
+msgid "Maintenance starts within one interval."
+msgstr "Prace serwisowe zaczną się w ciągu jednego interwału."
+
+msgid "Maintenance ends within one interval."
+msgstr "Prace serwisowe skończą się w ciągu jednego interwału."
+
+msgid "Working on the network"
+msgstr "Pracuję przy sieci"
+
+msgid "While you re-plug cables, restart the switch or change settings, what happens is still logged, but it is not counted as a fault: it is left out of the analysis and the report, the cards do not stay yellow afterwards, and no notifications are sent."
+msgstr "Kiedy przepinasz kable, restartujesz switch albo zmieniasz ustawienia, wszystko nadal jest zapisywane, ale nie liczy się jako awaria: nie trafia do analizy ani raportu, karty nie zostają potem żółte i nie są wysyłane powiadomienia."
+
+msgid "%d min"
+msgstr "%d min"
+
+msgid "Maintenance until %s"
+msgstr "Prace serwisowe do %s"
+
+msgid "not counted as faults, no notifications (for %s so far)"
+msgstr "nie liczone jako awarie, bez powiadomień (trwają już %s)"
+
+msgid "+30 min"
+msgstr "+30 min"
+
+msgid "End now"
+msgstr "Zakończ teraz"
+
+msgid "No NTP client is running on the router (System → System → Time synchronization). The times in the log and in the report cannot be trusted."
+msgstr "Na routerze nie działa klient NTP (System → System → Synchronizacja czasu). Czasom w logu i w raporcie nie można ufać."
+
+msgid "The clock has not been confirmed by NTP since the router started (%s ago). Times logged until then are corrected automatically when NTP sets the clock."
+msgstr "Zegar nie został potwierdzony przez NTP od uruchomienia routera (%s temu). Czasy zapisane do tej pory zostaną poprawione automatycznie, gdy NTP ustawi zegar."
+
+msgid "The clock is not synchronized (NTP reports no server). The times in the log may be wrong – check the Internet connection and System → System → Time synchronization."
+msgstr "Zegar nie jest zsynchronizowany (NTP nie ma serwera). Czasy w logu mogą być błędne – sprawdź połączenie z Internetem i System → System → Synchronizacja czasu."
+
+msgid "Clock not synchronized"
+msgstr "Zegar niezsynchronizowany"
+
+msgid "no DHCPv6 interface (wan6)"
+msgstr "brak interfejsu DHCPv6 (wan6)"
+
+msgid "%s down"
+msgstr "%s rozłączony"
+
+msgid "prefix %s"
+msgstr "prefiks %s"
+
+msgid "prefix lost"
+msgstr "utrata prefiksu"
+
+msgid "no prefix from the ISP"
+msgstr "brak prefiksu od operatora"
+
+msgid "RA OK"
+msgstr "RA OK"
+
+msgid "no default route"
+msgstr "brak trasy domyślnej"
+
+msgid "ping %d/%d"
+msgstr "ping %d/%d"
+
+msgid "Add an IPv6 host (e.g. 2606:4700:4700::1111) to the collectd Ping plugin"
+msgstr "Dodaj host IPv6 (np. 2606:4700:4700::1111) do wtyczki Ping w collectd"
+
+msgid "no IPv6 ping target"
+msgstr "brak celu ping IPv6"
+
+msgid "no statistics from dnsmasq (ubus)"
+msgstr "brak statystyk z dnsmasq (ubus)"
+
+msgid "%d queries/min"
+msgstr "%d zapytań/min"
+
+msgid "%d%% from the cache"
+msgstr "%d%% z pamięci podręcznej"
+
+msgid "%d%% unanswered"
+msgstr "%d%% bez odpowiedzi"
+
+msgid "Since the previous statistics: %d sent, %d retried, %d failed"
+msgstr "Od poprzednich statystyk: %d wysłanych, %d ponowionych, %d nieudanych"
+
+msgid "%d%% bad"
+msgstr "%d%% złych"
+
+msgid "DNS of the router, from dnsmasq's own statistics"
+msgstr "DNS routera, z własnych statystyk dnsmasq"
+
+msgid "DNS"
+msgstr "DNS"
+
+msgid "renewed %s ago"
+msgstr "odnowiona %s temu"
+
+msgid "%d renewals"
+msgstr "%d odnowień"
+
+msgid "IP changed %d×"
+msgstr "zmiana IP %d×"
+
+msgid "refused %d×"
+msgstr "odmowa %d×"
+
+msgid "lease expired"
+msgstr "dzierżawa wygasła"
+
+msgid "Seen from the operator's DHCP replies (%s)"
+msgstr "Z odpowiedzi DHCP operatora (%s)"
+
+msgid "in the IPTV VLAN"
+msgstr "w VLAN-ie IPTV"
+
+msgid "DHCP %s"
+msgstr "DHCP %s"
+
+msgid "from"
+msgstr "od"
+
+msgid "to"
+msgstr "do"
+
+msgid "Choose the period and, if the problem shows only at certain times (e.g. in the evening when you watch TV), the hours of the day. Everything – the summary, the assessment, the event list and the measurement coverage – then counts only those hours."
+msgstr "Wybierz okres i – jeśli problem występuje tylko o określonych porach (np. wieczorem, gdy oglądasz TV) – godziny dnia. Wszystko: podsumowanie, ocena, lista zdarzeń i pokrycie pomiarami, liczy wtedy tylko te godziny."
+
+msgid "Days"
+msgstr "Dni"
+
+msgid "The period shown in the charts: %s"
+msgstr "Okres widoczny na wykresach: %s"
+
+msgid "Chosen days"
+msgstr "Wybrane dni"
+
+msgid "The archive on USB goes back %d days."
+msgstr "Archiwum na USB sięga %d dni wstecz."
+
+msgid "The data is in RAM: only the last 24 h (and the timeline kept in RAM) are available. Keep the data on USB for a longer archive."
+msgstr "Dane są w RAM: dostępne są tylko ostatnie 24 h (i oś czasu trzymana w RAM). Trzymaj dane na USB, żeby mieć dłuższe archiwum."
+
+msgid "Hours of the day"
+msgstr "Godziny dnia"
+
+msgid "The whole day"
+msgstr "Cały dzień"
+
+msgid "Evening 18–24"
+msgstr "Wieczór 18–24"
+
+msgid "18–23"
+msgstr "18–23"
+
+msgid "Daytime 6–18"
+msgstr "Dzień 6–18"
+
+msgid "Whole day"
+msgstr "Cały dzień"
+
+msgid "Open report"
+msgstr "Otwórz raport"
+
+msgid "Only the hours %s are counted in this report."
+msgstr "W tym raporcie liczą się tylko godziny %s."
+
+msgid "Measurement coverage"
+msgstr "Pokrycie pomiarami"
+
+msgid "Measured"
+msgstr "Zmierzono"
+
+msgid "%s%% of the period"
+msgstr "%s%% okresu"
+
+msgid "not measured: %s in %d periods (listed below)"
+msgstr "brak pomiarów: %s w %d okresach (lista poniżej)"
+
+msgid "without interruption"
+msgstr "bez przerw"
+
+msgid "Router restarts"
+msgstr "Restarty routera"
+
+msgid "Monitor restarts (crash / watchdog)"
+msgstr "Restarty monitora (awaria / watchdog)"
+
+msgid "Load of the tester itself"
+msgstr "Obciążenie przez sam tester"
+
+msgid "average %s%%, at most %s%% of the router's CPU, RAM %s (since %s) – the measurement does not load the router"
+msgstr "średnio %s%%, najwyżej %s%% CPU routera, RAM %s (od %s) – pomiar nie obciąża routera"
+
+msgid "Maintenance (excluded)"
+msgstr "Prace serwisowe (wyłączone z analizy)"
+
+msgid "%d×, %s – the user worked on the network: %s"
+msgstr "%d×, %s – użytkownik pracował przy sieci: %s"
+
+msgid "Router clock"
+msgstr "Zegar routera"
+
+msgid "synchronized by NTP"
+msgstr "zsynchronizowany przez NTP"
+
+msgid "stratum %s"
+msgstr "stratum %s"
+
+msgid "NO NTP client – times not reliable"
+msgstr "BRAK klienta NTP – czasy niewiarygodne"
+
+msgid "NOT synchronized now – times may be off"
+msgstr "teraz NIE jest zsynchronizowany – czasy mogą być przesunięte"
+
+msgid "NTP running, no report since boot yet"
+msgstr "NTP działa, jeszcze bez raportu od uruchomienia"
+
+msgid "set %d× in the period (entries logged before were corrected)"
+msgstr "przestawiony %d× w okresie (wcześniejsze wpisy poprawiono)"
+
+msgid "The router did not measure at these times; nothing in this report covers them:"
+msgstr "W tych godzinach router nie mierzył; nic w tym raporcie ich nie obejmuje:"
+
+msgid "monitoring had not started yet (or older data was deleted)"
+msgstr "monitorowanie jeszcze nie działało (albo starsze dane usunięto)"
+
+msgid "IPv6 outages (IPv4 working)"
+msgstr "Awarie IPv6 (przy działającym IPv4)"
+
+msgid "IPv6 prefix lost / changed"
+msgstr "Utrata / zmiana prefiksu IPv6"
+
+msgid "%d× / %d×"
+msgstr "%d× / %d×"
+
+msgid "No IPv6 router advertisement"
+msgstr "Brak ogłoszeń routera IPv6"
+
+msgid "Decoder DHCP: address changes / refused / expired"
+msgstr "DHCP dekodera: zmiany adresu / odmowy / wygaśnięcia"
+
+msgid "%d× / %d× / %d×"
+msgstr "%d× / %d× / %d×"
+
+msgid "DNS failing (no answer from the upstream server)"
+msgstr "DNS zawodzi (brak odpowiedzi z nadrzędnego serwera)"
+
+msgid "servers with many failed queries: %s"
+msgstr "serwery z wieloma nieudanymi zapytaniami: %s"
+
+msgid "During maintenance – not counted"
+msgstr "W czasie prac serwisowych – nie liczone"
+
+msgid "maintenance"
+msgstr "prace serwisowe"
+
+msgid "No file was uploaded."
+msgstr "Nie przesłano pliku."
+
+msgid "The file is too big (over 64 MB)."
+msgstr "Plik jest za duży (ponad 64 MB)."
+
+msgid "This is not a .tar.gz archive."
+msgstr "To nie jest archiwum .tar.gz."
+
+msgid "The archive is empty."
+msgstr "Archiwum jest puste."
+
+msgid "The archive contains links or special files – refused."
+msgstr "Archiwum zawiera dowiązania lub pliki specjalne – odrzucone."
+
+msgid "The archive contains files that are not from ISP Tester – refused."
+msgstr "Archiwum zawiera pliki spoza ISP Tester – odrzucone."
+
+msgid "The archive cannot be unpacked."
+msgstr "Nie można rozpakować archiwum."
+
+msgid "This is not an ISP Tester backup."
+msgstr "To nie jest kopia ISP Tester."
+
+msgid "The settings in the archive are not a valid settings file."
+msgstr "Ustawienia w archiwum nie są poprawnym plikiem ustawień."
+
+msgid "Nothing was chosen to restore."
+msgstr "Nie wybrano niczego do przywrócenia."
+
+msgid "The settings file cannot be read."
+msgstr "Nie można odczytać pliku ustawień."
+
+msgid "Failed: %s"
+msgstr "Niepowodzenie: %s"
+
+msgid "Restore from a backup"
+msgstr "Przywracanie z kopii"
+
+msgid "Backup of %s from %s: %s."
+msgstr "Kopia z %s z %s: %s."
+
+msgid "settings and data (%d files, %d of them archive days, %d kB)"
+msgstr "ustawienia i dane (%d plików, w tym %d dni archiwum, %d kB)"
+
+msgid "settings only"
+msgstr "tylko ustawienia"
+
+msgid "It comes from another router (%s). Its settings name that router's ports, interfaces and the role towards the second router – check them after restoring, or restore the data only."
+msgstr "Pochodzi z innego routera (%s). Jej ustawienia wskazują porty, interfejsy i rolę wobec drugiego routera tamtego urządzenia – sprawdź je po przywróceniu albo przywróć tylko dane."
+
+msgid "Settings (replace the current ones; the old file is kept as /etc/config/isp_tester.before-restore)"
+msgstr "Ustawienia (zastąp obecne; stary plik zostanie zachowany jako /etc/config/isp_tester.before-restore)"
+
+msgid "Data: timeline, history, archive, channel names (replace the current ones)"
+msgstr "Dane: oś czasu, historia, archiwum, nazwy kanałów (zastąp obecne)"
+
+msgid "Monitoring stops for a moment while the files are replaced."
+msgstr "Monitorowanie zatrzyma się na chwilę na czas podmiany plików."
+
+msgid "Restored: %s. The page reloads."
+msgstr "Przywrócono: %s. Strona się przeładuje."
+
+msgid "settings"
+msgstr "ustawienia"
+
+msgid "data"
+msgstr "dane"
+
+msgid "Restore"
+msgstr "Przywróć"
+
+msgid "Backup and restore"
+msgstr "Kopia i przywracanie"
+
+msgid "One .tar.gz with the settings of the tester and, if you want, its data (timeline, history, the archive on USB, channel names) – to keep it, or to move the monitoring to another router (e.g. from M477 to M477S). Restoring checks the archive first: only files this page writes are accepted."
+msgstr "Jedno archiwum .tar.gz z ustawieniami testera i, jeśli chcesz, jego danymi (oś czasu, historia, archiwum na USB, nazwy kanałów) – do przechowania albo do przeniesienia monitorowania na inny router (np. z M477 na M477S). Przed przywróceniem archiwum jest sprawdzane: przyjmowane są tylko pliki, które zapisuje ta strona."
+
+msgid "Download settings + data"
+msgstr "Pobierz ustawienia + dane"
+
+msgid "Download settings only"
+msgstr "Pobierz tylko ustawienia"
+
+msgid "Restore from a file…"
+msgstr "Przywróć z pliku…"
+
+msgid "Watch IPv6"
+msgstr "Monitoruj IPv6"
+
+msgid "Often IPv4 works and only IPv6 breaks – then pages hang for a while, because the browser tries IPv6 first. Logged from what odhcp6c reports to netifd: the DHCPv6 session, the delegated prefix (lost or changed) and the default route from the ISP's router advertisement. For the ping over IPv6 add one or two IPv6 hosts (e.g. <code>2606:4700:4700::1111</code>, <code>2001:4860:4860::8888</code>) to the collectd Ping plugin: when all of them fail while IPv4 targets answer, “IPv6 down” is logged."
+msgstr "Często IPv4 działa, a pada tylko IPv6 – wtedy strony przez chwilę wiszą, bo przeglądarka najpierw próbuje IPv6. Zapisywane z tego, co odhcp6c zgłasza do netifd: sesja DHCPv6, delegowany prefiks (utrata lub zmiana) i domyślna trasa z ogłoszeń routera operatora (RA). Do pingu po IPv6 dodaj jeden lub dwa hosty IPv6 (np. <code>2606:4700:4700::1111</code>, <code>2001:4860:4860::8888</code>) do wtyczki Ping w collectd: gdy wszystkie zawodzą, a cele IPv4 odpowiadają, zapisywane jest „IPv6 nie działa”."
+
+msgid "IPv6 interface"
+msgstr "Interfejs IPv6"
+
+msgid "The DHCPv6 interface. Empty = <code>wan6</code>, or <code>wan_6</code> when IPv6 is set to automatic on the WAN interface."
+msgstr "Interfejs DHCPv6. Puste = <code>wan6</code> albo <code>wan_6</code>, gdy IPv6 jest ustawione na automatyczne na interfejsie WAN."
+
+msgid "No router advertisement after (s)"
+msgstr "Brak RA po (s)"
+
+msgid "How long the IPv6 default route may be missing before it is logged."
+msgstr "Jak długo może brakować domyślnej trasy IPv6, zanim zostanie to zapisane."
+
+msgid "Pages that do not open while ping works are often DNS. No own test: dnsmasq's statistics are read – over ubus every interval (queries sent upstream, answered from the cache, unanswered), and per upstream server from the statistics dnsmasq writes to the system log on SIGUSR1 (queries sent, retried = no answer in time, failed = SERVFAIL/REFUSED, average latency)."
+msgstr "Strony, które się nie otwierają, choć ping działa, to często DNS. Bez własnego testu: czytane są statystyki dnsmasq – przez ubus co interwał (zapytania wysłane dalej, odpowiedzi z pamięci podręcznej, bez odpowiedzi) oraz dla każdego nadrzędnego serwera ze statystyk, które dnsmasq zapisuje do logu systemowego po SIGUSR1 (wysłane zapytania, ponowione = brak odpowiedzi na czas, nieudane = SERVFAIL/REFUSED, średnie opóźnienie)."
+
+msgid "Watch DNS"
+msgstr "Monitoruj DNS"
+
+msgid "Unanswered for a warning (%)"
+msgstr "Bez odpowiedzi dla ostrzeżenia (%)"
+
+msgid "Share of the queries sent upstream within a minute that get no answer, and of retried/failed queries per server."
+msgstr "Udział zapytań wysłanych dalej w ciągu minuty, które nie dostały odpowiedzi, oraz ponowionych/nieudanych zapytań na serwer."
+
+msgid "At least (queries per minute)"
+msgstr "Co najmniej (zapytań na minutę)"
+
+msgid "Fewer queries sent upstream within a minute are not judged."
+msgstr "Mniej zapytań wysłanych dalej w ciągu minuty nie jest oceniane."
+
+msgid "Per-server statistics"
+msgstr "Statystyki na serwer"
+
+msgid "How often dnsmasq is asked (SIGUSR1) to write its per-server statistics to the system log; each time adds a few lines to the log. Needs “Read the system log”."
+msgstr "Jak często prosić dnsmasq (SIGUSR1) o zapisanie statystyk serwerów do logu systemowego; za każdym razem dochodzi kilka wierszy w logu. Wymaga „Czytaj log systemowy”."
+
+msgid "every 5 min"
+msgstr "co 5 min"
+
+msgid "every 15 min"
+msgstr "co 15 min"
+
+msgid "every hour"
+msgstr "co godzinę"
+
+msgid "DHCP of the decoders"
+msgstr "DHCP dekoderów"
+
+msgid "Lease renewals and address changes from the operator. In a bridged IPTV VLAN the lease is not in the router, so the measuring helper (isp-tester-tsmon) also notes the operator's DHCP replies on that VLAN; when the router gives the decoders their address, dnsmasq's messages in the system log are used for the decoders named below."
+msgstr "Odnowienia dzierżawy i zmiany adresu od operatora. W mostkowanym VLAN-ie IPTV dzierżawy nie ma w routerze, więc pomocnik pomiarowy (isp-tester-tsmon) zapisuje też odpowiedzi DHCP operatora w tym VLAN-ie; gdy to router nadaje dekoderom adresy, używane są komunikaty dnsmasq z logu systemowego dla dekoderów nazwanych poniżej."
