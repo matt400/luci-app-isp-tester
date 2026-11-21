@@ -15,29 +15,39 @@ function notify_init(ctx) { C = ctx; }
 
 /* recoveries are sent too, so a "down" message is always followed by "back";
  * only when the fault itself was sent (same area + source), so e.g. a decoder
- * port coming up or a target recovering from an unsent warning stays quiet */
-const RECOVERY = { wan_up: true, stream_resume: true, stream_lost: true, stream_off: true, link_up: true,
-	wan_if_up: true, proxy_up: true, target_ok: true, dev_present: true, peer_back: true,
-	bufferbloat_ok: true, v6_up: true, v6_if_up: true, v6_pd_back: true, v6_route_back: true, dns_ok: true, dns_server_ok: true,
-	igmp_noquery_ok: true, sfp_los_ok: true, sfp_rx_drop_ok: true, sfp_alarm_ok: true, sfp_gone_ok: true,
-	cpu_high_ok: true, mem_low_ok: true, conntrack_full_ok: true, ntp_sync: true };
+ * port coming up or a target recovering from an unsent warning stays quiet.
+ * Each recovery lists the faults it ends: several faults share one source
+ * (IPv6: the session, the prefix, the route and the ping; the SFP module:
+ * no light, weak, alarm, gone), and one "open" flag per source let the end
+ * of an unsent one ("IPv6 interface up again") take the place of the end of
+ * the one that was sent ("IPv6 back"), which then never came. */
+const RECOVERY = { wan_up: [ 'wan_down' ], stream_resume: [ 'stream_stall' ], stream_lost: [ 'stream_stall' ],
+	stream_off: [ 'stream_stall' ], link_up: [ 'link_down' ], wan_if_up: [ 'wan_if_down' ], proxy_up: [ 'proxy_down' ],
+	target_ok: [ 'target_fail', 'target_degraded' ], dev_present: [ 'dev_missing' ], peer_back: [ 'peer_lost' ],
+	bufferbloat_ok: [ 'bufferbloat' ], v6_up: [ 'v6_down' ], v6_if_up: [ 'v6_if_down' ], v6_pd_back: [ 'v6_pd_lost' ],
+	v6_route_back: [ 'v6_no_route' ], dns_ok: [ 'dns_fail' ], dns_server_ok: [ 'dns_server_bad' ],
+	igmp_noquery_ok: [ 'igmp_noquery' ], sfp_los_ok: [ 'sfp_los' ], sfp_rx_drop_ok: [ 'sfp_rx_drop' ],
+	sfp_alarm_ok: [ 'sfp_alarm' ], sfp_gone_ok: [ 'sfp_gone' ], cpu_high_ok: [ 'cpu_high' ], mem_low_ok: [ 'mem_low' ],
+	conntrack_full_ok: [ 'conntrack_full' ], ntp_sync: [ 'ntp_unsync', 'ntp_off' ] };
 
 function notify_queue(e) {
 	let n = C.cfg.notify;
 	if (!n.enabled) return;
 	let key = `${e.host ?? ''}|${e.area}|${e.src}`;
-	let want;
-	if (RECOVERY[e.type]) {
-		want = notif.open[key] == true;
-		/* also during maintenance: the fault is over, so a later, unrelated
-		 * recovery of the same source does not send a stray "back" */
-		delete notif.open[key];
+	let ends = RECOVERY[e.type], want = false;
+	if (ends) {
+		for (let t in ends) {
+			if (notif.open[`${key}|${t}`]) want = true;
+			/* also during maintenance: the fault is over, so a later, unrelated
+			 * recovery of the same source does not send a stray "back" */
+			delete notif.open[`${key}|${t}`];
+		}
 	}
 	/* during maintenance (the user works on the network): nothing is sent */
 	if (e.m) return;
-	if (!RECOVERY[e.type]) {
+	if (!ends) {
 		want = (e.lvl == 'err') || (e.lvl == 'warn' && n.min_level == 'warn');
-		if (want) notif.open[key] = true;
+		if (want) notif.open[`${key}|${e.type}`] = true;
 	}
 	if (!want) return;
 	push(notif.pending, `${substr(tstamp(e.ts), 11)} ${event_msg(e, n.lang)}`);
