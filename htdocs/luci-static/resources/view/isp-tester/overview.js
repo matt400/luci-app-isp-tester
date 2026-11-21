@@ -680,7 +680,9 @@ function hourHistogram(events, from, to) {
 	for (var i = 0; i < 24; i++) h.push(0);
 	events.forEach(function(e) {
 		if (e.ts < from || e.ts > to || e.lvl === 'info' || e.type === 'trace' || e.m) return;
-		if (e.type === 'stream_resume' || e.type === 'wan_up' || e.type === 'link_up' || e.type === 'wan_if_up' || e.type === 'proxy_up' || e.type === 'v6_up') return;
+		/* the end of a problem is not one of its own (as in the analysis:
+		 * "stream did not come back" was counted as a second problem) */
+		if (diagnose.recovery[e.type]) return;
 
 		h[new Date(e.ts * 1000).getHours()]++;
 	});
@@ -895,7 +897,11 @@ function stamp() {
 
 function csvCell(v) {
 	v = (v == null) ? '' : String(v);
-	return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+	/* channel names come from the stream, notes from whoever clicked: a
+	 * leading = + - @ would be run as a formula by a spreadsheet (the
+	 * collector's own CSV guards against it the same way) */
+	if (/^[=+\-@\t\r]/.test(v)) v = "'" + v;
+	return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
 }
 
 /* ------------------------------------------------------------------ view */
