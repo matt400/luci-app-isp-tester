@@ -100,9 +100,12 @@ ssh_run() {
 	# no 'timeout' in busybox: a watchdog kills dbclient after $tmo s
 	"$DBCLIENT" -y -T -K 15 -I 60 -i "$KEY" -p "$PORT" -l "$USER" "$HOST" "$1" < "$in" > "$VARDIR/ssh.$$.out" 2>&1 &
 	pid=$!
-	( sleep "$tmo"; kill "$pid" 2>/dev/null ) &
+	# (the watchdog takes its sleep with it when it is stopped: killing only
+	# the subshell left the sleep running for up to 5 minutes)
+	( trap 'kill $s 2>/dev/null; exit 0' TERM; sleep "$tmo" & s=$!; wait $s; kill "$pid" 2>/dev/null ) &
+	local wd=$!
 	wait "$pid"; rc=$?
-	kill $! 2>/dev/null
+	kill "$wd" 2>/dev/null
 	cat "$VARDIR/ssh.$$.out" 2>/dev/null; rm -f "$VARDIR/ssh.$$.out"
 	return $rc
 }

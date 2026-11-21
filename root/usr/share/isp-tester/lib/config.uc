@@ -17,6 +17,23 @@ function notify_lang(v, cur) {
 	return fs.stat('/usr/lib/lua/luci/i18n/isp-tester.pl.lmo') ? 'pl' : 'en';
 }
 
+/* with "log queries" on, dnsmasq answers SIGUSR1 with a dump of its whole
+ * cache too (thousands of lines): it would push the server statistics and
+ * every other message out of what read_log sees. Asked again before every
+ * dump: the setting is dnsmasq's, saving it does not restart the collector */
+function dnsmasq_logqueries(cur) {
+	if (getenv('ISP_TESTER_CONFIG')) return false;
+	let on = false;
+	try {
+		cur ??= require('uci').cursor();
+		cur.foreach('dhcp', 'dnsmasq', (s) => {
+			if (bool(s.logqueries, false)) on = true;
+		});
+	}
+	catch (e) {}
+	return on;
+}
+
 function default_config() {
 	return {
 		interval: 10,
@@ -59,7 +76,7 @@ function default_config() {
 		},
 		/* DNS of the router (dnsmasq): ubus metrics every tick, per-server
 		 * statistics from its SIGUSR1 dump in the system log every dump s */
-		dns: { enabled: true, warn_pct: 10, min_queries: 5, dump: 300 },
+		dns: { enabled: true, warn_pct: 10, min_queries: 5, dump: 300, logqueries: false },
 		notify: {
 			enabled: false, service: 'ntfy', url: '', token: '', chat_id: '',
 			min_level: 'err', cooldown: 300, lang: 'auto'
@@ -103,6 +120,7 @@ function load_config() {
 		c.dns.warn_pct    = num(dn.warn_pct, c.dns.warn_pct);
 		c.dns.min_queries = num(dn.min_queries, c.dns.min_queries);
 		c.dns.dump        = num(dn.dump, c.dns.dump);
+		c.dns.logqueries  = dnsmasq_logqueries(cur);
 
 		c.push.enabled    = bool(ps.enabled, false);
 		c.push.interval_h = num(ps.interval_h, c.push.interval_h);
@@ -311,4 +329,4 @@ function load_config() {
 	return c;
 }
 
-export { default_config, load_config };
+export { default_config, load_config, dnsmasq_logqueries };

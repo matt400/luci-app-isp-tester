@@ -1020,14 +1020,30 @@ function sample_iptv(devres) {
 	/* bitrate dip relative to the running average; only on whole ticks
 	 * without a stall, so normal VBR jitter and freezes don't count */
 	if (ok && iptv.state == 'playing' && !(iptv.tick?.stall_s > 0) && kbps >= C.cfg.iptv.min_kbps) {
+		/* another channel has its own bitrate: from an HD channel (8 Mbit/s)
+		 * to an SD one (3) was a "dip", and as the average is held during a
+		 * dip, the card stayed yellow for as long as the SD channel played */
+		let chans = join(',', igmp.groups ?? []);
+		if (iptv.avg_ch != null && chans != iptv.avg_ch) {
+			iptv.avg = kbps;
+			iptv.dip = false;
+		}
+		iptv.avg_ch = chans;
 		if (C.cfg.iptv.dip_pct > 0 && iptv.avg > 0) {
 			let ratio = kbps * 100 / iptv.avg;
 			if (!iptv.dip && ratio < C.cfg.iptv.dip_pct) {
 				iptv.dip = true;
+				iptv.dip_m = mono();
 				C.emit('warn', 'iptv', 'stream', 'stream_dip', { kbps, avg: round(iptv.avg, 0), ch: chn_now() });
 			}
 			else if (iptv.dip && ratio >= C.cfg.iptv.dip_pct + 10) {
 				iptv.dip = false;
+			}
+			/* a lower rate that lasts (without IGMP, or the same group with a
+			 * new bitrate): logged once, then it is the usual one */
+			else if (iptv.dip && mono() - iptv.dip_m >= 300) {
+				iptv.dip = false;
+				iptv.avg = kbps;
 			}
 		}
 		if (!iptv.dip)

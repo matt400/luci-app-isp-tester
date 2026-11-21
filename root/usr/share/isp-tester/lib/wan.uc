@@ -9,6 +9,7 @@ import * as uloop from 'uloop';
 import { RUNDIR, VARDIR, NO_UBUS, LOGREAD, MTR, TRACEROUTE, TRACEROUTE6, ETHTOOL, now, mono, round, valid_dev, valid_host, write_atomic, kill_pids } from './common.uc';
 import { trace_parse_mtr, trace_parse_tr, trace_judge, median, sfp_median, uniq_list } from './parsers.uc';
 import { default_gateway, sfp_read, cd_unixsock, cd_rrd, dnsmasq_pids } from './sysinfo.uc';
+import { dnsmasq_logqueries } from './config.uc';
 
 let C = null;
 
@@ -770,8 +771,14 @@ function sample_dns() {
 	}
 
 	/* the per-server dump: needs the system log */
-	if (C.cfg.logread && LOGREAD && C.cfg.dns.dump > 0 && (t - dns.dump_ts >= C.cfg.dns.dump || t < dns.dump_ts)) {
+	let dump_on = C.cfg.logread && LOGREAD && C.cfg.dns.dump > 0;
+	let dump_due = dump_on && (t - dns.dump_ts >= C.cfg.dns.dump || t < dns.dump_ts);
+	if (dump_due) {
 		dns.dump_ts = t;
+		C.cfg.dns.logqueries = dnsmasq_logqueries();
+	}
+	dump_on = dump_on && !C.cfg.dns.logqueries;
+	if (dump_on && dump_due) {
 		dns.pids = dnsmasq_pids();
 		kill_pids('USR1', dns.pids);
 	}
@@ -783,7 +790,7 @@ function sample_dns() {
 	 * failure in progress cannot end: not shown as going on for good; it is
 	 * ended (dns_ok) by the first statistics again */
 	return { err: dns.err, unans: dns.has_unans, bad: dns.bad && s.n > 0, since: dns.since, last: dns.last, servers: srv,
-		dump: (C.cfg.logread && LOGREAD) ? C.cfg.dns.dump : 0, warn_pct: C.cfg.dns.warn_pct };
+		dump: dump_on ? C.cfg.dns.dump : 0, logqueries: !!C.cfg.dns.logqueries, warn_pct: C.cfg.dns.warn_pct };
 }
 
 

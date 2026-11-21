@@ -124,8 +124,12 @@ function pushError(r) {
 function pushStatusText(st) {
 	var l = st && st.last;
 	if (!l) return _('Nothing sent yet.');
-	if (l.state === 'running') return _('Sending…');
 	var when = new Date((l.done || l.ts) * 1000).toLocaleString(LOCALE);
+	/* a send that was killed (reboot, dbclient's own 300 s limit) leaves
+	 * "running" behind: the collector counts it as failed after 15 min, and
+	 * so does this page instead of showing "Sending…" for good */
+	if (l.state === 'running')
+		return (Date.now() / 1000 - (l.ts || 0) > 900) ? _('The last try was interrupted (%s).').format(when) : _('Sending…');
 	if (l.ok)
 		return _('Last sent: %s – %s (%d kB) to %s.').format(when, l.name, Math.round((l.size || 0) / 1024), l.host || '?');
 	return _('Last try failed (%s): %s').format(when, pushError({ error: l.err, out: l.out }));
@@ -604,7 +608,8 @@ return view.extend({
 		o.depends('enabled', '1');
 
 		o = s.option(form.ListValue, 'dump', _('Per-server statistics'),
-			_('How often dnsmasq is asked (SIGUSR1) to write its per-server statistics to the system log; each time adds a few lines to the log. Needs “Read the system log”.'));
+			_('How often dnsmasq is asked (SIGUSR1) to write its per-server statistics to the system log; each time adds a few lines to the log. Needs “Read the system log”.') + ' ' +
+			_('Not asked while dnsmasq logs every query (Network → DHCP and DNS → Log queries): it then writes its whole cache to the log as well.'));
 		o.value('0', _('Off'));
 		o.value('300', _('every 5 min'));
 		o.value('900', _('every 15 min'));

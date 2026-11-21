@@ -10,6 +10,19 @@ DATA=/tmp/isp-tester
 # Timeline, history and CSV live in $DATA. With "data_dir" set to a mounted
 # folder (USB stick), $DATA becomes a link to it, so the system keeps the data
 # across reboots; nothing is copied around by the collector itself.
+# is $1 on a mounted file system of its own (the stick), not on the root /
+# overlay (internal flash) or in RAM? A mount point that is not mounted (the
+# stick missing at boot) is an empty folder on the flash: [ -d ] alone sent
+# the data there
+on_own_mount() {
+	awk -v d="${1%/}/" '
+		{ m = $2; gsub(/\\040/, " ", m)
+		  if (m != "/" && index(d, m "/") == 1 && length(m) > length(best)) { best = m; fs = $3 } }
+		END { exit !(best != "" && best != "/overlay" && best != "/rom" &&
+			fs != "overlay" && fs != "tmpfs" && fs != "ramfs" && fs != "squashfs") }
+	' /proc/mounts
+}
+
 setup_data_dir() {
 	local dir
 	config_get dir general data_dir
@@ -18,7 +31,7 @@ setup_data_dir() {
 		/tmp|/tmp/*|/var|/var/*|*..*) dir= ;;
 	esac
 
-	if [ -n "$dir" ] && [ -d "$dir" ] && mkdir -p "$dir/isp-tester" 2>/dev/null; then
+	if [ -n "$dir" ] && [ -d "$dir" ] && on_own_mount "$dir" && mkdir -p "$dir/isp-tester" 2>/dev/null; then
 		[ "$(readlink "$DATA")" = "$dir/isp-tester" ] && return 0
 		if [ -d "$DATA" ] && [ ! -L "$DATA" ]; then
 			# keep what was collected in RAM so far; when it cannot be copied
