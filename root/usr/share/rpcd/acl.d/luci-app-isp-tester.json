@@ -3,25 +3,20 @@
 		"description": "Grant access to ISP Tester",
 		"read": {
 			"ubus": {
-				"luci.isp_tester": [ "status", "events", "update_check", "update_status", "channels" ]
+				"luci.isp_tester": [ "status", "events", "channels", "push_status" ]
 			},
 			"file": {
 				"/tmp/isp-tester/samples.csv": [ "read" ],
 				"/tmp/isp-tester/samples.prev.csv": [ "read" ],
 				"/tmp/isp-tester/events.json": [ "read" ],
-				"/tmp/isp-tester/history.json": [ "read" ],
-				"/tmp/isp-tester/archive/*": [ "read" ],
-				"/tmp/isp-tester-backup.tar.gz": [ "read" ]
+				"/tmp/isp-tester/history.json": [ "read" ]
 			},
 			"uci": [ "isp_tester" ]
 		},
 		"write": {
 			"ubus": {
-				"luci.isp_tester": [ "clear", "set_enabled", "mark", "test_notify", "update_apply", "channels_forget", "maint",
-					"backup", "backup_check", "backup_clean", "restore" ]
-			},
-			"file": {
-				"/tmp/isp-tester-restore.tar.gz": [ "write" ]
+				"luci.isp_tester": [ "clear", "set_enabled", "mark", "test_notify", "channels_forget", "maint",
+					"push_pubkey", "push_test", "push_now" ]
 			},
 			"uci": [ "isp_tester" ]
 		}

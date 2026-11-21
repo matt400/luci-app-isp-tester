@@ -1,7 +1,12 @@
 #!/bin/sh
 # sections added in later versions (upgrades keep the old config file)
 uci -q get isp_tester.system >/dev/null || uci -q set isp_tester.system=system
-uci -q get isp_tester.wifi >/dev/null || uci -q set isp_tester.wifi=wifi
+uci -q get isp_tester.push >/dev/null || {
+	uci -q set isp_tester.push=push
+	uci -q set isp_tester.push.enabled=0
+	uci -q set isp_tester.push.dir=isp-tester
+	uci -q set isp_tester.push.interval_h=24
+}
 uci -q get isp_tester.peer >/dev/null || {
 	uci -q set isp_tester.peer=peer
 	uci -q set isp_tester.peer.role=off
@@ -11,6 +16,13 @@ uci -q get isp_tester.notify >/dev/null || {
 	uci -q set isp_tester.notify=notify
 	uci -q set isp_tester.notify.enabled=0
 }
+# removed features: Wi-Fi clients, link hogs, SoC temperature, USB archive
+uci -q delete isp_tester.wifi
+while uci -q get 'isp_tester.@station[0]' >/dev/null; do uci -q delete 'isp_tester.@station[0]'; done
+uci -q delete isp_tester.wan.hogs
+uci -q delete isp_tester.wan.hogs_cooldown
+uci -q delete isp_tester.system.temp_warn
+uci -q delete isp_tester.general.archive_days
 # options of the old sampled picture quality scan (now continuous)
 uci -q delete isp_tester.iptv.q_window
 uci -q delete isp_tester.iptv.q_interval

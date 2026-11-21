@@ -1,7 +1,8 @@
+#
 msgid ""
 msgstr ""
-"Content-Type: text/plain; charset=UTF-8\n"
 "Language: pl\n"
+"Content-Type: text/plain; charset=UTF-8\n"
 "Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
 
 msgid "OK"
@@ -442,7 +443,6 @@ msgstr "Jitter"
 msgid "Waiting for ping results…"
 msgstr "Czekam na wyniki pingu…"
 
-
 msgid "Stream running"
 msgstr "Strumień działa"
 
@@ -848,7 +848,6 @@ msgstr "Monitoruj IPTV"
 msgid "IPTV device"
 msgstr "Urządzenie IPTV"
 
-
 msgid "Measure"
 msgstr "Mierz"
 
@@ -860,7 +859,6 @@ msgstr "Ruch wychodzący (port do dekodera)"
 
 msgid "Bridge for IGMP status"
 msgstr "Most do statusu IGMP"
-
 
 msgid "Stream threshold (kbit/s)"
 msgstr "Próg strumienia (kbit/s)"
@@ -1219,75 +1217,6 @@ msgstr "Pomiar na"
 msgid "VLAN %d on %s"
 msgstr "VLAN %d na %s"
 
-msgid "Updates"
-msgstr "Aktualizacje"
-
-msgid "Installs the newest release from GitHub (checksum verified)."
-msgstr "Instaluje najnowsze wydanie z GitHuba (z weryfikacją sumy kontrolnej)."
-
-msgid "Plugin update"
-msgstr "Aktualizacja wtyczki"
-
-msgid "Press the button to look for a newer release on GitHub."
-msgstr "Naciśnij przycisk, aby sprawdzić nowsze wydanie na GitHubie."
-
-msgid "Check for updates"
-msgstr "Sprawdź aktualizacje"
-
-msgid "No package manager (opkg / apk) found."
-msgstr "Nie znaleziono menedżera pakietów (opkg / apk)."
-
-msgid "Cannot reach GitHub. Check the internet connection (the ca-bundle package is needed for HTTPS)."
-msgstr "Brak połączenia z GitHubem. Sprawdź internet (do HTTPS potrzebny jest pakiet ca-bundle)."
-
-msgid "Unexpected answer from GitHub."
-msgstr "Nieoczekiwana odpowiedź GitHuba."
-
-msgid "An update is already running."
-msgstr "Aktualizacja jest już w toku."
-
-msgid "Download failed."
-msgstr "Pobieranie nie powiodło się."
-
-msgid "Checksum mismatch – the update was not installed."
-msgstr "Błędna suma kontrolna – aktualizacja nie została zainstalowana."
-
-msgid "Installation failed (see opkg / apk output on the router)."
-msgstr "Instalacja nie powiodła się (sprawdź komunikaty opkg / apk na routerze)."
-
-msgid "Unknown error"
-msgstr "Nieznany błąd"
-
-msgid "Updated to %s. Reloading…"
-msgstr "Zaktualizowano do %s. Przeładowuję…"
-
-msgid "The update takes unusually long. Reload the page later."
-msgstr "Aktualizacja trwa nietypowo długo. Przeładuj stronę później."
-
-msgid "Downloading and installing %s…"
-msgstr "Pobieranie i instalacja %s…"
-
-msgid "Checking…"
-msgstr "Sprawdzam…"
-
-msgid "You have the newest version (%s)."
-msgstr "Masz najnowszą wersję (%s)."
-
-msgid "Release %s has no package for this router."
-msgstr "Wydanie %s nie zawiera pakietu dla tego routera."
-
-msgid "New version %s is available (installed: %s)."
-msgstr "Dostępna nowa wersja %s (zainstalowana: %s)."
-
-msgid "Release page"
-msgstr "Strona wydania"
-
-msgid "Install %s"
-msgstr "Zainstaluj %s"
-
-msgid "An update is running…"
-msgstr "Aktualizacja w toku…"
-
 msgid "IPTV stream ended: decoder switched off (no channel subscribed)"
 msgstr "Strumień IPTV zakończony: dekoder wyłączony (brak subskrybowanego kanału)"
 
@@ -1582,131 +1511,8 @@ msgstr "Klucz"
 msgid "The same secret on both routers, at least 8 characters. Messages signed with another key are ignored."
 msgstr "Ten sam sekret na obu routerach, min. 8 znaków. Wiadomości podpisane innym kluczem są ignorowane."
 
-msgid "%d of %d of your reports came with a Wi-Fi drop or weak signal of %s, and nothing on the line – the cause is Wi-Fi."
-msgstr "%d z %d Twoich zgłoszeń zbiegło się z rozłączeniem Wi-Fi lub słabym sygnałem %s, a na łączu nic – przyczyną jest Wi-Fi."
-
-msgid "%d of %d of your reports have nothing measured around them, and the Wi-Fi of the watched devices was fine too – the cause is probably the decoder or the TV (or a device that is not watched)."
-msgstr "%d z %d Twoich zgłoszeń nie ma wokół siebie żadnego pomiaru, a Wi-Fi obserwowanych urządzeń też było w porządku – przyczyną jest pewnie dekoder lub telewizor (albo urządzenie, które nie jest obserwowane)."
-
-msgid "Wi-Fi of %s dropped and reconnected %d× – range, interference or the device's power saving."
-msgstr "Wi-Fi %s rozłączało się i wracało %d× – zasięg, zakłócenia albo oszczędzanie energii w urządzeniu."
-
-msgid "Weak Wi-Fi signal of %s (%d×) – move the access point or the device, or use a cable."
-msgstr "Słaby sygnał Wi-Fi %s (%d×) – przestaw punkt dostępowy lub urządzenie albo użyj kabla."
-
-msgid "Wi-Fi"
-msgstr "Wi-Fi"
-
-msgid "%s: weak Wi-Fi signal (%d dBm)"
-msgstr "%s: słaby sygnał Wi-Fi (%d dBm)"
-
-msgid "Wi-Fi: cannot reach ubus"
-msgstr "Wi-Fi: brak dostępu do ubus"
-
-msgid "Wi-Fi: no access point (hostapd) running on this router"
-msgstr "Wi-Fi: na tym routerze nie działa punkt dostępowy (hostapd)"
-
-msgid "Wi-Fi: %s moved from %s to %s (gap %s)"
-msgstr "Wi-Fi: %s przeszedł z %s na %s (przerwa %s)"
-
-msgid "Wi-Fi: %s DROPPED and reconnected after %s"
-msgstr "Wi-Fi: %s ROZŁĄCZONY, wrócił po %s"
-
-msgid "Wi-Fi: %s disconnected (not back within the reconnect time)"
-msgstr "Wi-Fi: %s rozłączony (nie wrócił w czasie ponownego połączenia)"
-
-msgid "Wi-Fi: %s connected again after %s"
-msgstr "Wi-Fi: %s znów połączony po %s"
-
-msgid "Wi-Fi: %s moved from %s to %s"
-msgstr "Wi-Fi: %s przeszedł z %s na %s"
-
-msgid "Wi-Fi: %s weak signal %d dBm"
-msgstr "Wi-Fi: %s słaby sygnał %d dBm"
-
-msgid "Wi-Fi: %s signal OK again after %s (lowest %d dBm)"
-msgstr "Wi-Fi: %s sygnał znów OK po %s (najniżej %d dBm)"
-
-msgid "signal before %d dBm"
-msgstr "sygnał przed %d dBm"
-
-msgid "weak"
-msgstr "słaby"
-
-msgid "deauthenticated"
-msgstr "deautentykacja"
-
-msgid "disassociated"
-msgstr "dysasocjacja"
-
-msgid "reason %d"
-msgstr "powód %d"
-
-msgid "not connected"
-msgstr "niepołączony"
-
-msgid "Interface"
-msgstr "Interfejs"
-
-msgid "Signal"
-msgstr "Sygnał"
-
-msgid "Link rate received / sent (Mbit/s)"
-msgstr "Szybkość łącza odbiór / wysyłanie (Mbit/s)"
-
-msgid "Rate"
-msgstr "Szybkość"
-
-msgid "For"
-msgstr "Od"
-
-msgid "Add the devices to watch (phone, TV) in Settings → Wi-Fi."
-msgstr "Dodaj urządzenia do obserwowania (telefon, TV) w Ustawienia → Wi-Fi."
-
-msgid "Clients"
-msgstr "Klienci"
-
-msgid "Weak below"
-msgstr "Słaby poniżej"
-
-msgid "Wi-Fi clients"
-msgstr "Klienci Wi-Fi"
-
-msgid "Wi-Fi: %s"
-msgstr "Wi-Fi: %s"
-
-msgid "Wi-Fi drops of watched devices"
-msgstr "Rozłączenia Wi-Fi obserwowanych urządzeń"
-
-msgid "Watches the Wi-Fi clients of this router's access points (hostapd over ubus): when a watched device (phone, TV) drops and comes back, and when its signal gets weak. Then a “Problem now” report with nothing measured on the line has proof: it was Wi-Fi – or, when its Wi-Fi was fine, it was not. On a second router behind this one, set it up there and let it send its events here."
-msgstr "Obserwuje klientów Wi-Fi punktów dostępowych tego routera (hostapd przez ubus): gdy obserwowane urządzenie (telefon, TV) się rozłącza i wraca oraz gdy słabnie jego sygnał. Wtedy zgłoszenie „Problem teraz” bez pomiarów na łączu ma dowód: to było Wi-Fi – albo, gdy Wi-Fi było w porządku, to nie ono. Na drugim routerze za tym skonfiguruj to tam i niech wysyła zdarzenia tutaj."
-
-msgid "Watch Wi-Fi"
-msgstr "Obserwuj Wi-Fi"
-
-msgid "Weak signal below (dBm)"
-msgstr "Słaby sygnał poniżej (dBm)"
-
-msgid "Two checks in a row below this are logged. Around −70 dBm streaming starts to suffer."
-msgstr "Zapisywane są dwa kolejne pomiary poniżej tej wartości. Około −70 dBm streaming zaczyna cierpieć."
-
-msgid "Reconnect within (s)"
-msgstr "Ponowne połączenie w ciągu (s)"
-
-msgid "A device that is back within this time was dropped (a fault). One that stays away longer just left (e.g. the phone left the house) and is only noted."
-msgstr "Urządzenie, które wróci w tym czasie, zostało rozłączone (usterka). Takie, którego nie ma dłużej, po prostu wyszło (np. telefon opuścił dom) i jest tylko odnotowane."
-
-msgid "Wi-Fi devices to watch"
-msgstr "Obserwowane urządzenia Wi-Fi"
-
-msgid "Only these are logged; the others are counted. Devices connected now are offered in the list."
-msgstr "Zapisywane są tylko te; pozostałe są liczone. Lista podpowiada urządzenia połączone teraz."
-
 msgid "MAC address"
 msgstr "Adres MAC"
-
-msgid "e.g. Phone"
-msgstr "np. Telefon"
 
 msgid "Path snapshots (%d): the loss started at hop %d (%s) and carried on to the destination (%d× there) – inside the ISP's network or beyond; the hops before it were fine. Show this to the ISP."
 msgstr "Migawki trasy (%d): straty zaczynały się od hopa %d (%s) i ciągnęły do celu (%d× tam) – w sieci operatora lub dalej; hopy przed nim były w porządku. Pokaż to operatorowi."
@@ -1849,44 +1655,11 @@ msgstr "Z Twojej taryfy. Puste = najwyższa zaobserwowana."
 msgid "Upload speed (Mbit/s)"
 msgstr "Prędkość wysyłania (Mbit/s)"
 
-msgid "7 d"
-msgstr "7 dni"
-
-msgid "30 d"
-msgstr "30 dni"
-
-msgid "loading the archive…"
-msgstr "wczytuję archiwum…"
-
-msgid "IPTV bitrate (10 min average)"
-msgstr "Bitrate IPTV (średnia 10 min)"
-
-msgid "Interface errors per 10 minutes"
-msgstr "Błędy interfejsów na 10 minut"
-
 msgid "Preparing the report…"
 msgstr "Przygotowuję raport…"
 
-msgid "The archive of the last %d days on USB is deleted too."
-msgstr "Archiwum z ostatnich %d dni na USB też zostanie usunięte."
-
-msgid "Archive on USB"
-msgstr "Archiwum na USB"
-
-msgid "With the data on USB, every event and a 10-minute summary of the charts are also kept per day for this long, so the overview can show 7 or 30 days and the report for the ISP can cover a whole week. Appended once per event and once per 10 minutes, never rewritten. Without a USB folder it stays off (RAM is too small)."
-msgstr "Gdy dane są na USB, każde zdarzenie i 10-minutowe podsumowanie wykresów są też trzymane dzień po dniu przez tyle czasu, więc przegląd może pokazać 7 lub 30 dni, a raport dla operatora objąć cały tydzień. Dopisywane raz na zdarzenie i raz na 10 minut, nigdy nie przepisywane. Bez folderu na USB jest wyłączone (za mało RAM)."
-
 msgid "Off"
 msgstr "Wyłączone"
-
-msgid "7 days"
-msgstr "7 dni"
-
-msgid "30 days"
-msgstr "30 dni"
-
-msgid "90 days"
-msgstr "90 dni"
 
 msgid "%d of %d IPTV freezes happened while a decoder (%s) restarted – the decoder, not a lost stream; not counted against the ISP."
 msgstr "%d z %d zamrożeń IPTV wystąpiło podczas restartu dekodera (%s) – to dekoder, nie zniknięcie streamu; nie liczy się przeciw operatorowi."
@@ -2353,12 +2126,6 @@ msgstr "Okres widoczny na wykresach: %s"
 msgid "Chosen days"
 msgstr "Wybrane dni"
 
-msgid "The archive on USB goes back %d days."
-msgstr "Archiwum na USB sięga %d dni wstecz."
-
-msgid "The data is in RAM: only the last 24 h (and the timeline kept in RAM) are available. Keep the data on USB for a longer archive."
-msgstr "Dane są w RAM: dostępne są tylko ostatnie 24 h (i oś czasu trzymana w RAM). Trzymaj dane na USB, żeby mieć dłuższe archiwum."
-
 msgid "Hours of the day"
 msgstr "Godziny dnia"
 
@@ -2473,101 +2240,8 @@ msgstr "W czasie prac serwisowych – nie liczone"
 msgid "maintenance"
 msgstr "prace serwisowe"
 
-msgid "No file was uploaded."
-msgstr "Nie przesłano pliku."
-
-msgid "The file is too big (over 64 MB)."
-msgstr "Plik jest za duży (ponad 64 MB)."
-
-msgid "This is not a .tar.gz archive."
-msgstr "To nie jest archiwum .tar.gz."
-
-msgid "The archive is empty."
-msgstr "Archiwum jest puste."
-
-msgid "The archive contains links or special files – refused."
-msgstr "Archiwum zawiera dowiązania lub pliki specjalne – odrzucone."
-
-msgid "The archive contains files that are not from ISP Tester – refused."
-msgstr "Archiwum zawiera pliki spoza ISP Tester – odrzucone."
-
-msgid "The archive cannot be unpacked."
-msgstr "Nie można rozpakować archiwum."
-
-msgid "This is not an ISP Tester backup."
-msgstr "To nie jest kopia ISP Tester."
-
-msgid "The settings in the archive are not a valid settings file."
-msgstr "Ustawienia w archiwum nie są poprawnym plikiem ustawień."
-
-msgid "Nothing was chosen to restore."
-msgstr "Nie wybrano niczego do przywrócenia."
-
-msgid "The settings file cannot be read."
-msgstr "Nie można odczytać pliku ustawień."
-
-msgid "The archive is too big once unpacked."
-msgstr "Archiwum jest za duże po rozpakowaniu."
-
-msgid "The settings file cannot be written."
-msgstr "Nie można zapisać pliku ustawień."
-
-msgid "The data cannot be written (no space left?)."
-msgstr "Nie można zapisać danych (brak miejsca?)."
-
 msgid "Failed: %s"
 msgstr "Niepowodzenie: %s"
-
-msgid "Restore from a backup"
-msgstr "Przywracanie z kopii"
-
-msgid "Backup of %s from %s: %s."
-msgstr "Kopia z %s z %s: %s."
-
-msgid "settings and data (%d files, %d of them archive days, %d kB)"
-msgstr "ustawienia i dane (%d plików, w tym %d dni archiwum, %d kB)"
-
-msgid "settings only"
-msgstr "tylko ustawienia"
-
-msgid "It comes from another router (%s). Its settings name that router's ports, interfaces and the role towards the second router – check them after restoring, or restore the data only."
-msgstr "Pochodzi z innego routera (%s). Jej ustawienia wskazują porty, interfejsy i rolę wobec drugiego routera tamtego urządzenia – sprawdź je po przywróceniu albo przywróć tylko dane."
-
-msgid "Settings (replace the current ones; the old file is kept as /etc/config/isp_tester.before-restore)"
-msgstr "Ustawienia (zastąp obecne; stary plik zostanie zachowany jako /etc/config/isp_tester.before-restore)"
-
-msgid "Data: timeline, history, archive, channel names (replace the current ones)"
-msgstr "Dane: oś czasu, historia, archiwum, nazwy kanałów (zastąp obecne)"
-
-msgid "Monitoring stops for a moment while the files are replaced."
-msgstr "Monitorowanie zatrzyma się na chwilę na czas podmiany plików."
-
-msgid "Restored: %s. The page reloads."
-msgstr "Przywrócono: %s. Strona się przeładuje."
-
-msgid "settings"
-msgstr "ustawienia"
-
-msgid "data"
-msgstr "dane"
-
-msgid "Restore"
-msgstr "Przywróć"
-
-msgid "Backup and restore"
-msgstr "Kopia i przywracanie"
-
-msgid "One .tar.gz with the settings of the tester and, if you want, its data (timeline, history, the archive on USB, channel names) – to keep it, or to move the monitoring to another router (e.g. from M477 to M477S). Restoring checks the archive first: only files this page writes are accepted."
-msgstr "Jedno archiwum .tar.gz z ustawieniami testera i, jeśli chcesz, jego danymi (oś czasu, historia, archiwum na USB, nazwy kanałów) – do przechowania albo do przeniesienia monitorowania na inny router (np. z M477 na M477S). Przed przywróceniem archiwum jest sprawdzane: przyjmowane są tylko pliki, które zapisuje ta strona."
-
-msgid "Download settings + data"
-msgstr "Pobierz ustawienia + dane"
-
-msgid "Download settings only"
-msgstr "Pobierz tylko ustawienia"
-
-msgid "Restore from a file…"
-msgstr "Przywróć z pliku…"
 
 msgid "Watch IPv6"
 msgstr "Monitoruj IPv6"
@@ -2635,9 +2309,6 @@ msgstr "Zapytania IGMP od operatora ustały %d× (zobacz oś czasu)."
 msgid "No IGMP query from the operator was seen in %d min although IPTV freezes occurred – the ISP side does not keep the memberships alive (check that the capture port faces the ISP)."
 msgstr "Przez %d min nie widziano zapytania IGMP od operatora, mimo zawieszeń IPTV – operator nie podtrzymuje członkostw (sprawdź, czy port nasłuchu jest skierowany do operatora)."
 
-msgid "The link was full %d× – %s was the heaviest user in %d of them (up to %d%% of the traffic then). That traffic is your own, not an ISP fault."
-msgstr "Łącze było zapchane %d× – %s było największym użytkownikiem w %d z nich (do %d%% ruchu). To Twój własny ruch, nie awaria operatora."
-
 msgid "No light came from the line (SFP RX at the noise floor, %d×) – the fibre is broken or unplugged, a connector is dirty or loose, or the ISP's equipment is down. Hard evidence of a fault in the line, not in the router: clean and re-seat the connector first, then show this to the ISP."
 msgstr "Z linii nie dochodziło światło (SFP RX na poziomie szumu, %d×) – włókno jest zerwane lub wypięte, złącze brudne lub luźne albo sprzęt operatora nie działa. Twardy dowód awarii linii, nie routera: najpierw wyczyść i wepnij złącze, potem pokaż to operatorowi."
 
@@ -2652,21 +2323,6 @@ msgstr "Moduł SFP zgłosił alarm (%d×: %s) – przegrzanie, prąd lasera lub 
 
 msgid "The SFP module stopped answering %d× – taken out, or it hung (power, a faulty module)."
 msgstr "Moduł SFP przestał odpowiadać %d× – został wyjęty albo się zawiesił (zasilanie, uszkodzony moduł)."
-
-msgid "%d problems happened while the router was overheated and its CPU slowed down (up to %s °C) – the router itself loses packets; check ventilation, the heatsink, the case."
-msgstr "%d problemów wystąpiło, gdy router był przegrzany, a jego CPU zwolnił (do %s °C) – sam router gubi pakiety; sprawdź wentylację, radiator, obudowę."
-
-msgid "%d problems happened while the router was overheated (up to %s °C) – the router itself may lose packets; check ventilation, the heatsink, the case."
-msgstr "%d problemów wystąpiło, gdy router był przegrzany (do %s °C) – sam router może gubić pakiety; sprawdź wentylację, radiator, obudowę."
-
-msgid "The router overheated and throttled its CPU (up to %s °C, %d×) – no problems at those moments."
-msgstr "Router przegrzał się i zwolnił CPU (do %s °C, %d×) – w tych momentach bez problemów."
-
-msgid "The router was overheated (up to %s °C, %d×) – no problems at those moments."
-msgstr "Router był przegrzany (do %s °C, %d×) – w tych momentach bez problemów."
-
-msgid "Heaviest at those times: %s."
-msgstr "Najwięcej w tych momentach: %s."
 
 msgid "The operator has stopped sending IGMP queries"
 msgstr "Operator przestał wysyłać zapytania IGMP"
@@ -2685,18 +2341,6 @@ msgstr "Brak zapytania IGMP od operatora od %s (zwykle co %s)"
 
 msgid "IGMP queries from the operator again after %s"
 msgstr "Zapytania IGMP od operatora wróciły po %s"
-
-msgid "Router OVERHEATED: %s %s °C (limit %s °C)"
-msgstr "Router PRZEGRZANY: %s %s °C (limit %s °C)"
-
-msgid "Router temperature normal again after %s"
-msgstr "Temperatura routera znów w normie po %s"
-
-msgid "Router CPU SLOWED DOWN by heat: %s MHz instead of %s MHz (%s °C)"
-msgstr "CPU routera ZWOLNIONY przez temperaturę: %s MHz zamiast %s MHz (%s °C)"
-
-msgid "Router CPU at full speed again after %s"
-msgstr "CPU routera znów na pełnej prędkości po %s"
 
 msgid "OPTICAL SIGNAL WEAKER: RX %s dBm, usually %s dBm (%s dB less) on %s"
 msgstr "SYGNAŁ OPTYCZNY SŁABSZY: RX %s dBm, zwykle %s dBm (o %s dB mniej) na %s"
@@ -2725,42 +2369,6 @@ msgstr "Moduł SFP na %s już nie odpowiada (wyjęty albo się zawiesił)"
 msgid "SFP module on %s answers again after %s"
 msgstr "Moduł SFP na %s znów odpowiada po %s"
 
-msgid "%s GB"
-msgstr "%s GB"
-
-msgid "LINK FULL (%s %d%%) for %s – heaviest: %s"
-msgstr "ŁĄCZE ZAPCHANE (%s %d%%) przez %s – najwięcej: %s"
-
-msgid "%s in that time, from %s"
-msgstr "%s w tym czasie, od %s"
-
-msgid "the connection table"
-msgstr "tablicy połączeń"
-
-msgid "%d of %d MHz"
-msgstr "%d z %d MHz"
-
-msgid "throttled"
-msgstr "zwolniony"
-
-msgid "Router: %s"
-msgstr "Router: %s"
-
-msgid "limit"
-msgstr "limit"
-
-msgid "fan"
-msgstr "wentylator"
-
-msgid "cooling"
-msgstr "chłodzenie"
-
-msgid "Highest since start: %s °C (%s)"
-msgstr "Najwyżej od startu: %s °C (%s)"
-
-msgid "Overheated for %s, throttled for %s since start"
-msgstr "Przegrzany przez %s, zwolniony przez %s od startu"
-
 msgid "no answer from the module on %s (%s)"
 msgstr "brak odpowiedzi modułu na %s (%s)"
 
@@ -2781,30 +2389,6 @@ msgstr "Z samego modułu SFP (ethtool -m %s)"
 
 msgid "Optical signal"
 msgstr "Sygnał optyczny"
-
-msgid "Traffic of the %s the link was %d%% full (%s), %s in total; read from %s at %s"
-msgstr "Ruch %s, gdy łącze było zajęte w %d%% (%s), razem %s; odczyt z %s o %s"
-
-msgid "could not read the traffic per host (%s)"
-msgstr "nie udało się odczytać ruchu per host (%s)"
-
-msgid "nlbwmon is installed but not running"
-msgstr "nlbwmon jest zainstalowany, ale nie działa"
-
-msgid "needs nlbwmon (luci-app-nlbwmon) or the conntrack byte accounting"
-msgstr "potrzebny nlbwmon (luci-app-nlbwmon) albo zliczanie bajtów w conntrack"
-
-msgid "ready (%s) – listed when the link has been full for a while"
-msgstr "gotowe (%s) – lista powstaje, gdy łącze jest zapchane przez dłuższy czas"
-
-msgid "connection table"
-msgstr "tablica połączeń"
-
-msgid "The hosts that used the most traffic while the link was full, the last time it was full for a while"
-msgstr "Hosty z największym ruchem, gdy łącze było zapchane, ostatnio przez dłuższy czas"
-
-msgid "Who fills the link"
-msgstr "Kto zapycha łącze"
 
 msgid "last query %s ago"
 msgstr "ostatnie zapytanie %s temu"
@@ -2845,21 +2429,6 @@ msgstr "Moc TX"
 msgid "Optical power of the SFP module (dBm) – red background = signal weaker / no light"
 msgstr "Moc optyczna modułu SFP (dBm) – czerwone tło = sygnał słabszy / brak światła"
 
-msgid "SoC temperature"
-msgstr "Temperatura SoC"
-
-msgid "CPU throttled"
-msgstr "CPU zwolniony"
-
-msgid "Router temperature (°C) – red background = CPU slowed down by heat"
-msgstr "Temperatura routera (°C) – czerwone tło = CPU zwolniony przez temperaturę"
-
-msgid "Router overheated / CPU throttled"
-msgstr "Router przegrzany / CPU zwolniony"
-
-msgid "highest %s °C since %s"
-msgstr "najwyżej %s °C od %s"
-
 msgid "Optical signal (SFP)"
 msgstr "Sygnał optyczny (SFP)"
 
@@ -2868,24 +2437,6 @@ msgstr "słabszy %d×, brak światła %d×"
 
 msgid "now RX %s dBm, usually %s dBm, weakest %s dBm since start"
 msgstr "teraz RX %s dBm, zwykle %s dBm, najsłabszy %s dBm od startu"
-
-msgid "Who filled the link"
-msgstr "Kto zapchał łącze"
-
-msgid "Taken automatically while the link was full for a while: the hosts with the most traffic in that time. Full link with your own traffic is not an ISP fault."
-msgstr "Robione automatycznie, gdy łącze było zapchane przez dłuższy czas: hosty z największym ruchem w tym czasie. Zapchane łącze własnym ruchem to nie awaria operatora."
-
-msgid "Time"
-msgstr "Czas"
-
-msgid "Direction"
-msgstr "Kierunek"
-
-msgid "Heaviest"
-msgstr "Największy"
-
-msgid "When the link stays full (the limit above) for a while, list the hosts with the most traffic in that time. Only reads: nlbwmon when it is installed and running, else the connection tracking table when its byte accounting is on."
-msgstr "Gdy łącze pozostaje zapchane (limit wyżej) przez dłuższy czas, wypisz hosty z największym ruchem w tym czasie. Tylko odczyt: nlbwmon, gdy jest zainstalowany i działa, w przeciwnym razie tablica śledzenia połączeń, gdy działa jej zliczanie bajtów."
 
 msgid "Optical signal (SFP / ONT)"
 msgstr "Sygnał optyczny (SFP / ONT)"
@@ -2917,11 +2468,131 @@ msgstr "Obserwuj zapytania IGMP operatora"
 msgid "Shows how long ago the operator sent its last IGMP general query and warns when they stop: without them the memberships expire after about two intervals and the stream freezes. Works on the port facing the ISP (incoming traffic). Needs the isp-tester-tsmon package."
 msgstr "Pokazuje, ile czasu temu operator wysłał ostatnie ogólne zapytanie IGMP, i ostrzega, gdy ustaną: bez nich członkostwa wygasają po ok. dwóch odstępach, a obraz się zawiesza. Działa na porcie w stronę operatora (ruch przychodzący). Wymaga pakietu isp-tester-tsmon."
 
-msgid "Overheated from (°C)"
-msgstr "Przegrzanie od (°C)"
+msgid "The port is not valid."
+msgstr "Port jest nieprawidłowy."
 
-msgid "SoC temperature from /sys/class/thermal, two intervals in a row; throttling (slower CPU) is logged on its own. Empty = 5 °C below the point where the kernel starts to throttle (85 °C when unknown), -1 disables."
-msgstr "Temperatura SoC z /sys/class/thermal, dwa odstępy z rzędu; zwalnianie CPU (throttling) jest logowane osobno. Puste = 5 °C poniżej progu, od którego jądro zwalnia (85 °C, gdy nieznany), -1 wyłącza."
+msgid "The user name is not valid."
+msgstr "Nazwa użytkownika jest nieprawidłowa."
 
-msgid "automatic"
-msgstr "automatycznie"
+msgid "Send every"
+msgstr "Wysyłaj co"
+
+msgid "Loading…"
+msgstr "Ładowanie…"
+
+msgid "Login failed. Add the public key to ~/.ssh/authorized_keys of that user on the other device."
+msgstr "Logowanie nie powiodło się. Dodaj klucz publiczny do ~/.ssh/authorized_keys tego użytkownika na drugim urządzeniu."
+
+msgid "The folder is not valid (letters, digits and . _ / ~ - only, no “..”)."
+msgstr "Folder jest nieprawidłowy (tylko litery, cyfry i . _ / ~ -, bez „..”)."
+
+msgid "Send regularly"
+msgstr "Wysyłaj regularnie"
+
+msgid "Sending failed."
+msgstr "Wysyłanie nie powiodło się."
+
+msgid "User"
+msgstr "Użytkownik"
+
+msgid "Only the last 24 h of measurements and the timeline kept on the router are available here. Older files are on the device the data is sent to (Settings → Send data to another device)."
+msgstr "Dostępne są tu tylko ostatnie 24 h pomiarów i oś czasu przechowywana na routerze. Starsze pliki są na urządzeniu, do którego wysyłane są dane (Ustawienia → Wysyłanie danych na inne urządzenie)."
+
+msgid "dropbearkey (package dropbear) is not installed."
+msgstr "dropbearkey (pakiet dropbear) nie jest zainstalowany."
+
+msgid "IP address or name of the other device."
+msgstr "Adres IP lub nazwa drugiego urządzenia."
+
+msgid "The public key could not be read."
+msgstr "Nie udało się odczytać klucza publicznego."
+
+msgid "A failed try is repeated after 30 minutes."
+msgstr "Nieudana próba jest powtarzana po 30 minutach."
+
+msgid "Sending…"
+msgstr "Wysyłanie…"
+
+msgid "hour"
+msgstr "godzinę"
+
+msgid "The key path is not valid."
+msgstr "Ścieżka klucza jest nieprawidłowa."
+
+msgid "Sends the timeline, history and CSV as one .tar.gz over SSH (dropbear's own client, no extra package) to another device in your network, e.g. a PC or a NAS with an SSH server. That device keeps the files, so the long history lives there and not on this router."
+msgstr "Wysyła oś czasu, historię i CSV jako jeden plik .tar.gz przez SSH (własny klient dropbear, bez dodatkowych pakietów) na inne urządzenie w sieci, np. PC lub NAS z serwerem SSH. To urządzenie przechowuje pliki, więc długa historia jest tam, a nie na routerze."
+
+msgid "A transfer is running already."
+msgstr "Transfer już trwa."
+
+msgid "6 hours"
+msgstr "6 godzin"
+
+msgid "Save & Apply the settings first, then add the public key to <code>~/.ssh/authorized_keys</code> of the user on the other device. The first login also trusts that device's host key; a changed one is refused."
+msgstr "Najpierw zapisz ustawienia (Zapisz i zastosuj), potem dodaj klucz publiczny do <code>~/.ssh/authorized_keys</code> użytkownika na drugim urządzeniu. Pierwsze logowanie zaufa też kluczowi hosta tego urządzenia; zmieniony klucz jest odrzucany."
+
+msgid "dbclient (package dropbear) is not installed."
+msgstr "dbclient (pakiet dropbear) nie jest zainstalowany."
+
+msgid "The files could not be packed."
+msgstr "Nie udało się spakować plików."
+
+msgid "week"
+msgstr "tydzień"
+
+msgid "Folder on that device"
+msgstr "Folder na tym urządzeniu"
+
+msgid "Login works."
+msgstr "Logowanie działa."
+
+msgid "Made on first use. Empty = <code>/etc/dropbear/isp_tester_push_key</code> (kept over a firmware upgrade)."
+msgstr "Tworzony przy pierwszym użyciu. Puste = <code>/etc/dropbear/isp_tester_push_key</code> (zachowywany przy aktualizacji firmware)."
+
+msgid "Key and transfer"
+msgstr "Klucz i transfer"
+
+msgid "The key could not be made."
+msgstr "Nie udało się utworzyć klucza."
+
+msgid "Private key"
+msgstr "Klucz prywatny"
+
+msgid "Show the public key"
+msgstr "Pokaż klucz publiczny"
+
+msgid "There is no data to send yet."
+msgstr "Nie ma jeszcze danych do wysłania."
+
+msgid "SSH port"
+msgstr "Port SSH"
+
+msgid "Last try failed (%s): %s"
+msgstr "Ostatnia próba nieudana (%s): %s"
+
+msgid "Send now"
+msgstr "Wyślij teraz"
+
+msgid "Nothing sent yet."
+msgstr "Nic jeszcze nie wysłano."
+
+msgid "Last sent: %s – %s (%d kB) to %s."
+msgstr "Ostatnio wysłano: %s – %s (%d kB) do %s."
+
+msgid "Set the address and the user first, then Save & Apply."
+msgstr "Najpierw ustaw adres i użytkownika, potem Zapisz i zastosuj."
+
+msgid "Test the login"
+msgstr "Sprawdź logowanie"
+
+msgid "Send data to another device"
+msgstr "Wysyłanie danych na inne urządzenie"
+
+msgid "A relative path is in the user's home. It is created when missing."
+msgstr "Ścieżka względna jest w katalogu domowym użytkownika. Folder jest tworzony, gdy go brak."
+
+msgid "day"
+msgstr "dzień"
+
+msgid "The address is not valid."
+msgstr "Adres jest nieprawidłowy."

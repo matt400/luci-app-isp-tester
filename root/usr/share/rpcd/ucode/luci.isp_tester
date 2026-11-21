@@ -1,7 +1,7 @@
 // luci-app-isp-tester - rpcd ucode plugin
 'use strict';
 
-import { readfile, writefile, stat, mkdir, open, popen, unlink } from 'fs';
+import { readfile, writefile, stat, mkdir, open, popen } from 'fs';
 import { cursor } from 'uci';
 
 const RUNDIR = '/tmp/isp-tester';           /* timeline, history, CSV (may link to USB) */
@@ -24,21 +24,9 @@ function service_running() {
 }
 
 
-/* ------------------------------------------------------------ updates */
+/* ------------------------------------------------------------ data push */
 
-const REPO = 'matt400/luci-app-isp-tester';
-const PKG = 'luci-app-isp-tester';
-const PKG_I18N = 'luci-i18n-isp-tester-pl';
-const PKG_TSMON = 'isp-tester-tsmon';
-
-/* package architecture of this router, for the helper package (built per
- * architecture, released as isp-tester-tsmon_<arch>.<ext>) */
-function pkg_arch() {
-	let m = match(readfile('/etc/os-release') ?? '', /OPENWRT_ARCH="?([A-Za-z0-9_.+-]+)"?/);
-	return m ? m[1] : null;
-}
-const UPDDIR = '/tmp/isp-tester-update';
-const UPDSTATE = `${VARDIR}/update.json`;
+const PUSH_SH = '/usr/share/isp-tester/push.sh';
 
 function run(cmd) {
 	let p = popen(`${cmd} 2>&1`, 'r');
@@ -48,87 +36,12 @@ function run(cmd) {
 	return out;
 }
 
-const BK_SH = '/usr/share/isp-tester/backup.sh';
-const BK_IN = '/tmp/isp-tester-restore.tar.gz';
-const BK_OUT = '/tmp/isp-tester-backup.tar.gz';
-
-/* backup.sh prints one JSON object */
-function backup_run(args) {
-	let out = run(`/bin/sh ${BK_SH} ${args}`);
+/* push.sh prints one JSON object */
+function push_run(arg) {
+	let out = run(`/bin/sh ${PUSH_SH} ${arg}`);
 	let j;
 	try { j = json(trim(out ?? '') || 'null'); } catch (e) { j = null; }
 	return (type(j) == 'object') ? j : { result: false, error: 'script', out: substr(out ?? '', 0, 300) };
-}
-
-function pkg_manager() {
-	if (stat('/usr/bin/apk') != null) return 'apk';
-	if (stat('/bin/opkg') != null || stat('/usr/bin/opkg') != null) return 'opkg';
-	return null;
-}
-
-/* installed version of a package without the "-rN" / "-N" release suffix, or null */
-function installed_version(name) {
-	let pm = pkg_manager(), out, ver;
-	if (pm == 'apk')
-		out = run(`apk list -I ${name}`);
-	else if (pm == 'opkg')
-		out = run(`opkg list-installed ${name}`);
-
-	/* line by line: "<name>-<ver> <arch> ..." (apk), "<name> - <ver>" (opkg) */
-	for (let line in split(out ?? '', '\n')) {
-		let f = split(trim(line), ' ');
-		if (pm == 'apk' && index(f[0], `${name}-`) == 0)
-			ver = substr(f[0], length(name) + 1);
-		else if (pm == 'opkg' && f[0] == name && f[1] == '-')
-			ver = f[2];
-		if (ver != null) break;
-	}
-	if (!match(ver ?? '', /^[0-9]/)) return null;
-	return replace(ver, /-r?[0-9]+$/, '');
-}
-
-/* -1 / 0 / 1 */
-function vercmp(a, b) {
-	/* POSIX brackets have no escapes: "\-" would be a range and fail to compile */
-	let x = split(a, /[-.+_~]/), y = split(b, /[-.+_~]/);
-	for (let i = 0; i < max(length(x), length(y)); i++) {
-		/* "0rc1": number 0 plus a pre-release suffix, which sorts below the plain release */
-		let mx = match(x[i] ?? '0', /^([0-9]*)(.*)$/), my = match(y[i] ?? '0', /^([0-9]*)(.*)$/);
-		let p = +(mx[1] || 0), q = +(my[1] || 0);
-		if (p < q) return -1;
-		if (p > q) return 1;
-		if (mx[2] != my[2]) {
-			if (mx[2] == '') return 1;
-			if (my[2] == '') return -1;
-			return mx[2] < my[2] ? -1 : 1;
-		}
-	}
-	return 0;
-}
-
-function fetch(url, out) {
-	let cmd;
-	if (stat('/bin/uclient-fetch') != null || stat('/usr/bin/uclient-fetch') != null)
-		cmd = `uclient-fetch -q -T 15 -U isp-tester -O ${out ?? '-'} '${url}'`;
-	else if (stat('/usr/bin/curl') != null)
-		cmd = `curl -fsSL -m 30 -A isp-tester -o ${out ?? '-'} '${url}'`;
-	else
-		return null;
-	let p = popen(cmd, 'r');
-	if (!p) return null;
-	let data = p.read('all');
-	let rc = p.close();
-	return rc == 0 ? (data ?? '') : null;
-}
-
-function set_update_state(state, msg, extra) {
-	mkdir(VARDIR);
-	writefile(UPDSTATE, sprintf('%J', { state, msg, ts: time(), ...(extra ?? {}) }));
-}
-
-/* only plain version tags are accepted - the value ends up in a URL and a shell command */
-function valid_tag(t) {
-	return type(t) == 'string' && match(t, /^v?[0-9][0-9A-Za-z._-]{0,30}$/) != null;
 }
 
 return {
@@ -142,118 +55,6 @@ return {
 					running: service_running(),
 					state: st
 				};
-			}
-		},
-
-		/* installed version + newest GitHub release */
-		update_check: {
-			call: function() {
-				let pm = pkg_manager();
-				let cur = installed_version(PKG);
-				let res = { package_manager: pm, current: cur };
-
-				if (!pm)
-					return { ...res, error: 'no_pkg_manager' };
-
-				let body = fetch(`https://api.github.com/repos/${REPO}/releases/latest`);
-				if (body == null)
-					return { ...res, error: 'fetch_failed' };
-
-				let rel;
-				try { rel = json(body); } catch (e) { rel = null; }
-				if (!rel || !valid_tag(rel.tag_name))
-					return { ...res, error: 'bad_response' };
-
-				let latest = replace(rel.tag_name, /^v/, '');
-				let ext = pm == 'apk' ? 'apk' : 'ipk';
-				let have = false;
-				for (let a in (rel.assets ?? []))
-					if (a.name == `${PKG}.${ext}`) have = true;
-
-				return {
-					...res,
-					latest,
-					tag: rel.tag_name,
-					url: rel.html_url,
-					notes: substr(`${rel.body ?? ''}`, 0, 1500),
-					has_asset: have,
-					available: cur != null ? vercmp(latest, cur) > 0 : true
-				};
-			}
-		},
-
-		update_status: {
-			call: function() {
-				return read_json('update.json', { state: 'idle' }, VARDIR);
-			}
-		},
-
-		/* download the release packages, check SHA256SUMS and install them in the
-		 * background (the install replaces this very plugin and reloads rpcd) */
-		update_apply: {
-			args: { tag: '' },
-			call: function(req) {
-				let tag = req.args.tag;
-				if (!valid_tag(tag))
-					return { result: false, error: 'bad_tag' };
-
-				let pm = pkg_manager();
-				if (!pm)
-					return { result: false, error: 'no_pkg_manager' };
-
-				let st = read_json('update.json', { state: 'idle' }, VARDIR);
-				if (st.state == 'running' && time() - (st.ts ?? 0) < 300)
-					return { result: false, error: 'busy' };
-
-				let ext = pm == 'apk' ? 'apk' : 'ipk';
-				let names = [ `${PKG}.${ext}` ];
-				if (installed_version(PKG_I18N) != null)
-					push(names, `${PKG_I18N}.${ext}`);
-
-				let base = `https://github.com/${REPO}/releases/download/${tag}`;
-				let inst = pm == 'apk' ? 'apk add --allow-untrusted' : 'opkg install --force-reinstall';
-				let dl = stat('/bin/uclient-fetch') != null || stat('/usr/bin/uclient-fetch') != null
-					? "uclient-fetch -q -T 30 -U isp-tester -O" : "curl -fsSL -m 60 -A isp-tester -o";
-
-				let script = [
-					'#!/bin/sh',
-					`D=${UPDDIR}; S=${UPDSTATE}`,
-					'st() { printf \'{"state":"%s","msg":"%s","ts":%s}\' "$1" "$2" "$(date +%s)" > "$S"; }',
-					'rm -rf "$D"; mkdir -p "$D" || { st error mkdir; exit 1; }',
-					'st running download',
-					`${dl} "$D/SHA256SUMS" '${base}/SHA256SUMS' || { st error download; exit 1; }`
-				];
-				/* the helper for this architecture, when the release has one
-				 * (older releases and unknown architectures: skipped) */
-				let arch = pkg_arch();
-				if (arch) {
-					let tn = `${PKG_TSMON}_${arch}.${ext}`;
-					push(script, `awk -v n='${tn}' '$2 == n || $2 == "*" n' "$D/SHA256SUMS" | grep -q . && T='${tn}' || T=`);
-				}
-				else
-					push(script, 'T=');
-				for (let n in names)
-					push(script, `${dl} "$D/${n}" '${base}/${n}' || { st error download; exit 1; }`);
-				push(script, `[ -z "$T" ] || ${dl} "$D/$T" "${base}/$T" || { st error download; exit 1; }`);
-				push(script, 'st running verify');
-				/* exact name match (no regex: busybox grep has no "\?"); an empty
-				 * selection must fail, not pass */
-				push(script, `chk() { ( cd "$D" && awk -v n="$1" '$2 == n || $2 == "*" n' SHA256SUMS > "$1.sum" && [ -s "$1.sum" ] && sha256sum -c "$1.sum" >/dev/null 2>&1 ) || { st error checksum; exit 1; }; }`);
-				for (let n in names)
-					push(script, `chk '${n}'`);
-				push(script, '[ -z "$T" ] || chk "$T"');
-				push(script, 'st running install');
-				push(script, `${inst} ${join(' ', map(names, n => `"$D/${n}"`))} \${T:+"$D/$T"} >"$D/install.log" 2>&1 || { st error install; exit 1; }`);
-				push(script, 'rm -f /tmp/luci-indexcache* /tmp/luci-modulecache/* 2>/dev/null');
-				push(script, `st done ${tag}`);
-				push(script, 'rm -rf "$D"');
-
-				mkdir(VARDIR);
-				mkdir(UPDDIR);
-				writefile(`${UPDDIR}.sh`, join('\n', script) + '\n');
-				set_update_state('running', 'start');
-				system(`sh ${UPDDIR}.sh >/dev/null 2>&1 &`);
-				return { result: true };
 			}
 		},
 
@@ -330,38 +131,37 @@ return {
 			}
 		},
 
-		/* backup of the settings (and the data) as one .tar.gz, read by the
-		 * web UI from /tmp/isp-tester-backup.tar.gz */
-		backup: {
-			args: { data: false },
-			call: function(req) {
-				return backup_run(`create ${req.args.data ? 1 : 0}`);
+		/* last send of the data to the other device (push.sh writes push.json) */
+		push_status: {
+			call: function() {
+				let c = cursor();
+				return {
+					enabled: c.get('isp_tester', 'push', 'enabled') == '1',
+					last: read_json('push.json', null, VARDIR)
+				};
 			}
 		},
 
-		/* the page has downloaded the backup (or gave up restoring): both files
-		 * are only copies and would sit in RAM until the next reboot */
-		backup_clean: {
-			call: function(req) {
-				unlink(BK_OUT);
-				unlink(BK_IN);
+		/* public key to add to authorized_keys on the other device (made when missing) */
+		push_pubkey: {
+			call: function() {
+				return push_run('pubkey');
+			}
+		},
+
+		/* only try to log in with the saved settings */
+		push_test: {
+			call: function() {
+				return push_run('test');
+			}
+		},
+
+		/* send now, in the background; the result shows in push_status */
+		push_now: {
+			call: function() {
+				mkdir(VARDIR);
+				system(`/bin/sh ${PUSH_SH} send >/dev/null 2>&1 &`);
 				return { result: true };
-			}
-		},
-
-		/* what an uploaded /tmp/isp-tester-restore.tar.gz holds (checked) */
-		backup_check: {
-			call: function(req) {
-				return backup_run(`check ${BK_IN}`);
-			}
-		},
-
-		/* restore the settings and/or the data from it (stops the collector
-		 * meanwhile) */
-		restore: {
-			args: { config: false, data: false },
-			call: function(req) {
-				return backup_run(`restore ${BK_IN} ${req.args.config ? 1 : 0} ${req.args.data ? 1 : 0}`);
 			}
 		},
 
