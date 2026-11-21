@@ -873,8 +873,20 @@ function peer_queue(e) {
 
 /* ----------------------------------------------------------------- events */
 
-function save_events() {
+/* The whole list is rewritten, so a burst of events (or many in one tick)
+ * would rewrite it again and again - on a USB stick that is flash wear.
+ * Once the loop runs, the write is postponed by half a second and done once;
+ * before that (the first events at start) it is immediate. */
+let events_timer = null, loop_up = false;
+
+function flush_events() {
+	if (events_timer) { events_timer.cancel(); events_timer = null; }
 	write_atomic(`${RUNDIR}/events.json`, sprintf('%J', events));
+}
+
+function save_events() {
+	if (!loop_up) return flush_events();
+	events_timer ??= uloop.timer(500, () => { events_timer = null; flush_events(); });
 }
 
 /* ---------------------------------------------------------------- archive */
@@ -4455,7 +4467,10 @@ function peer_ingest(o, addr) {
 	let t = now();
 	let p = peer.peers[name] ??= { name, ep: 0, last: 0, seen: 0, online: false, hb: null };
 	let ep = int(+o.ep || 0);
-	if (ep < p.ep) return;              /* an older run of the sender (replayed) */
+	/* An older run of the sender (replayed) - unless the sender is offline: its
+	 * epoch is the start time of its collector, and a router without a clock
+	 * that reboots starts from an older time than its previous run. */
+	if (ep < p.ep && p.online) return;
 	if (ep != p.ep) { p.ep = ep; p.last = 0; }
 
 	let off = (type(o.now) == 'int') ? t - o.now : 0;
@@ -5228,6 +5243,7 @@ emit('info', 'system', 'collector', 'monitor_start', { interval: cfg.interval, i
 	uptime: int(uptime_s() ?? 0) });
 
 uloop.init();
+loop_up = true;
 peer_start();
 bloat_load_peak();
 refresh_wan_device();

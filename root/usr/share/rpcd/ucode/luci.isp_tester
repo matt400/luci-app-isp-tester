@@ -1,7 +1,7 @@
 // luci-app-isp-tester - rpcd ucode plugin
 'use strict';
 
-import { readfile, writefile, stat, mkdir, open, popen } from 'fs';
+import { readfile, writefile, stat, mkdir, open, popen, unlink } from 'fs';
 import { cursor } from 'uci';
 
 const RUNDIR = '/tmp/isp-tester';           /* timeline, history, CSV (may link to USB) */
@@ -50,6 +50,7 @@ function run(cmd) {
 
 const BK_SH = '/usr/share/isp-tester/backup.sh';
 const BK_IN = '/tmp/isp-tester-restore.tar.gz';
+const BK_OUT = '/tmp/isp-tester-backup.tar.gz';
 
 /* backup.sh prints one JSON object */
 function backup_run(args) {
@@ -335,6 +336,16 @@ return {
 			args: { data: false },
 			call: function(req) {
 				return backup_run(`create ${req.args.data ? 1 : 0}`);
+			}
+		},
+
+		/* the page has downloaded the backup (or gave up restoring): both files
+		 * are only copies and would sit in RAM until the next reboot */
+		backup_clean: {
+			call: function(req) {
+				unlink(BK_OUT);
+				unlink(BK_IN);
+				return { result: true };
 			}
 		},
 

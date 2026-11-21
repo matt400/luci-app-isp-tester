@@ -27,6 +27,12 @@ var callRestore = rpc.declare({
 	expect: { '': {} }
 });
 
+var callBackupClean = rpc.declare({
+	object: 'luci.isp_tester',
+	method: 'backup_clean',
+	expect: { '': {} }
+});
+
 var BK_ERR = {
 	no_file: _('No file was uploaded.'),
 	too_big: _('The file is too big (over 64 MB).'),
@@ -58,7 +64,7 @@ function backupSection() {
 				document.body.appendChild(a);
 				a.click();
 				setTimeout(function() { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-			});
+			}).then(function() { return callBackupClean(); });
 		}).catch(function(e) { ui.addNotification(null, E('p', e.message), 'danger'); });
 	};
 
@@ -82,7 +88,7 @@ function backupSection() {
 				E('label', { 'style': 'display:block;margin:.3em 0' }, [ cData, ' ', _('Data: timeline, history, archive, channel names (replace the current ones)') ]),
 				E('p', { 'class': 'ispt-muted' }, _('Monitoring stops for a moment while the files are replaced.')),
 				E('div', { 'class': 'right' }, [
-					E('button', { 'class': 'cbi-button', 'click': ui.hideModal }, _('Cancel')), ' ',
+					E('button', { 'class': 'cbi-button', 'click': function() { ui.hideModal(); callBackupClean(); } }, _('Cancel')), ' ',
 					E('button', { 'class': 'cbi-button cbi-button-negative', 'click': ui.createHandlerFn(this, function() {
 						return callRestore(cConf.checked, cData.checked).then(function(x) {
 							ui.hideModal();
