@@ -125,6 +125,10 @@ config system 'system'
 	option mem_warn '10'
 	# connection tracking table fill (%), 0 = off
 	option conntrack_warn '90'
+	# SoC temperature (deg C, /sys/class/thermal): empty = 5 deg below the zone's
+	# passive trip point (where the kernel starts to throttle), else 85; -1 = off.
+	# Throttling (cpufreq cooling) is logged whatever the value.
+	#option temp_warn '80'
 
 # Wi-Fi clients of this router's access points (hostapd over ubus)
 config wifi 'wifi'

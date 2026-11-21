@@ -11,6 +11,7 @@
  *   - interface counters / link state: /sys/class/net
  *   - IGMP groups: /proc/net/igmp, multicast proxy from /proc, bridge MDB
  *   - router load: /proc (only to explain problems, no graphs)
+ *   - SoC temperature and throttling: /sys/class/thermal, cpufreq
  *   - system log (logread): pppd, udhcpc, igmpproxy, kernel, dnsmasq messages
  * The IPTV bitrate is one own measurement: read from the interface
  * counters every second, which nothing in OpenWrt does. The other is the
@@ -46,6 +47,8 @@ const VARDIR = getenv('ISP_TESTER_VARDIR') || '/var/run/isp-tester';
 const SYSNET = getenv('ISP_TESTER_SYSNET') || '/sys/class/net';
 const ROUTE = getenv('ISP_TESTER_ROUTE') || '/proc/net/route';
 const PROC = getenv('ISP_TESTER_PROC') || '/proc';
+const THERMAL = getenv('ISP_TESTER_THERMAL') || '/sys/class/thermal';
+const CPUDIR = getenv('ISP_TESTER_CPUDIR') || '/sys/devices/system/cpu';
 
 function find_bin(env, names) {
 	let e = getenv(env);
@@ -175,7 +178,10 @@ function default_config() {
 			dhcp: true
 		},
 		system: {
-			enabled: true, cpu_warn: 90, mem_warn: 10, conntrack_warn: 90
+			enabled: true, cpu_warn: 90, mem_warn: 10, conntrack_warn: 90,
+			/* SoC temperature (/sys/class/thermal) in deg C; 0 = 5 deg below the zone's
+			 * passive trip point (where the kernel starts throttling), else 85; -1 = off */
+			temp_warn: 0
 		},
 		/* DNS of the router (dnsmasq): ubus metrics every tick, per-server
 		 * statistics from its SIGUSR1 dump in the system log every dump s */
@@ -274,6 +280,7 @@ function load_config() {
 		c.system.cpu_warn       = num(y.cpu_warn, c.system.cpu_warn);
 		c.system.mem_warn       = num(y.mem_warn, c.system.mem_warn);
 		c.system.conntrack_warn = num(y.conntrack_warn, c.system.conntrack_warn);
+		c.system.temp_warn      = num(y.temp_warn, c.system.temp_warn);
 
 		c.notify.enabled   = bool(n.enabled, false);
 		c.notify.service   = n.service ?? c.notify.service;
@@ -466,7 +473,8 @@ let tsq = { proc: null, args: null, started: 0, fails: 0, next: 0, err: null, se
 /* channel names: db = group -> { name, provider, sid, ts } learned from the
  * streams (or { name: null, why, ts } when a stream carries none) */
 let chn = { db: {}, err: null };
-let sys = { prev: null, cpu_n: 0, cpu: false, mem: false, ct: false, cpu_since: 0, mem_since: 0, ct_since: 0 };
+let sys = { prev: null, cpu_n: 0, cpu: false, mem: false, ct: false, cpu_since: 0, mem_since: 0, ct_since: 0,
+	temp: false, temp_since: 0, temp_n: 0, thr: false, thr_since: 0, thr_off: 0 };
 let notif = { pending: [], last: 0, busy: false, last_ok: null, last_fail: null, last_err: null, open: {} };
 let logst = { last_ts: null, last_lines: {}, kinds: {} };
 const HOSTNAME = trim(fs.readfile(`${PROC}/sys/kernel/hostname`) ?? '') || 'OpenWrt';
@@ -495,6 +503,7 @@ const MSG = {
 		ts_errors: 'IPTV picture errors: %d lost-packet gaps (~%d packets) in %ss, channel %s',
 		proxy_down: 'Multicast proxy %s is not running', proxy_up: 'Multicast proxy %s running again', proxy_restart: 'Multicast proxy %s restarted',
 		cpu_high: 'Router CPU busy: %d%% (softirq %d%%)', mem_low: 'Router RAM low: %d%% free', conntrack_full: 'Connection table %d%% full',
+		temp_high: 'Router hot: %s %s C (limit %s C)', throttle: 'Router CPU throttled by heat: %s MHz instead of %s MHz (%s C)',
 		user_mark: 'Problem reported by user: %s', test: 'Test message - notifications work.',
 		peer_lost: 'Router %s does not report any more', peer_back: 'Router %s reports again after %s',
 		trace: 'Traceroute to %s: %s',
@@ -532,6 +541,7 @@ const MSG = {
 		ts_errors: 'Błędy obrazu IPTV: %d przerw w pakietach (~%d pakietów) w %ss, kanał %s',
 		proxy_down: 'Proxy multicast %s nie działa', proxy_up: 'Proxy multicast %s znów działa', proxy_restart: 'Proxy multicast %s zrestartowany',
 		cpu_high: 'Router przeciążony: CPU %d%% (softirq %d%%)', mem_low: 'Mało RAM: wolne %d%%', conntrack_full: 'Tablica połączeń zajęta w %d%%',
+		temp_high: 'Router przegrzany: %s %s C (próg %s C)', throttle: 'Procesor routera dławiony przez temperaturę: %s MHz zamiast %s MHz (%s C)',
 		user_mark: 'Problem zgłoszony ręcznie: %s', test: 'Wiadomość testowa - powiadomienia działają.',
 		peer_lost: 'Router %s przestał się zgłaszać', peer_back: 'Router %s znów się zgłasza po %s',
 		trace: 'Traceroute do %s: %s',
@@ -593,6 +603,8 @@ function event_text(e, lang) {
 	case 'proxy_down': case 'proxy_up': case 'proxy_restart': return sprintf(f, d.name);
 	case 'cpu_high': return sprintf(f, d.cpu, d.sirq);
 	case 'mem_low': return sprintf(f, d.pct);
+	case 'temp_high': return sprintf(f, d.zone, d.temp, d.warn);
+	case 'throttle': return sprintf(f, d.mhz ?? '?', d.max_mhz ?? '?', d.temp ?? '?');
 	case 'conntrack_full': return sprintf(f, d.pct);
 	case 'user_mark': return sprintf(f, d.note || '-');
 	case 'peer_lost': return sprintf(f, e.src);
@@ -1053,7 +1065,7 @@ function hist_add(h, t, vals, max) {
 
 /* 1-minute aggregates for the long (24 h) history */
 const AGG_MODE = { rtt: 'avg', rttmax: 'max', loss: 'max', jit: 'max',
-	'iptv:kbps': 'avg', 'iptv:min': 'min', 'iptv:cc': 'sum', err: 'sum', drop: 'sum', lvl: 'max', maint: 'max', 'self:cpu': 'max' };
+	'iptv:kbps': 'avg', 'iptv:min': 'min', 'iptv:cc': 'sum', err: 'sum', drop: 'sum', lvl: 'max', maint: 'max', 'self:cpu': 'max', temp: 'max', thr: 'max' };
 
 let agg = null;
 let agg10 = null;     /* 10-minute aggregates for the archive */
@@ -2365,6 +2377,130 @@ function sample_system() {
 		push(o.reasons, { c: 'recent_events' });
 	}
 	return o;
+}
+
+/* ------------------------------------------- SoC temperature, throttling */
+
+/*
+ * "Did the router overheat and slow down?": the temperature of the thermal
+ * zones (/sys/class/thermal, millidegrees), the cooling devices the kernel
+ * uses against heat (a cpufreq one above state 0 = throttling; a fan is only
+ * noted) and the CPU's frequency limit. Throttling is a cpufreq cooling
+ * device above state 0, or the CPU's maximum frequency lowered below its
+ * hardware maximum while a zone is within 10 C of its limit (a limit set by
+ * hand is not heat). Only reads. A zone's limit is 5 C below its passive
+ * trip point (where the kernel starts to throttle) unless set in the
+ * settings; 85 C when the zone has no trip point.
+ */
+let therm = { max_temp: null, max_ts: null, thr_s: 0, hot_s: 0, last: null, seen: false };
+
+function sysint(path) {
+	let v = fs.readfile(path);
+	return (v == null) ? null : num(trim(v), null);
+}
+
+function thermal_zones() {
+	let out = [];
+	for (let z in sort(fs.lsdir(THERMAL) ?? [])) {
+		if (!match(z, /^thermal_zone[0-9]+$/)) continue;
+		let d = `${THERMAL}/${z}`;
+		let mc = sysint(`${d}/temp`);
+		/* a sensor that is off reads 0 or a huge negative value */
+		if (mc == null || mc <= 0 || mc > 250000) continue;
+		let trip = null;
+		for (let i = 0; i < 12; i++) {
+			if (trim(fs.readfile(`${d}/trip_point_${i}_type`) ?? '') != 'passive') continue;
+			let tt = sysint(`${d}/trip_point_${i}_temp`);
+			if (tt > 0 && (trip == null || tt < trip)) trip = tt;
+		}
+		let type = trim(fs.readfile(`${d}/type`) ?? '') || z;
+		let temp = round(mc / 1000, 1), tr = (trip != null) ? round(trip / 1000, 0) : null;
+		let warn = cfg.system.temp_warn > 0 ? cfg.system.temp_warn : (tr != null ? tr - 5 : 85);
+		push(out, { zone: z, type, temp, trip: tr, warn });
+	}
+	return out;
+}
+
+/* the cooling devices: cpufreq ones throttle, fans only cool */
+function thermal_cooling() {
+	let out = [];
+	for (let c in sort(fs.lsdir(THERMAL) ?? [])) {
+		if (!match(c, /^cooling_device[0-9]+$/)) continue;
+		let d = `${THERMAL}/${c}`;
+		let type = trim(fs.readfile(`${d}/type`) ?? '');
+		let st = sysint(`${d}/cur_state`), mx = sysint(`${d}/max_state`);
+		if (st == null) continue;
+		push(out, { type, state: st, max: mx,
+			throttle: !!match(type, /cpu|freq/i), fan: !!match(type, /fan|pwm/i) });
+	}
+	return out;
+}
+
+/* the CPU's frequency (kHz) of the most limited core */
+function cpu_freq() {
+	let best = null;
+	for (let c in sort(fs.lsdir(CPUDIR) ?? [])) {
+		if (!match(c, /^cpu[0-9]+$/)) continue;
+		let d = `${CPUDIR}/${c}/cpufreq`;
+		let hw = sysint(`${d}/cpuinfo_max_freq`), cap = sysint(`${d}/scaling_max_freq`);
+		if (!(hw > 0) || !(cap > 0)) continue;
+		if (best == null || cap / hw < best.cap / best.hw)
+			best = { hw, cap, cur: sysint(`${d}/scaling_cur_freq`) };
+	}
+	return best;
+}
+
+function sample_thermal() {
+	if (!cfg.system.enabled || cfg.system.temp_warn < 0) return null;
+	let zones = thermal_zones(), cool = thermal_cooling(), fq = cpu_freq();
+	if (!length(zones) && !length(cool)) return null;
+
+	let hottest = null, worst_z = null;
+	for (let z in zones) {
+		if (hottest == null || z.temp > hottest.temp) hottest = z;
+		if (worst_z == null || z.temp - z.warn > worst_z.temp - worst_z.warn) worst_z = z;
+	}
+	let hot = worst_z != null && worst_z.temp >= worst_z.warn;
+	let cool_ok = worst_z == null || worst_z.temp < worst_z.warn - 5;
+	if (hot) sys.temp_n++;
+	else if (cool_ok) sys.temp_n = 0;
+	if (hottest != null && (therm.max_temp == null || hottest.temp > therm.max_temp)) {
+		therm.max_temp = hottest.temp;
+		therm.max_ts = now();
+	}
+	load_flag('temp', sys.temp_n >= 2, sys.temp_n == 0, 'temp_high',
+		{ zone: worst_z?.type, temp: worst_z?.temp, warn: worst_z?.warn });
+
+	/* throttling */
+	let by_cool = false;
+	for (let c in cool) if (c.throttle && c.state > 0) by_cool = true;
+	let capped = fq != null && fq.cap < fq.hw * 0.99;
+	let by_freq = capped && worst_z != null && worst_z.temp >= worst_z.warn - 10;
+	let thr = by_cool || by_freq;
+	if (thr) sys.thr_off = 0;
+	else sys.thr_off++;
+	let mhz = fq ? int((fq.cur ?? fq.cap) / 1000) : null;
+	let cap_mhz = fq ? int(fq.cap / 1000) : null, max_mhz = fq ? int(fq.hw / 1000) : null;
+	load_flag('thr', thr, sys.thr_off >= 3, 'throttle',
+		{ temp: hottest?.temp, mhz: cap_mhz ?? mhz, max_mhz, zone: hottest?.type, cool: by_cool });
+
+	let t = mono();
+	if (therm.last != null) {
+		let dt = t - therm.last;
+		if (sys.thr) therm.thr_s += dt;
+		if (sys.temp) therm.hot_s += dt;
+	}
+	therm.last = t;
+	therm.seen = true;
+
+	let fan = null;
+	for (let c in cool) if (c.fan) fan = { state: c.state, max: c.max };
+	return {
+		zones, temp: hottest?.temp, zone: hottest?.type, warn: worst_z?.warn, trip: worst_z?.trip,
+		hot: sys.temp, throttle: sys.thr, mhz, cap_mhz, max_mhz, fan,
+		cool: filter(cool, (c) => c.throttle || c.fan),
+		max_temp: therm.max_temp, max_ts: therm.max_ts, hot_s: int(therm.hot_s), thr_s: int(therm.thr_s)
+	};
 }
 
 /* -------------------------------------------------------------------- DNS */
@@ -4260,6 +4396,7 @@ function tick() {
 	sample_proxy();
 	if (!iptv_fast()) igmp_poll();
 	sample_system();
+	let thermal = sample_thermal();
 	read_log();
 	dns_judge_servers();
 	let dns_res = sample_dns();
@@ -4396,6 +4533,8 @@ function tick() {
 		let hv = { lvl: LEVEL[overall] };
 		if (maint_on()) hv.maint = 1;
 		if (me.cpu != null) hv['self:cpu'] = me.total;
+		if (thermal?.temp != null) hv.temp = thermal.temp;
+		if (thermal) hv.thr = thermal.throttle ? 1 : 0;
 		if (wan?.rx_kbps != null) {
 			hv['wan:rx'] = wan.rx_kbps;
 			hv['wan:tx'] = wan.tx_kbps;
@@ -4472,6 +4611,7 @@ function tick() {
 		data: { dir: RUNDIR, link: (fs.lstat(RUNDIR)?.type == 'link') ? fs.readlink(RUNDIR) : null, archive: arch.info },
 		ntp: ntp_out(),
 		self: me,
+		thermal,
 		watchdog: { timeout: WATCHDOG, mode: wd.mode, last: wd.last || null, err: wd.err },
 		maint: maint.until != null ? { until: maint.until, since: maint.since, note: maint.note, active: maint_on() } : null,
 		notify: cfg.notify.enabled ? { service: cfg.notify.service, pending: length(notif.pending),

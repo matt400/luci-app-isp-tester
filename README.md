@@ -41,6 +41,7 @@ Target: **OpenWrt 24.10 and 25.12** (ucode + rpcd + LuCI JS). No compiled code, 
 | **Channel names** | Read from the stream itself (DVB SDT/PAT tables) by the same helper, or names set by hand | the channel being watched is named on the status page, in timeline events, the measurements CSV and notifications |
 | **Ports** | `/sys/class/net/<dev>` counters and link state | link down/up, link flapping between samples, speed change (e.g. 1 Gbit → 100 Mbit), RX/TX/CRC errors, drops |
 | **Router** | `/proc`: CPU per core (incl. softirq), RAM, connection tracking table. Only read to explain problems; for graphs use *Status → Realtime Graphs* or luci-app-statistics | router overloaded, low RAM, connection table full |
+| **SoC temperature** | `/sys/class/thermal` zones (+ their passive trip points), cooling devices (cpufreq = throttling, a fan is only noted), the CPU's frequency limit | *router overheated* (two checks above the limit) / *normal again*, *CPU slowed down by heat* (MHz instead of MHz) / *full speed again* |
 | **You** | **⚑ Problem now** button | your report with the time of the click and an optional note |
 | **Gaps** | the collector's own sign of life (`alive.json`, once a minute) + the kernel's boot id and `/proc/uptime` | **router restarted** (up since …), **not measured from X to Y** (router restarted, monitoring off, collector stopped or blocked) – listed in the report |
 | **Decoders** (bridged IPTV VLAN) | bridge MAC table (`bridge -s fdb`: which MAC behind which port, seconds since its last frame) + link of that port | *decoder restarted* (away N s; port link down / vanished from the MAC table / silent while the stream stopped), *switched off*, *back* – freezes during a restart are not counted against the ISP |
@@ -109,6 +110,7 @@ The panel looks at what happened **at the same time** (within 30 s) in the selec
 | IPv6 down while IPv4 works, IPv6 prefix lost / changed, no router advertisement | ISP IPv6 |
 | DNS failing while ping works | DNS server (ISP's, if you set it) |
 | Problems while the router CPU / RAM / connection table was overloaded | router |
+| Problems while the router was overheated or its CPU throttled | router (ventilation, heatsink) |
 | Your "Problem now" reports with / without anything measured around them | context (no weight) |
 | LAN link drops, CRC errors, renegotiation to 100 Mbit/s | cabling / devices at home |
 | IGMP snooping on, querier off (with freezes) | router configuration |
@@ -215,6 +217,17 @@ When a target starts losing packets (or everything is down), the collector runs 
 How to read it: a loss that **starts at a hop and carries on to the destination** is where packets are lost – the event names that hop and the last good one before it. Loss at a single hop that does not continue is only a router answering pings slowly (ICMP rate limiting) and is ignored. If the destination shows no loss any more, the loss was already over when the snapshot ran (collectd reports per its interval, so the snapshot comes some seconds after the start; the event says how long after).
 
 The report for the ISP lists every snapshot with its hop table. At most one per *At most every* (default 10 min), one at a time, stopped after 60 s.
+
+## SoC temperature and throttling
+
+A router that overheats slows its CPU down and starts to lose packets – a fault that looks like the ISP's. Nothing is measured here, only read: the temperature of every zone in `/sys/class/thermal/thermal_zone*/temp`, the cooling devices (`cooling_device*`: a *cpufreq* one above state 0 means the kernel is throttling; a fan is only shown) and the CPU's frequency limit (`scaling_max_freq` against `cpuinfo_max_freq`).
+
+- **Overheated**: a zone is at or above its limit for two checks in a row (ends 5 °C below it). The limit is 5 °C under the zone's *passive* trip point – where the kernel itself starts to throttle – or 85 °C when the zone has none; set your own in *Settings → Router load → Overheated from*, `-1` switches it off.
+- **Throttled**: a cpufreq cooling device above state 0, or the CPU's frequency limit lowered while a zone is within 10 °C of its limit (a limit you set by hand is not heat). Logged with the frequency it fell to.
+- The banner shows *Router: 62 °C · 1200 MHz* (yellow when overheated or throttled; hover for every zone, the fan, the highest value since start and how long it was hot). The *Router temperature* chart marks throttling in red.
+- The analysis counts problems that happened while the router was overheated or throttled for the home side, with the highest temperature; if nothing broke at those times it stays a note.
+
+Routers without a thermal sensor (some MIPS SoCs) show nothing.
 
 ## Bufferbloat: lags only when the link is full?
 
