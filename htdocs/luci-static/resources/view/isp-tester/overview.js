@@ -653,7 +653,7 @@ function lineChart(t, series, opts) {
 	var span = Math.max(1, t1 - t0);
 	var step = medianStep(t);
 	var x = function(ts) { return L + (ts - t0) / span * (W - L - R); };
-	var y = function(v) { return T + (1 - Math.min(v, max) / max) * (H - T - B); };
+	var y = function(v) { return T + (1 - Math.max(0, Math.min(v, max)) / max) * (H - T - B); };
 
 	var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg" font-size="11" fill="currentColor">';
 
@@ -814,6 +814,7 @@ return view.extend({
 	end: null,            /* window end (null = live / now) */
 	allEvents: [],
 	minHist: null,
+	evCache: null,
 
 	load: function() {
 		return Promise.all([ callStatus(), callEvents(200, ''), readJson('/tmp/isp-tester/events.json'), readJson('/tmp/isp-tester/history.json') ]);
@@ -836,10 +837,17 @@ return view.extend({
 		this.redraw();
 	},
 
+	/* the merged timeline is asked for about ten times per redraw (cards,
+	 * charts, analysis, timeline): the same inputs give the same list, so it
+	 * is merged and sorted once. Callers must not change the returned array. */
 	events: function() {
 		var recent = (this.last && this.last[1] && this.last[1].events) || [];
-		var older = this.allEvents || [];
-		return mergeEvents(recent, older);
+		var base = this.allEvents || [];
+		var c = this.evCache;
+		if (c && c.recent === recent && c.base === base) return c.out;
+		var out = mergeEvents(recent, base);
+		this.evCache = { recent: recent, base: base, out: out };
+		return out;
 	},
 
 	rangeName: function(range) {
