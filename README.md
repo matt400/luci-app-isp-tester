@@ -47,6 +47,7 @@ Target: **OpenWrt 24.10 and 25.12** (ucode + rpcd + LuCI JS). No compiled code, 
 | **Decoders** (bridged IPTV VLAN) | bridge MAC table (`bridge -s fdb`: which MAC behind which port, seconds since its last frame) + link of that port | *decoder restarted* (away N s; port link down / vanished from the MAC table / silent while the stream stopped), *switched off*, *back* – freezes during a restart are not counted against the ISP |
 | **Path snapshot** | one `mtr -r` (when installed) or busybox `traceroute` when a loss starts or the WAN is down, at most every 10 min | *loss starts at hop N (IP) and carries on to the destination* – the hops fold out on the timeline and are in the report |
 | **Bufferbloat** | collectd's ping matched with the WAN traffic of the same interval (device counters); line speed = highest 30 s rate seen or set | *bufferbloat: ping +N ms with the link X % full* / *over*; WAN traffic chart with the periods marked; card: ping idle vs. full link |
+| **Who fills the link** | while the WAN is full for a while (the limit of the bufferbloat detection): the traffic per host of that stretch, from **nlbwmon** (`nlbw -c csv -g mac`) when it is installed and running, else the connection tracking table (`/proc/net/nf_conntrack`, only when its byte accounting is on) | *link full (download 95 %) for 40 s – heaviest: laptop 88 %, tv 11 %* (info); the last list on the Internet card and in the report |
 | **Wi-Fi** | hostapd over ubus (`get_clients` every interval + its disassoc/deauth/assoc notifications), signal from hostapd or iwinfo | a watched device (phone, TV) *dropped and reconnected* after N s (fault) or *left* (info), *moved to another band*, *weak signal* (two checks below the limit, default −75 dBm) |
 | **Second router** (optional) | Events of a router behind this one (access point with a decoder, phone, TV), sent over UDP | everything that router logs, on the same timeline marked with its name; *router stopped reporting* / *reports again* |
 
@@ -111,6 +112,7 @@ The panel looks at what happened **at the same time** (within 30 s) in the selec
 | DNS failing while ping works | DNS server (ISP's, if you set it) |
 | Problems while the router CPU / RAM / connection table was overloaded | router |
 | Problems while the router was overheated or its CPU throttled | router (ventilation, heatsink) |
+| Link full while you (a host at home) download or upload | your own traffic: named in the bufferbloat finding, no weight |
 | Your "Problem now" reports with / without anything measured around them | context (no weight) |
 | LAN link drops, CRC errors, renegotiation to 100 Mbit/s | cabling / devices at home |
 | IGMP snooping on, querier off (with freezes) | router configuration |
@@ -239,6 +241,18 @@ No speed test of its own: every collectd ping value (one average per collectd in
 - The analysis puts it on the home side: your own traffic fills a buffer (modem or ISP). High-ping warnings during those periods are not counted against the ISP (loss still is). SQM (`luci-app-sqm`, cake, set a bit below the line speed) fixes it.
 
 The load is known only when the link was full at least once (or the speed is set); until then the card says so.
+
+### Who filled the link
+
+When the link stays full for a while (the same limit and line speed as the bufferbloat detection, so it needs *Detect bufferbloat* on), the hosts that used it are listed – the answer to *who clogged the link*. It only reads what the router already counts and starts, switches on and writes nothing:
+
+- **nlbwmon** (`nlbw -c csv -g mac`) when it is installed and running (package `nlbwmon`, or `luci-app-nlbwmon`). Its counters refresh every 30 s by default, so the link must stay full for 40 s.
+- else the **connection tracking table** (`/proc/net/nf_conntrack`) – only when `net.netfilter.nf_conntrack_acct` is already 1 (the tester does not change it). The link must stay full for 15 s. Flows between two LAN hosts are left out.
+- Without either the Internet card says what is missing.
+
+Two reads per episode (when the link gets full, and when it has been for long enough); the difference is the traffic of that stretch. The result is an info event on the timeline (*link full (download 95 %) for 40 s – heaviest: laptop 88 %, …*), the *Who fills the link* row of the Internet card, a table in the report, and the heaviest host is named in the bufferbloat finding. Names: your own labels (Wi-Fi devices, decoders), then the host name of the DHCP lease (`/tmp/dhcp.leases`), else the address. At most one list per *At most every* (10 min). With nlbwmon the window can start up to 30 s before the link got full, so the shares are approximate.
+
+> The `nlbw -c csv` output was written from its documentation; the columns are found from the header (`mac`, `rx_bytes`, `tx_bytes`) when there is one. Check once on the router: `nlbw -c csv -g mac`.
 
 ## Wi-Fi
 
