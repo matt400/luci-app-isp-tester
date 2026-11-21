@@ -110,7 +110,8 @@ var CSS = [
 	'.ispt-markbtn{font-weight:bold}',
 	'.ispt-choices{display:flex;flex-wrap:wrap;gap:.5em;margin:.6em 0}',
 	'.ispt-groups{font-family:monospace;font-size:.9em}',
-	'.ispt-warn-text{color:#d64541;font-weight:bold}'
+	'.ispt-warn-text{color:#d64541;font-weight:bold}',
+	'.ispt-host{display:inline-block;font-size:.8em;padding:0 .45em;margin-right:.35em;border-radius:1em;background:rgba(59,111,192,.18);white-space:nowrap}'
 ].join('\n');
 
 var COLORS = [ '#3b82c4', '#d4774a', '#7a59c0', '#2e9d8f', '#c44b8a', '#8a9a2e' ];
@@ -180,6 +181,7 @@ function areaName(a) {
 	case 'wan':    return _('Internet');
 	case 'iptv':   return _('IPTV');
 	case 'ports':  return _('Ports');
+	case 'wifi':   return _('Wi-Fi');
 	case 'system': return _('Router');
 	case 'user':   return _('Your reports');
 	default:       return a;
@@ -215,6 +217,13 @@ function reasonText(r) {
 	case 'ts_helper_stalled': return _('Picture quality: the measuring helper (isp-tester-tsmon) stopped, it is restarted automatically – see the system log.');
 	case 'ts_no_target':    return _('Picture quality: no IPTV interface to listen on (check the VLAN or device in Settings).');
 	case 'ts_drops':        return _('The router was too busy to count every IPTV packet in the last minutes, so some errors may be its own (see the IPTV card).');
+	case 'dec_fdb_failed':  return _('Decoders: cannot read the bridge MAC table (bridge fdb)');
+	case 'bufferbloat_now': return _('Ping is up by %d ms while the link is %d%% full (%s) – bufferbloat, not an outage').format(r.add, r.load, r.dir === 'up' ? _('upload') : _('download'));
+	case 'wifi_weak_now':   return _('%s: weak Wi-Fi signal (%d dBm)').format(r.name, r.signal);
+	case 'wifi_no_ubus':    return _('Wi-Fi: cannot reach ubus');
+	case 'wifi_no_hostapd': return _('Wi-Fi: no access point (hostapd) running on this router');
+	case 'peer_offline':    return _('Router %s has not reported for %s (switched off, rebooting or the cable between the routers)').format(r.name, fmtDur(Date.now() / 1000 - r.since));
+	case 'peer_level':      return _('Router %s reports: %s').format(r.name, levelText(r.lvl === 'fail' ? 'fail' : 'warn').toLowerCase());
 	case 'vlan_vlan_not_found': return _('VLAN %d is not on any bridge port – check the VLAN number in Settings.').format(r.vlan);
 	case 'vlan_no_bridge_tool': return _('The bridge command is missing: install ip-bridge.');
 	case 'vlan_bridge_failed':
@@ -271,6 +280,26 @@ function eventText(e) {
 	case 'conntrack_full_ok': return _('Connection table OK again after %s').format(fmtDur(d.dur));
 	case 'user_mark':       return _('You reported: %s').format(markText(d.what)) + (d.note ? ' – „' + d.note + '”' : '');
 	case 'log':             return logText(d.kind) + ' – ' + d.prog + ': „' + d.msg + '”' + (d.n > 1 ? ' (%d×)'.format(d.n) : '');
+	case 'trace':           return traceText(e);
+	case 'decoder_restart': return _('Decoder %s RESTARTED – away for %s on %s (%s)').format(e.src, fmtDur(d.dur), d.port,
+		{ link: _('port link went down'), fdb: _('vanished from the MAC table'), quiet: _('silent while the stream stopped') }[d.via] || d.via) +
+		(d.stream ? ' – ' + _('the stream stopped because of it, not at the ISP') : '');
+	case 'decoder_off':     return _('Decoder %s switched off or unplugged (%s)').format(e.src, d.port);
+	case 'decoder_on':      return _('Decoder %s is back after %s').format(e.src, fmtDur(d.dur));
+	case 'bufferbloat':     return _('BUFFERBLOAT: ping %s → %s (+%d ms) with the link %d%% full (%s %s of %s Mbit/s)').format(
+		fmtMs(d.base), fmtMs(d.rtt), d.add, d.load, d.dir === 'up' ? _('upload') : _('download'),
+		d.dir === 'up' ? d.tx_mbit : d.rx_mbit, d.dir === 'up' ? d.cap_tx_mbit : d.cap_rx_mbit);
+	case 'bufferbloat_ok':  return _('Bufferbloat over after %s (at most +%d ms)').format(fmtDur(d.dur), d.max_add);
+	case 'wifi_reconnect':  return (d.roam
+		? _('Wi-Fi: %s moved from %s to %s (gap %s)').format(e.src, d.from, d.iface, fmtDur(d.away))
+		: _('Wi-Fi: %s DROPPED and reconnected after %s').format(e.src, fmtDur(d.away))) + wifiNote(d);
+	case 'wifi_leave':      return _('Wi-Fi: %s disconnected (not back within the reconnect time)').format(e.src) + wifiNote(d);
+	case 'wifi_join':       return _('Wi-Fi: %s connected again after %s').format(e.src, fmtDur(d.away)) + (d.signal != null ? ' · %d dBm'.format(d.signal) : '');
+	case 'wifi_roam':       return _('Wi-Fi: %s moved from %s to %s').format(e.src, d.from, d.iface);
+	case 'wifi_weak':       return _('Wi-Fi: %s weak signal %d dBm').format(e.src, d.signal) + (d.iface ? ' (%s)'.format(d.iface) : '');
+	case 'wifi_weak_ok':    return _('Wi-Fi: %s signal OK again after %s (lowest %d dBm)').format(e.src, fmtDur(d.dur), d.min);
+	case 'peer_lost':       return _('Router %s stopped reporting').format(e.src);
+	case 'peer_back':       return _('Router %s reports again after %s').format(e.src, fmtDur(d.dur));
 	default:                return e.type;
 	}
 }
@@ -303,6 +332,58 @@ function logText(k) {
 	case 'dns_limit':      return _('DNS server overloaded (query limit)');
 	default:               return _('System log');
 	}
+}
+
+/* "lags only when the link is full?" from the collector's ping/load statistics */
+function bloatText(b) {
+	if (b.idle_avg == null) return _('measuring…');
+	if (!b.load_n) return _('%s at low load; the link has not been full yet').format(fmtMs(b.idle_avg));
+	var add = b.load_avg - (b.base != null ? b.base : b.idle_avg);
+	var share = b.bloat_n / b.load_n;
+	return '%s / %s (+%s) – '.format(fmtMs(b.base != null ? b.base : b.idle_avg), fmtMs(b.load_avg), fmtMs(add)) +
+		(share >= 0.5 ? _('lags only when the link is full (bufferbloat)')
+			: share > 0 ? _('sometimes higher at full link')
+			: _('no extra delay at full link'));
+}
+
+/* the result of a traceroute/mtr snapshot, in one line */
+function traceText(e) {
+	var d = e.d || {}, tool = d.tool === 'mtr' ? 'mtr' : 'traceroute';
+	var head = _('Path snapshot (%s) to %s').format(tool, d.host) + (d.after != null && d.after > 2 ? ' ' + _('(%s after the loss started)').format(fmtDur(d.after)) : '') + ': ';
+	if (d.err || !(d.hops || []).length) return head + _('no result') + (d.err ? ' (' + d.err + ')' : '');
+	if (!d.first_bad) return head + _('no loss to the destination any more – the loss was over, or only ICMP replies of a router on the way were slow');
+	return head + (d.first_bad === 1
+		? _('loss from the first hop (%s) to the destination – the access line or the ISP\'s first router').format(d.bad_ip || '?')
+		: _('loss starts at hop %d (%s) and carries on to the destination (%d%%); up to hop %s (%s) it was fine').format(
+			d.first_bad, d.bad_ip || '?', d.dest_loss, d.last_good != null ? d.last_good : '?', d.good_ip || '?'));
+}
+
+/* the hops of a snapshot, as a table (timeline and report) */
+function traceTable(d) {
+	return E('table', { 'class': 'ispt-mini', 'style': 'margin:.3em 0;max-width:36em' }, [
+		E('tr', {}, [ E('th', {}, _('Hop')), E('th', {}, _('Address')), E('th', {}, _('Loss')), E('th', {}, _('Ping')) ])
+	].concat((d.hops || []).map(function(h) {
+		var bad = d.first_bad != null && h.n >= d.first_bad;
+		return E('tr', { 'class': bad ? 'ispt-warn-text' : '' }, [
+			E('td', {}, String(h.n)), E('td', {}, h.ip || '???'), E('td', {}, '%d%%'.format(h.loss)),
+			E('td', {}, h.avg != null ? '%.1f ms'.format(h.avg) : '–')
+		]);
+	})));
+}
+
+/* what was known about a Wi-Fi drop: signal before it, hostapd's reason */
+function wifiNote(d) {
+	var bits = [];
+	if (d.iface) bits.push(d.iface);
+	if (d.signal != null) bits.push(_('signal before %d dBm').format(d.signal) + (d.weak ? ' (' + _('weak') + ')' : ''));
+	if (d.why === 'deauth' || d.why === 'disassoc') bits.push((d.why === 'deauth' ? _('deauthenticated') : _('disassociated')) +
+		(d.reason != null ? ' ' + _('reason %d').format(d.reason) : ''));
+	return bits.length ? ' · ' + bits.join(' · ') : '';
+}
+
+/* events received from the second router carry its host name */
+function hostBadge(e) {
+	return e.host ? E('span', { 'class': 'ispt-host', 'title': _('Logged by router %s').format(e.host) }, e.host) : '';
 }
 
 /* the channel(s) being watched, stored with the event */
@@ -360,7 +441,7 @@ function hourHistogram(events, from, to) {
 	var h = [];
 	for (var i = 0; i < 24; i++) h.push(0);
 	events.forEach(function(e) {
-		if (e.ts < from || e.ts > to || e.lvl === 'info') return;
+		if (e.ts < from || e.ts > to || e.lvl === 'info' || e.type === 'trace') return;
 		if (e.type === 'stream_resume' || e.type === 'wan_up' || e.type === 'link_up' || e.type === 'wan_if_up' || e.type === 'proxy_up') return;
 		h[new Date(e.ts * 1000).getHours()]++;
 	});
@@ -566,6 +647,24 @@ function csvCell(v) {
 /* ------------------------------------------------------------------ view */
 
 var RANGES = [ [ 3600, _('1 h') ], [ 6 * 3600, _('6 h') ], [ 24 * 3600, _('24 h') ] ];
+/* with the archive on USB */
+var LONG_RANGES = [ [ 7 * 86400, _('7 d') ], [ 30 * 86400, _('30 d') ] ];
+var ARCH_DIR = '/tmp/isp-tester/archive';
+
+/* archive files are per UTC day: "20261121" */
+function utcDay(ts) {
+	var d = new Date(ts * 1000);
+	return String(d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate());
+}
+
+function parseLines(text) {
+	var out = [];
+	String(text || '').split('\n').forEach(function(l) {
+		if (!l) return;
+		try { out.push(JSON.parse(l)); } catch (e) {}
+	});
+	return out;
+}
 
 function readJson(path) {
 	return fs.read_direct(path).then(function(t) {
@@ -576,7 +675,7 @@ function readJson(path) {
 function mergeEvents(a, b) {
 	var seen = {}, out = [];
 	a.concat(b).forEach(function(e) {
-		var k = e.ts + '|' + e.type + '|' + e.src;
+		var k = e.ts + '|' + e.type + '|' + e.src + '|' + (e.host || '');
 		if (!seen[k]) { seen[k] = true; out.push(e); }
 	});
 	return out.sort(function(x, y) { return y.ts - x.ts; });
@@ -588,6 +687,9 @@ return view.extend({
 	end: null,            /* window end (null = live / now) */
 	allEvents: [],
 	minHist: null,
+	/* archive on USB: per UTC day { ev: [...], h: [...], at: load time } */
+	arch: {},
+	archLoading: null,
 
 	load: function() {
 		return Promise.all([ callStatus(), callEvents(200, ''), readJson('/tmp/isp-tester/events.json'), readJson('/tmp/isp-tester/history.json') ]);
@@ -612,12 +714,75 @@ return view.extend({
 
 	events: function() {
 		var recent = (this.last && this.last[1] && this.last[1].events) || [];
-		return mergeEvents(recent, this.allEvents || []);
+		var older = this.allEvents || [];
+		for (var d in this.arch) older = older.concat(this.arch[d].ev);
+		return mergeEvents(recent, older);
+	},
+
+	/* ---- archive (7 / 30 days, only with the data on USB) */
+	archInfo: function() {
+		var st = this.last && this.last[0] && this.last[0].state;
+		return (st && st.data && st.data.archive) || null;
+	},
+
+	ranges: function() {
+		var a = this.archInfo();
+		return a ? RANGES.concat(LONG_RANGES.filter(function(r) { return r[0] <= a.days * 86400; })) : RANGES;
+	},
+
+	rangeName: function(range) {
+		var r = this.ranges().concat(LONG_RANGES).filter(function(x) { return x[0] === range; })[0];
+		return r ? r[1] : fmtDur(range);
+	},
+
+	/* the window reaches past the last 24 h (all that history.json can hold) */
+	needsArchive: function(w) {
+		if (!this.archInfo()) return false;
+		return (w.to - w.from) > 86400 || w.from < this.now() - 86400 - 600;
+	},
+
+	archDays: function(w) {
+		var days = [];
+		for (var t = w.from - (w.from % 86400); t <= w.to; t += 86400) days.push(utcDay(t));
+		return days;
+	},
+
+	/* load the days of the window that are missing (today again after a minute) */
+	ensureArchive: function(w) {
+		var self = this;
+		if (!this.needsArchive(w)) return Promise.resolve(false);
+		if (this.archLoading) return this.archLoading;
+		var today = utcDay(Date.now() / 1000);
+		var todo = this.archDays(w).filter(function(d) {
+			var a = self.arch[d];
+			return !a || (d === today && Date.now() - a.at > 60000);
+		});
+		if (!todo.length) return Promise.resolve(false);
+		this.archLoading = Promise.all(todo.map(function(d) {
+			var rd = function(kind) { return fs.read_direct(ARCH_DIR + '/' + kind + '-' + d + '.jsonl').then(parseLines).catch(function() { return []; }); };
+			return Promise.all([ rd('ev'), rd('h') ]).then(function(r) { self.arch[d] = { ev: r[0], h: r[1], at: Date.now() }; });
+		})).then(function() { self.archLoading = null; return true; });
+		return this.archLoading;
+	},
+
+	/* 10-minute aggregates of the window, in the history format { t, s } */
+	archHist: function(w) {
+		var rows = [];
+		var self = this;
+		this.archDays(w).forEach(function(d) { if (self.arch[d]) rows = rows.concat(self.arch[d].h); });
+		rows.sort(function(a, b) { return a.t - b.t; });
+		var keys = {};
+		rows.forEach(function(r) { for (var k in (r.s || {})) keys[k] = true; });
+		var h = { t: rows.map(function(r) { return r.t; }), s: {} };
+		Object.keys(keys).forEach(function(k) { h.s[k] = rows.map(function(r) { return (r.s && r.s[k] != null) ? r.s[k] : null; }); });
+		return h;
 	},
 
 	/* chart data for the window: fine 10 s data when live and it covers the window, 1-minute aggregates otherwise */
 	chartData: function(st, w) {
 		var fine = st.history || { t: [], s: {} };
+		if (this.needsArchive(w))
+			return { h: this.archHist(w), fine: false, coarse: true };
 		if (w.live && fine.t.length && fine.t[0] <= w.from + (st.interval || 10) * 2)
 			return { h: fine, fine: true };
 		if (w.live && this.range <= 3600 && !(this.minHist && this.minHist.t.length))
@@ -631,16 +796,17 @@ return view.extend({
 			return E('button', { 'class': 'cbi-button' + (active ? ' active' : ''), 'title': title || '', 'click': fn }, label);
 		};
 		var winText = w.live
-			? _('last %s (live)').format(RANGES.filter(function(r) { return r[0] === self.range; })[0][1])
+			? _('last %s (live)').format(this.rangeName(this.range))
 			: fmtTime(w.from).substr(5, 11) + ' – ' + fmtTime(w.to).substr(5, 11);
 
-		return E('div', { 'class': 'ispt-nav' }, RANGES.map(function(r) {
+		return E('div', { 'class': 'ispt-nav' }, this.ranges().map(function(r) {
 			return btn(r[1], self.range === r[0], function() { self.setWindow(r[0], self.end); });
 		}).concat([
 			btn('◀', false, function() { var x = self.win(); self.setWindow(self.range, x.to - self.range / 2); }, _('Earlier')),
 			btn('▶', false, function() { var x = self.win(); if (!x.live) self.setWindow(self.range, x.to + self.range / 2); }, _('Later')),
 			btn(_('Now'), w.live, function() { self.setWindow(self.range, null); }),
-			E('span', { 'class': 'win' }, winText)
+			E('span', { 'class': 'win' }, winText),
+			this.archLoading ? E('span', { 'class': 'ispt-muted' }, _('loading the archive…')) : ''
 		]));
 	},
 
@@ -652,7 +818,7 @@ return view.extend({
 		var ispPct = total ? Math.round(r.isp * 100 / total) : 0;
 
 		var head = E('div', { 'class': 'head' }, [
-			E('div', { 'class': 'ispt-muted' }, _('Probable cause (%s)').format(w.live ? _('last %s').format(RANGES.filter(function(x) { return x[0] === this.range; }, this)[0][1]) : _('selected period'))),
+			E('div', { 'class': 'ispt-muted' }, _('Probable cause (%s)').format(w.live ? _('last %s').format(this.rangeName(this.range)) : _('selected period'))),
 			E('div', { 'class': 'verdict' }, [ dot(r.verdict === 'none' || r.verdict === 'minor' ? 'ok' : r.verdict === 'mixed' ? 'warn' : 'fail'), diagnose.verdictText(r.verdict) ]),
 			total ? E('div', {}, [
 				E('div', { 'class': 'ispt-scale' }, [
@@ -665,7 +831,8 @@ return view.extend({
 				]),
 				E('div', { 'class': 'ispt-muted', 'style': 'font-size:.85em;margin-top:.3em' },
 					diagnose.confidenceText(r.confidence) + ' · ' + _('%d problems, %d IPTV freezes').format(r.problems, r.stalls) +
-					(r.zaps ? ' · ' + _('%d channel changes ignored').format(r.zaps) : ''))
+					(r.zaps ? ' · ' + _('%d channel changes ignored').format(r.zaps) : '') +
+					(r.decoder_stalls ? ' · ' + _('%d during decoder restarts').format(r.decoder_stalls) : ''))
 			]) : E('div', { 'class': 'ispt-muted', 'style': 'font-size:.9em' }, _('Nothing was logged that points at a fault.'))
 		]);
 
@@ -693,7 +860,11 @@ return view.extend({
 			bridge: br,
 			membership_interval: br && br.membership_interval,
 			query_interval: br && br.query_interval,
-			igmp: st.iptv && st.iptv.igmp
+			igmp: st.iptv && st.iptv.igmp,
+			iptv_on: !!st.iptv,
+			/* devices whose Wi-Fi is watched, on this or the second router */
+			wifi_watched: ((st.wifi && st.wifi.stations) || []).length +
+				((st.peers && st.peers.list) || []).reduce(function(n, p) { return n + ((p.hb && p.hb.wifi && p.hb.wifi.sta) || []).length; }, 0)
 		});
 	},
 
@@ -738,9 +909,13 @@ return view.extend({
 
 		var o = lvl(st.overall);
 		var problems = [];
-		[ [ 'wan', st.wan ], [ 'iptv', st.iptv ], [ 'ports', st.ports ] ].forEach(function(a) {
-			if (a[1] && a[1].level && a[1].level !== 'ok')
+		[ [ 'wan', st.wan ], [ 'iptv', st.iptv ], [ 'ports', st.ports ], [ 'wifi', st.wifi ] ].forEach(function(a) {
+			if (a[1] && a[1].level && a[1].level !== 'ok' && a[1].level !== 'unknown')
 				problems.push(areaName(a[0]) + ': ' + levelText(a[1].level).toLowerCase());
+		});
+		((st.peers && st.peers.list) || []).forEach(function(p) {
+			if (!p.online && p.level === 'warn') problems.push(_('%s: not reporting').format(p.name));
+			else if (p.level === 'warn' || p.level === 'fail') problems.push(p.name + ': ' + levelText(p.level).toLowerCase());
 		});
 
 		var headline = (o === 'ok') ? _('Everything works')
@@ -824,6 +999,13 @@ return view.extend({
 			kv.push(E('span', { 'class': 'k' }, _('Address')), E('span', {}, (ss.ip || '–') +
 				(ss.reconnects ? ' · ' + _('%d reconnects since start').format(ss.reconnects) : '')));
 		}
+		if (w.bloat) {
+			var b = w.bloat;
+			kv.push(E('span', { 'class': 'k' }, _('Line speed')), E('span', {},
+				(b.cap_rx >= 1000 ? '↓ %s / ↑ %s'.format(fmtRate(b.cap_rx), fmtRate(b.cap_tx)) : '–') + ' (' + (b.learned ? _('highest seen') : _('set')) + ')'));
+			kv.push(E('span', { 'class': 'k', 'title': _('Ping of the gateway at low load and with the link full, from collectd and the WAN traffic of the same interval') }, _('Ping idle / full link')),
+				E('span', { 'class': b.active ? 'ispt-warn-text' : '' }, bloatText(b)));
+		}
 
 		return E('div', { 'class': 'ispt-card l-' + lvl(w.level) }, [
 			E('h3', {}, [ _('Internet'), chip(w.level) ]),
@@ -863,6 +1045,16 @@ return view.extend({
 		var wv = watching(t);
 		if (wv)
 			kv.push(E('span', { 'class': 'k' }, _('Watching')), E('span', {}, wv));
+
+		/* decoders found in the bridge MAC table of the IPTV VLAN */
+		(t.decoders || []).forEach(function(x) {
+			kv.push(E('span', { 'class': 'k' }, _('Decoder %s').format(x.label || x.mac)), E('span', { 'class': x.present ? '' : 'ispt-warn-text' },
+				x.present
+					? [ dot(x.quiet ? 'warn' : 'ok'), _('on %s, for %s').format(x.port, fmtDur(Date.now() / 1000 - x.since)) +
+						(x.quiet ? ' · ' + _('silent for %s').format(fmtDur(Date.now() / 1000 - x.active)) : '') ]
+					: [ dot(x.off ? 'unknown' : 'fail'), (x.off ? _('off / unplugged since %s') : _('not visible for %s')).format(
+						x.off ? hhmm(x.since) : fmtDur(Date.now() / 1000 - x.since)) + ' (' + x.port + ')' ]));
+		});
 
 		if (t.quality) {
 			var q = t.quality, qe = {
@@ -959,6 +1151,77 @@ return view.extend({
 		]);
 	},
 
+	renderWifi: function(st) {
+		var w = st.wifi;
+		if (!w) return '';
+		var rows = (w.stations || []).map(function(x) {
+			return E('tr', {}, [
+				E('td', {}, [ dot(x.connected ? x.level : 'unknown'), x.label ? '%s'.format(x.label) : x.mac ]),
+				E('td', {}, x.connected ? x.iface : E('span', { 'class': 'ispt-muted' }, _('not connected'))),
+				E('td', { 'class': x.weak ? 'ispt-warn-text' : '' }, x.connected && x.signal != null ? '%d dBm'.format(x.signal) : '–'),
+				E('td', {}, x.connected && x.rx ? '%d / %d'.format(Math.round(x.rx / 1000), Math.round((x.tx || 0) / 1000)) : '–'),
+				E('td', {}, fmtDur(Date.now() / 1000 - x.since))
+			]);
+		});
+		var ifs = (w.ifaces || []).map(function(i) {
+			return '%s%s: %d'.format(i.iface, i.freq ? ' (' + (i.freq >= 5900 ? '6' : i.freq >= 4900 ? '5' : '2.4') + ' GHz)' : '', i.n);
+		}).join(' · ');
+		return E('div', { 'class': 'ispt-card l-' + lvl(w.level) }, [
+			E('h3', {}, [ _('Wi-Fi'), chip(w.level) ]),
+			rows.length ? E('table', { 'class': 'ispt-mini' }, [
+				E('tr', {}, [ E('th', {}, _('Device')), E('th', {}, _('Interface')), E('th', {}, _('Signal')),
+					E('th', { 'title': _('Link rate received / sent (Mbit/s)') }, _('Rate')), E('th', {}, _('For')) ])
+			].concat(rows)) : E('div', { 'class': 'ispt-muted' }, _('Add the devices to watch (phone, TV) in Settings → Wi-Fi.')),
+			E('div', { 'class': 'ispt-kv', 'style': 'margin-top:.5em' }, [
+				E('span', { 'class': 'k' }, _('Clients')), E('span', {}, ifs || '–'),
+				E('span', { 'class': 'k' }, _('Weak below')), E('span', {}, '%d dBm'.format(w.signal_warn))
+			]),
+			this.reasons(w.reasons)
+		]);
+	},
+
+	/* the second router(s), from their status messages */
+	renderPeers: function(st) {
+		var pl = (st.peers && st.peers.list) || [];
+		return pl.map(function(p) {
+			var hb = p.hb || {}, kv = [];
+			kv.push(E('span', { 'class': 'k' }, _('Reports')), E('span', { 'class': p.online ? '' : 'ispt-warn-text' },
+				p.online ? _('%s ago from %s').format(fmtDur(Date.now() / 1000 - p.seen), p.addr || '?')
+					: _('nothing for %s (last from %s)').format(fmtDur(Date.now() / 1000 - p.seen), p.addr || '?')));
+			if (p.online && hb.up)
+				kv.push(E('span', { 'class': 'k' }, _('Monitoring for')), E('span', {}, fmtDur(Date.now() / 1000 - hb.up)));
+			if (p.off)
+				kv.push(E('span', { 'class': 'k' }, _('Clock')), E('span', { 'class': 'ispt-warn-text' },
+					_('off by %d s – its events are moved to this router\'s time').format(p.off)));
+			if (hb.iptv)
+				kv.push(E('span', { 'class': 'k' }, _('IPTV')), E('span', {}, [ dot(hb.iptv.lvl),
+					({ playing: _('Stream running'), stalled: _('STREAM STOPPED'), idle: _('No stream (decoder off?)') }[hb.iptv.state] || hb.iptv.state) +
+					(hb.iptv.kbps ? ' · ' + fmtRate(hb.iptv.kbps) : '') ]));
+			((hb.iptv && hb.iptv.dec) || []).forEach(function(x) {
+				kv.push(E('span', { 'class': 'k' }, _('Decoder %s').format(x.label)), E('span', {}, [ dot(x.up ? 'ok' : 'fail'),
+					x.up ? _('on %s').format(x.port) : _('not visible (%s)').format(x.port) ]));
+			});
+			(hb.ports || []).forEach(function(x) {
+				kv.push(E('span', { 'class': 'k' }, x.label ? '%s (%s)'.format(x.label, x.dev) : x.dev),
+					E('span', {}, [ dot(x.lvl), x.up ? fmtSpeed(x.speed) : _('down') ]));
+			});
+			if (hb.wifi) {
+				kv.push(E('span', { 'class': 'k' }, _('Wi-Fi clients')), E('span', {}, String(hb.wifi.n || 0)));
+				(hb.wifi.sta || []).forEach(function(x) {
+					kv.push(E('span', { 'class': 'k' }, _('Wi-Fi: %s').format(x.label)), E('span', {}, x.up
+						? [ dot(x.lvl), '%s · %s'.format(x.iface || '?', x.signal != null ? '%d dBm'.format(x.signal) : '–') ]
+						: [ dot('unknown'), _('not connected') ]));
+				});
+			}
+			return E('div', { 'class': 'ispt-card l-' + lvl(p.level) }, [
+				E('h3', {}, [ _('Router %s').format(p.name), chip(p.level) ]),
+				E('div', { 'class': 'ispt-kv' }, kv),
+				E('div', { 'class': 'ispt-muted', 'style': 'font-size:.85em;margin-top:.4em' },
+					_('Its events are on the timeline below, marked with its name.'))
+			]);
+		});
+	},
+
 	disabledCard: function(title, hint) {
 		return E('div', { 'class': 'ispt-card l-unknown' }, [
 			E('h3', {}, [ title, chip('unknown') ]),
@@ -1010,6 +1273,8 @@ return view.extend({
 			/* stall periods come from the events: an idle decoder (0 kbit/s) is not a fault */
 			var evs = this.events().slice().sort(function(a, b) { return a.ts - b.ts; });
 			var stallBands = [];
+			/* this router's stream only (the second router measures its own) */
+			evs = evs.filter(function(e) { return !e.host; });
 			evs.forEach(function(e, i) {
 				if (e.type !== 'stream_stall') return;
 				var end = null;
@@ -1020,7 +1285,7 @@ return view.extend({
 					stallBands.push({ from: e.ts, to: end, color: '#d64541', title: _('Stream stopped for %s').format(fmtDur(end - e.ts)) });
 			});
 			var ibr = [ {
-				name: cd.fine ? _('IPTV bitrate') : _('IPTV bitrate (1 min average)'), color: '#7a59c0',
+				name: cd.fine ? _('IPTV bitrate') : cd.coarse ? _('IPTV bitrate (10 min average)') : _('IPTV bitrate (1 min average)'), color: '#7a59c0',
 				data: kb.map(function(v) { return v == null ? null : v / 1000; }),
 				fmt: function(v) { return fmtRate(v * 1000); }
 			} ];
@@ -1041,6 +1306,26 @@ return view.extend({
 			}));
 		}
 
+		if (s['wan:rx']) {
+			var evs2 = this.events().filter(function(e) { return !e.host; }).sort(function(a, b) { return a.ts - b.ts; });
+			var bloatBands = [];
+			evs2.forEach(function(e, i) {
+				if (e.type !== 'bufferbloat') return;
+				var end = null;
+				for (var j = i + 1; j < evs2.length; j++)
+					if (evs2[j].type === 'bufferbloat_ok' || evs2[j].type === 'monitor_start') { end = evs2[j].ts; break; }
+				if (end == null) end = (st.wan && st.wan.bloat && st.wan.bloat.active) ? st.ts : e.ts + 60;
+				if (end >= w.from && e.ts <= w.to)
+					bloatBands.push({ from: e.ts, to: end, color: '#e0a100', title: _('Bufferbloat: ping +%d ms').format(e.d.add) });
+			});
+			var mb = function(v) { return v == null ? null : v / 1000; };
+			out.push(lineChart(t, [
+				{ name: _('Download'), color: '#3b6fc0', data: s['wan:rx'].map(mb), fmt: function(v) { return fmtRate(v * 1000); } },
+				{ name: _('Upload'), color: '#2a9d5b', data: (s['wan:tx'] || []).map(mb), fmt: function(v) { return fmtRate(v * 1000); } }
+			], { from: w.from, to: w.to, title: _('WAN traffic (Mbit/s) – yellow = bufferbloat (ping up while the link is full)'),
+				bands: bloatBands, fmt: function(v) { return v.toFixed(v < 10 ? 1 : 0); }, min_max: 1, legend: true }));
+		}
+
 		var errSeries = [], ci = 0;
 		Object.keys(s).forEach(function(k) {
 			if (k.indexOf('err:') !== 0) return;
@@ -1049,7 +1334,7 @@ return view.extend({
 			errSeries.push({ name: k.substr(4), color: COLORS[ci++ % COLORS.length], data: data });
 		});
 		if (errSeries.length)
-			out.push(lineChart(t, errSeries, { from: w.from, to: w.to, title: cd.fine ? _('Interface errors per interval') : _('Interface errors per minute'), min_max: 1, legend: true }));
+			out.push(lineChart(t, errSeries, { from: w.from, to: w.to, title: cd.fine ? _('Interface errors per interval') : cd.coarse ? _('Interface errors per 10 minutes') : _('Interface errors per minute'), min_max: 1, legend: true }));
 
 		var hasData = t.some(function(ts) { return ts >= w.from && ts <= w.to; });
 
@@ -1084,22 +1369,37 @@ return view.extend({
 
 	/* ---- printable report for the ISP */
 	openReport: function() {
+		var self = this, w = this.win();
+		if (!(this.last && this.last[0] && this.last[0].state)) return Promise.resolve();
+		/* the window first: a popup opened after waiting for the archive would be blocked */
+		var win = window.open('', '_blank');
+		if (win) win.document.write('<p style="font:14px sans-serif">' + esc(_('Preparing the report…')) + '</p>');
+		return this.ensureArchive(w).then(function() { self.writeReport(w, win); });
+	},
+
+	writeReport: function(w, win) {
 		var res = this.last && this.last[0], st = res && res.state;
-		if (!st) return;
-		var w = this.win();
 		var r = this.analyze(st, w);
 		var evs = this.events().filter(function(e) { return e.ts >= w.from && e.ts <= w.to; }).sort(function(a, b) { return a.ts - b.ts; });
+		var own = evs.filter(function(e) { return !e.host; });
 
-		/* outage / freeze durations from start/end pairs */
+		/* a freeze while a decoder restarted (on either router) is not the ISP's */
+		var decR = evs.filter(function(e) { return e.type === 'decoder_restart'; });
+		var byDecoder = function(s) {
+			return decR.some(function(r) { return s.ts >= r.ts - 15 && s.ts <= r.ts + ((r.d && r.d.dur) || 0) + 10; });
+		};
+
+		/* outage / freeze durations from start/end pairs (this router's measurements) */
 		var sum = function(startType, endTypes) {
 			var n = 0, total = 0, longest = 0;
-			evs.forEach(function(e, i) {
+			own.forEach(function(e, i) {
 				if (e.type !== startType) return;
-				for (var j = i + 1; j < evs.length; j++)
-					if (endTypes.indexOf(evs[j].type) >= 0) {
+				if (startType === 'stream_stall' && byDecoder(e)) return;
+				for (var j = i + 1; j < own.length; j++)
+					if (endTypes.indexOf(own[j].type) >= 0) {
 						/* a channel change is not a freeze */
-						if (evs[j].d && evs[j].d.igmp === 'zap') return;
-						var d = (evs[j].d && evs[j].d.dur) || (evs[j].ts - e.ts);
+						if (own[j].d && own[j].d.igmp === 'zap') return;
+						var d = (own[j].d && own[j].d.dur) || (own[j].ts - e.ts);
 						total += d;
 						if (d > longest) longest = d;
 						break;
@@ -1110,7 +1410,9 @@ return view.extend({
 		};
 		var net = sum('wan_down', [ 'wan_up', 'monitor_start' ]);
 		var tv = sum('stream_stall', [ 'stream_resume', 'stream_lost', 'monitor_start' ]);
-		var count = function(f) { return evs.filter(f).length; };
+		var count = function(f) { return own.filter(f).length; };
+		var hostArea = function(e) { return (e.host ? e.host + ' · ' : '') + areaName(e.area); };
+		var peerNames = ((st.peers && st.peers.list) || []).map(function(p) { return p.name; }).join(', ');
 
 		var x = function(v) { return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
 		var row = function(k, v) { return '<tr><th>' + x(k) + '</th><td>' + x(v) + '</td></tr>'; };
@@ -1130,6 +1432,7 @@ return view.extend({
 			row(_('WAN interface / device'), (st.wan ? st.wan.interface + ' / ' + st.wan.device : '–')) +
 			(st.wan && st.wan.session ? row(_('Session'), (st.wan.session.proto || '') + ' · ' + (st.wan.session.ip || '')) : '') +
 			row(_('Ping targets'), targets || '–') +
+			(peerNames ? row(_('Second router'), _('%s (its events are included, marked with its name)').format(peerNames)) : '') +
 			(st.iptv ? row(_('IPTV measured on'), st.iptv.vlan ? _('VLAN %d on %s').format(st.iptv.vlan.id, st.iptv.vlan.bridge || '?') : st.iptv.device + ' (' + (st.iptv.direction === 'tx' ? _('outgoing') : _('incoming')) + ')') : '') +
 			'</table><h2>' + x(_('Summary')) + '</h2><table>' +
 			row(_('Internet outages'), _('%d, total %s, longest %s').format(net.n, fmtDur(net.total), fmtDur(net.longest))) +
@@ -1139,6 +1442,8 @@ return view.extend({
 			row(_('WAN port link drops'), _('%d×').format(count(function(e) { return e.type === 'link_down' && e.area === 'wan'; }))) +
 			row(_('Related messages in the system log'), _('%d×').format(count(function(e) { return e.type === 'log'; }))) +
 			row(_('IPTV freezes'), _('%d, total %s, longest %s').format(tv.n, fmtDur(tv.total), fmtDur(tv.longest)) + (r.zaps ? ' · ' + _('%d channel changes not counted').format(r.zaps) : '')) +
+			row(_('Decoder restarts'), _('%d×').format(evs.filter(function(e) { return e.type === 'decoder_restart'; }).length)) +
+			row(_('Wi-Fi drops of watched devices'), _('%d×').format(evs.filter(function(e) { return e.type === 'wifi_reconnect' && e.lvl !== 'info'; }).length)) +
 			row(_('Router overloaded'), _('%d×').format(count(function(e) { return e.type === 'cpu_high' || e.type === 'mem_low' || e.type === 'conntrack_full'; }))) +
 			row(_('Problems reported by the user'), _('%d×').format(count(function(e) { return e.type === 'user_mark'; }))) +
 			'</table><h2>' + x(_('Assessment')) + '</h2><p><b>' + x(diagnose.verdictText(r.verdict)) + '</b> (' + x(diagnose.confidenceText(r.confidence)) + ')</p><ul>' +
@@ -1146,13 +1451,26 @@ return view.extend({
 			'</ul><h2>' + x(_('Problems by hour of day')) + '</h2><div class="hours">' +
 			h.map(function(n) { return '<div style="height:' + Math.max(1, Math.round(n * 100 / hmax)) + '%" title="' + n + '"></div>'; }).join('') +
 			'</div><div class="hl">' + h.map(function(n, i) { return '<span>' + i + '</span>'; }).join('') + '</div>' +
+			(function() {
+				var tr = own.filter(function(e) { return e.type === 'trace' && e.d && (e.d.hops || []).length; });
+				if (!tr.length) return '';
+				return '<h2>' + x(_('Path snapshots at the moment of a loss')) + '</h2><p class="muted">' +
+					x(_('Taken automatically when a loss started. Loss that starts at a hop and carries on to the destination shows where packets are lost; loss at a single hop only is a router that answers pings slowly.')) + '</p>' +
+					tr.map(function(e) {
+						return '<p><b>' + x(fmtTime(e.ts)) + '</b> – ' + x(traceText(e)) + '</p><table class="ev"><tr><th>' + x(_('Hop')) + '</th><th>' +
+							x(_('Address')) + '</th><th>' + x(_('Loss')) + '</th><th>' + x(_('Ping')) + '</th></tr>' +
+							e.d.hops.map(function(h) {
+								return '<tr class="' + (e.d.first_bad != null && h.n >= e.d.first_bad ? 'err' : '') + '"><td>' + h.n + '</td><td>' + x(h.ip || '???') +
+									'</td><td>' + h.loss + '%</td><td>' + (h.avg != null ? h.avg + ' ms' : '–') + '</td></tr>';
+							}).join('') + '</table>';
+					}).join('');
+			})() +
 			'<h2>' + x(_('Event log (problems only)')) + '</h2><table class="ev">' +
 			evs.filter(function(e) { return e.lvl !== 'info'; }).map(function(e) {
-				return '<tr class="' + (e.lvl === 'err' ? 'err' : '') + '"><td>' + x(fmtTime(e.ts)) + '</td><td>' + x(areaName(e.area)) + '</td><td>' + x(eventText(e)) + '</td></tr>';
+				return '<tr class="' + (e.lvl === 'err' ? 'err' : '') + '"><td>' + x(fmtTime(e.ts)) + '</td><td>' + x(hostArea(e)) + '</td><td>' + x(eventText(e)) + '</td></tr>';
 			}).join('') + '</table>' +
 			'<p class="muted">' + x(_('Measured continuously on the customer\'s router. Times are local router time.')) + '</p></body></html>';
 
-		var win = window.open('', '_blank');
 		if (!win) {
 			download('isp-tester-report-' + stamp() + '.html', html, 'text/html');
 			return;
@@ -1168,14 +1486,28 @@ return view.extend({
 		var list = this.events().filter(function(e) { return e.ts >= w.from && e.ts <= w.to + 1; });
 		if (this.filter)
 			list = list.filter(function(e) { return e.area === self.filter; });
+		/* events of the second router: '' = all routers, '-' = this one */
+		var hosts = [];
+		this.events().forEach(function(e) { if (e.host && hosts.indexOf(e.host) < 0) hosts.push(e.host); });
+		if (this.hostFilter)
+			list = list.filter(function(e) { return self.hostFilter === '-' ? !e.host : e.host === self.hostFilter; });
 
-		var buttons = [ [ '', _('All') ], [ 'wan', _('Internet') ], [ 'iptv', _('IPTV') ], [ 'ports', _('Ports') ], [ 'system', _('Router') ], [ 'user', _('Your reports') ] ]
+		var buttons = [ [ '', _('All') ], [ 'wan', _('Internet') ], [ 'iptv', _('IPTV') ], [ 'ports', _('Ports') ], [ 'wifi', _('Wi-Fi') ], [ 'system', _('Router') ], [ 'user', _('Your reports') ] ]
 			.map(function(f) {
 				return E('button', {
 					'class': 'cbi-button' + (self.filter === f[0] ? ' active' : ''),
 					'click': function() { self.filter = f[0]; self.redraw(); }
 				}, f[1]);
 			});
+
+		if (hosts.length)
+			buttons.push(E('span', { 'style': 'margin-left:.6em;display:flex;gap:.4em;flex-wrap:wrap' },
+				[ [ '', _('All routers') ], [ '-', _('This router') ] ].concat(hosts.sort().map(function(h) { return [ h, h ]; })).map(function(f) {
+					return E('button', {
+						'class': 'cbi-button' + ((self.hostFilter || '') === f[0] ? ' active' : ''),
+						'click': function() { self.hostFilter = f[0]; self.redraw(); }
+					}, f[1]);
+				})));
 
 		var onlyProblems = E('label', { 'style': 'margin-left:auto' }, [
 			E('input', {
@@ -1187,11 +1519,15 @@ return view.extend({
 			list = list.filter(function(e) { return e.lvl !== 'info'; });
 
 		var rows = list.slice(0, 200).map(function(e) {
+			/* a path snapshot: the hops fold out (clicks there do not move the charts) */
+			var text = (e.type === 'trace' && e.d && (e.d.hops || []).length)
+				? E('details', { 'click': function(ev) { ev.stopPropagation(); } }, [ E('summary', {}, eventText(e)), traceTable(e.d) ])
+				: eventText(e);
 			return E('tr', { 'class': 'click lvl-' + e.lvl, 'title': _('Show this moment in the charts'),
 				'click': function() { self.setWindow(self.range > 3600 ? 3600 : self.range, e.ts + Math.min(self.range, 3600) / 2); } }, [
 				E('td', { 'class': 'when' }, fmtTime(e.ts)),
-				E('td', { 'class': 'area' }, areaName(e.area)),
-				E('td', {}, eventText(e))
+				E('td', { 'class': 'area' }, [ hostBadge(e), areaName(e.area) ]),
+				E('td', {}, text)
 			]);
 		});
 
@@ -1222,6 +1558,31 @@ return view.extend({
 	renderFooter: function(st) {
 		var bits = [];
 		bits.push(st.data && st.data.link ? _('Data kept in %s (survives a reboot)').format(st.data.link) : _('Data kept in RAM (lost on reboot)'));
+		if (st.wan && st.wan.trace)
+			bits.push(st.wan.trace.tool ? _('path snapshot at a loss: %s%s').format(st.wan.trace.tool,
+				st.wan.trace.running ? ' (' + _('running now') + ')' : '')
+				: E('span', { 'class': 'ispt-warn-text' }, _('path snapshot at a loss: no traceroute / mtr on the router')));
+		if (st.peer) {
+			var pe = st.peer, perr = {
+				no_key: _('no key set (at least 8 characters)'),
+				bad_host: _('the address of the main router is not a valid IPv4 address'),
+				no_digest: _('the ucode-mod-digest package is missing'),
+				no_socket_module: _('the ucode-mod-socket package is missing'),
+				socket: _('cannot open a socket'),
+				bind: _('UDP port %d is in use').format(pe.port),
+				no_ack: _('no answer – check the address, the key and that the main router receives')
+			}[pe.err];
+			if (pe.role === 'send')
+				bits.push(E('span', { 'class': perr ? 'ispt-warn-text' : '' }, perr ? _('sending events to %s: %s').format(pe.host, perr)
+					: !pe.last_ack ? _('sending events to %s (waiting for the first confirmation)').format(pe.host)
+					: _('sending events to %s (last confirmed %s ago%s)').format(pe.host, fmtDur(Date.now() / 1000 - pe.last_ack),
+						pe.pending ? ', ' + _('%d waiting').format(pe.pending) : '')));
+			else
+				bits.push(E('span', { 'class': perr ? 'ispt-warn-text' : '' }, perr ? _('receiving events: %s').format(perr)
+					: _('receiving events of the second router on UDP port %d').format(pe.port)));
+			if (pe.bad && pe.bad_ts && Date.now() / 1000 - pe.bad_ts < 3600)
+				bits.push(E('span', { 'class': 'ispt-warn-text' }, _('%d messages with a wrong key (last from %s)').format(pe.bad, pe.bad_addr || '?')));
+		}
 		if (st.notify) {
 			var n = st.notify, failed = n.last_fail > (n.last_ok || 0);
 			bits.push(!n.fetch ? _('notifications: uclient-fetch / wget missing')
@@ -1229,7 +1590,9 @@ return view.extend({
 				: n.last_ok ? _('notifications: last sent %s ago').format(fmtDur(Date.now() / 1000 - n.last_ok))
 				: _('notifications: nothing sent yet'));
 		}
-		return E('div', { 'class': 'ispt-muted', 'style': 'font-size:.85em' }, bits.join(' · '));
+		var parts = [];
+		bits.forEach(function(b, i) { if (i) parts.push(' · '); parts.push(b); });
+		return E('div', { 'class': 'ispt-muted', 'style': 'font-size:.85em' }, parts);
 	},
 
 	exportSamples: function() {
@@ -1241,13 +1604,20 @@ return view.extend({
 	},
 
 	exportEvents: function() {
-		return callEvents(0, '').then(function(res) {
-			var lines = [ 'time,level,area,source,event,message' ];
-			(res.events || []).slice().reverse().forEach(function(e) {
-				lines.push([ fmtTime(e.ts), e.lvl, e.area, e.src, e.type, eventText(e) ].map(csvCell).join(','));
+		var self = this, w = this.win();
+		var rows = function(list) {
+			var lines = [ 'time,level,router,area,source,event,message' ];
+			list.forEach(function(e) {
+				lines.push([ fmtTime(e.ts), e.lvl, e.host || '', e.area, e.src, e.type, eventText(e) ].map(csvCell).join(','));
 			});
 			download('isp-tester-events-' + stamp() + '.csv', lines.join('\n') + '\n');
-		});
+		};
+		/* a window beyond the last 24 h: its events, from the archive */
+		if (this.needsArchive(w))
+			return this.ensureArchive(w).then(function() {
+				rows(self.events().filter(function(e) { return e.ts >= w.from && e.ts <= w.to; }).reverse());
+			});
+		return callEvents(0, '').then(function(res) { rows((res.events || []).slice().reverse()); });
 	},
 
 	toggleEnabled: function(on) {
@@ -1266,6 +1636,7 @@ return view.extend({
 		var self = this;
 		ui.showModal(_('Clear logs'), [
 			E('p', _('This deletes the timeline, charts and CSV measurements. Download them first if you need them for your ISP.')),
+			this.archInfo() ? E('p', { 'class': 'ispt-warn-text' }, _('The archive of the last %d days on USB is deleted too.').format(this.archInfo().days)) : '',
 			E('div', { 'class': 'right' }, [
 				E('button', { 'class': 'cbi-button', 'click': ui.hideModal }, _('Cancel')), ' ',
 				E('button', { 'class': 'cbi-button cbi-button-negative', 'click': function() {
@@ -1274,6 +1645,7 @@ return view.extend({
 						/* drop the cached full timeline / 24 h history so old entries do not linger */
 						self.allEvents = [];
 						self.minHist = null;
+						self.arch = {};
 						ui.addNotification(null, E('p', _('Logs will be cleared within one interval.')), 'info');
 					});
 				} }, _('Clear'))
@@ -1284,14 +1656,19 @@ return view.extend({
 	/* ---- assembly */
 	redraw: function() {
 		if (!this.root || !this.last) return;
+		var self = this;
 		var res = this.last[0];
 		var st = res.state;
 		var w = this.win();
 
+		/* a window into the archive: draw what is there, again once the days are loaded */
+		if (st && this.needsArchive(w) && !this.archLoading)
+			this.ensureArchive(w).then(function(loaded) { if (loaded) self.redraw(); });
+
 		var parts = [ this.renderBanner(res) ];
 		if (st) {
 			parts.push(this.renderDiagnosis(st, w));
-			parts.push(E('div', { 'class': 'ispt-cards' }, [ this.renderWan(st), this.renderIptv(st), this.renderPorts(st) ]));
+			parts.push(E('div', { 'class': 'ispt-cards' }, [ this.renderWan(st), this.renderIptv(st), this.renderPorts(st), this.renderWifi(st) ].concat(this.renderPeers(st))));
 			parts.push(this.renderCharts(st, w));
 			parts.push(this.renderHours(w));
 		}

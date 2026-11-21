@@ -142,9 +142,6 @@ msgstr "%s: %d%% utraconych pakietów (śr. %s)"
 msgid "%s: high jitter %s (ping %s)"
 msgstr "%s: duży jitter %s (ping %s)"
 
-msgid "%s: high latency %s"
-msgstr "%s: wysokie opóźnienie %s"
-
 msgid "%s: not responding (%d%% loss)"
 msgstr "%s: nie odpowiada (%d%% strat)"
 
@@ -1452,3 +1449,528 @@ msgstr "program pomiarowy nie odpowiada"
 
 msgid "the measuring helper stopped, restarting"
 msgstr "program pomiarowy przestał działać, ponowne uruchamianie"
+
+msgid "%d of %d IPTV freezes seen by %s did not happen here – the stream is lost between the routers (cable, the second router, its Wi-Fi or switch), not at the ISP."
+msgstr "%d z %d zamrożeń IPTV widzianych przez %s nie wystąpiło tutaj – strumień ginie między routerami (kabel, drugi router, jego Wi-Fi lub switch), nie u operatora."
+
+msgid "Router %s stopped reporting %d× – switched off, rebooted or the cable between the routers."
+msgstr "Router %s przestał się zgłaszać %d× – wyłączony, restart albo kabel między routerami."
+
+msgid "Router %s has not reported for %s (switched off, rebooting or the cable between the routers)"
+msgstr "Router %s nie zgłasza się od %s (wyłączony, restartuje się albo kabel między routerami)"
+
+msgid "Router %s reports: %s"
+msgstr "Router %s zgłasza: %s"
+
+msgid "Router %s stopped reporting"
+msgstr "Router %s przestał się zgłaszać"
+
+msgid "Router %s reports again after %s"
+msgstr "Router %s znów się zgłasza po %s"
+
+msgid "Logged by router %s"
+msgstr "Zapisane przez router %s"
+
+msgid "%s: not reporting"
+msgstr "%s: nie zgłasza się"
+
+msgid "Reports"
+msgstr "Zgłasza się"
+
+msgid "%s ago from %s"
+msgstr "%s temu z %s"
+
+msgid "nothing for %s (last from %s)"
+msgstr "brak od %s (ostatnio z %s)"
+
+msgid "Monitoring for"
+msgstr "Monitoruje od"
+
+msgid "Clock"
+msgstr "Zegar"
+
+msgid "off by %d s – its events are moved to this router's time"
+msgstr "przesunięty o %d s – jego zdarzenia są przeliczane na czas tego routera"
+
+msgid "Router %s"
+msgstr "Router %s"
+
+msgid "Its events are on the timeline below, marked with its name."
+msgstr "Jego zdarzenia są na osi czasu poniżej, oznaczone jego nazwą."
+
+msgid "Second router"
+msgstr "Drugi router"
+
+msgid "%s (its events are included, marked with its name)"
+msgstr "%s (jego zdarzenia są uwzględnione, oznaczone jego nazwą)"
+
+msgid "All routers"
+msgstr "Wszystkie routery"
+
+msgid "This router"
+msgstr "Ten router"
+
+msgid "no key set (at least 8 characters)"
+msgstr "nie ustawiono klucza (min. 8 znaków)"
+
+msgid "the address of the main router is not a valid IPv4 address"
+msgstr "adres głównego routera nie jest poprawnym adresem IPv4"
+
+msgid "the ucode-mod-digest package is missing"
+msgstr "brak pakietu ucode-mod-digest"
+
+msgid "the ucode-mod-socket package is missing"
+msgstr "brak pakietu ucode-mod-socket"
+
+msgid "cannot open a socket"
+msgstr "nie można otworzyć gniazda"
+
+msgid "UDP port %d is in use"
+msgstr "port UDP %d jest zajęty"
+
+msgid "no answer – check the address, the key and that the main router receives"
+msgstr "brak odpowiedzi – sprawdź adres, klucz i czy główny router odbiera"
+
+msgid "sending events to %s: %s"
+msgstr "wysyłanie zdarzeń do %s: %s"
+
+msgid "sending events to %s (waiting for the first confirmation)"
+msgstr "wysyłanie zdarzeń do %s (czekam na pierwsze potwierdzenie)"
+
+msgid "sending events to %s (last confirmed %s ago%s)"
+msgstr "wysyłanie zdarzeń do %s (ostatnie potwierdzenie %s temu%s)"
+
+msgid "%d waiting"
+msgstr "%d w kolejce"
+
+msgid "receiving events: %s"
+msgstr "odbiór zdarzeń: %s"
+
+msgid "receiving events of the second router on UDP port %d"
+msgstr "odbiór zdarzeń drugiego routera na porcie UDP %d"
+
+msgid "%d messages with a wrong key (last from %s)"
+msgstr "%d wiadomości ze złym kluczem (ostatnia z %s)"
+
+msgid "Two routers, one timeline: a router behind this one (e.g. an access point with a decoder, a phone or the TV behind it) sends every event it logs to the main router, which shows them on its timeline marked with the sender's name and uses them in the analysis. Install the package on both, choose “Send” on the second one and “Receive” on the main one, with the same key. Over UDP, signed with the key (HMAC-SHA256); events that cannot be delivered are sent again."
+msgstr "Dwa routery, jedna oś czasu: router za tym (np. punkt dostępowy z dekoderem, telefonem lub telewizorem) wysyła każde swoje zdarzenie do głównego routera, który pokazuje je na swojej osi czasu z nazwą nadawcy i uwzględnia w analizie. Zainstaluj pakiet na obu, na drugim wybierz „Wysyła”, na głównym „Odbiera”, z tym samym kluczem. Przez UDP, podpisane kluczem (HMAC-SHA256); niedostarczone zdarzenia są wysyłane ponownie."
+
+msgid "Works alone"
+msgstr "Działa sam"
+
+msgid "Sends its events to the main router"
+msgstr "Wysyła swoje zdarzenia do głównego routera"
+
+msgid "Receives the events of a second router"
+msgstr "Odbiera zdarzenia drugiego routera"
+
+msgid "Address of the main router"
+msgstr "Adres głównego routera"
+
+msgid "IPv4 address of the router that receives, e.g. <code>192.168.1.1</code>."
+msgstr "Adres IPv4 routera, który odbiera, np. <code>192.168.1.1</code>."
+
+msgid "UDP port"
+msgstr "Port UDP"
+
+msgid "The same on both routers. The receiver listens on it; the LAN zone of the firewall accepts it by default (input ACCEPT)."
+msgstr "Ten sam na obu routerach. Odbiorca nasłuchuje na nim; strefa LAN firewalla domyślnie go przepuszcza (input ACCEPT)."
+
+msgid "Key"
+msgstr "Klucz"
+
+msgid "The same secret on both routers, at least 8 characters. Messages signed with another key are ignored."
+msgstr "Ten sam sekret na obu routerach, min. 8 znaków. Wiadomości podpisane innym kluczem są ignorowane."
+
+msgid "%d of %d of your reports came with a Wi-Fi drop or weak signal of %s, and nothing on the line – the cause is Wi-Fi."
+msgstr "%d z %d Twoich zgłoszeń zbiegło się z rozłączeniem Wi-Fi lub słabym sygnałem %s, a na łączu nic – przyczyną jest Wi-Fi."
+
+msgid "%d of %d of your reports have nothing measured around them, and the Wi-Fi of the watched devices was fine too – the cause is probably the decoder or the TV (or a device that is not watched)."
+msgstr "%d z %d Twoich zgłoszeń nie ma wokół siebie żadnego pomiaru, a Wi-Fi obserwowanych urządzeń też było w porządku – przyczyną jest pewnie dekoder lub telewizor (albo urządzenie, które nie jest obserwowane)."
+
+msgid "Wi-Fi of %s dropped and reconnected %d× – range, interference or the device's power saving."
+msgstr "Wi-Fi %s rozłączało się i wracało %d× – zasięg, zakłócenia albo oszczędzanie energii w urządzeniu."
+
+msgid "Weak Wi-Fi signal of %s (%d×) – move the access point or the device, or use a cable."
+msgstr "Słaby sygnał Wi-Fi %s (%d×) – przestaw punkt dostępowy lub urządzenie albo użyj kabla."
+
+msgid "Wi-Fi"
+msgstr "Wi-Fi"
+
+msgid "%s: weak Wi-Fi signal (%d dBm)"
+msgstr "%s: słaby sygnał Wi-Fi (%d dBm)"
+
+msgid "Wi-Fi: cannot reach ubus"
+msgstr "Wi-Fi: brak dostępu do ubus"
+
+msgid "Wi-Fi: no access point (hostapd) running on this router"
+msgstr "Wi-Fi: na tym routerze nie działa punkt dostępowy (hostapd)"
+
+msgid "Wi-Fi: %s moved from %s to %s (gap %s)"
+msgstr "Wi-Fi: %s przeszedł z %s na %s (przerwa %s)"
+
+msgid "Wi-Fi: %s DROPPED and reconnected after %s"
+msgstr "Wi-Fi: %s ROZŁĄCZONY, wrócił po %s"
+
+msgid "Wi-Fi: %s disconnected (not back within the reconnect time)"
+msgstr "Wi-Fi: %s rozłączony (nie wrócił w czasie ponownego połączenia)"
+
+msgid "Wi-Fi: %s connected again after %s"
+msgstr "Wi-Fi: %s znów połączony po %s"
+
+msgid "Wi-Fi: %s moved from %s to %s"
+msgstr "Wi-Fi: %s przeszedł z %s na %s"
+
+msgid "Wi-Fi: %s weak signal %d dBm"
+msgstr "Wi-Fi: %s słaby sygnał %d dBm"
+
+msgid "Wi-Fi: %s signal OK again after %s (lowest %d dBm)"
+msgstr "Wi-Fi: %s sygnał znów OK po %s (najniżej %d dBm)"
+
+msgid "signal before %d dBm"
+msgstr "sygnał przed %d dBm"
+
+msgid "weak"
+msgstr "słaby"
+
+msgid "deauthenticated"
+msgstr "deautentykacja"
+
+msgid "disassociated"
+msgstr "dysasocjacja"
+
+msgid "reason %d"
+msgstr "powód %d"
+
+msgid "not connected"
+msgstr "niepołączony"
+
+msgid "Interface"
+msgstr "Interfejs"
+
+msgid "Signal"
+msgstr "Sygnał"
+
+msgid "Link rate received / sent (Mbit/s)"
+msgstr "Szybkość łącza odbiór / wysyłanie (Mbit/s)"
+
+msgid "Rate"
+msgstr "Szybkość"
+
+msgid "For"
+msgstr "Od"
+
+msgid "Add the devices to watch (phone, TV) in Settings → Wi-Fi."
+msgstr "Dodaj urządzenia do obserwowania (telefon, TV) w Ustawienia → Wi-Fi."
+
+msgid "Clients"
+msgstr "Klienci"
+
+msgid "Weak below"
+msgstr "Słaby poniżej"
+
+msgid "Wi-Fi clients"
+msgstr "Klienci Wi-Fi"
+
+msgid "Wi-Fi: %s"
+msgstr "Wi-Fi: %s"
+
+msgid "Wi-Fi drops of watched devices"
+msgstr "Rozłączenia Wi-Fi obserwowanych urządzeń"
+
+msgid "Watches the Wi-Fi clients of this router's access points (hostapd over ubus): when a watched device (phone, TV) drops and comes back, and when its signal gets weak. Then a “Problem now” report with nothing measured on the line has proof: it was Wi-Fi – or, when its Wi-Fi was fine, it was not. On a second router behind this one, set it up there and let it send its events here."
+msgstr "Obserwuje klientów Wi-Fi punktów dostępowych tego routera (hostapd przez ubus): gdy obserwowane urządzenie (telefon, TV) się rozłącza i wraca oraz gdy słabnie jego sygnał. Wtedy zgłoszenie „Problem teraz” bez pomiarów na łączu ma dowód: to było Wi-Fi – albo, gdy Wi-Fi było w porządku, to nie ono. Na drugim routerze za tym skonfiguruj to tam i niech wysyła zdarzenia tutaj."
+
+msgid "Watch Wi-Fi"
+msgstr "Obserwuj Wi-Fi"
+
+msgid "Weak signal below (dBm)"
+msgstr "Słaby sygnał poniżej (dBm)"
+
+msgid "Two checks in a row below this are logged. Around −70 dBm streaming starts to suffer."
+msgstr "Zapisywane są dwa kolejne pomiary poniżej tej wartości. Około −70 dBm streaming zaczyna cierpieć."
+
+msgid "Reconnect within (s)"
+msgstr "Ponowne połączenie w ciągu (s)"
+
+msgid "A device that is back within this time was dropped (a fault). One that stays away longer just left (e.g. the phone left the house) and is only noted."
+msgstr "Urządzenie, które wróci w tym czasie, zostało rozłączone (usterka). Takie, którego nie ma dłużej, po prostu wyszło (np. telefon opuścił dom) i jest tylko odnotowane."
+
+msgid "Wi-Fi devices to watch"
+msgstr "Obserwowane urządzenia Wi-Fi"
+
+msgid "Only these are logged; the others are counted. Devices connected now are offered in the list."
+msgstr "Zapisywane są tylko te; pozostałe są liczone. Lista podpowiada urządzenia połączone teraz."
+
+msgid "MAC address"
+msgstr "Adres MAC"
+
+msgid "e.g. Phone"
+msgstr "np. Telefon"
+
+msgid "Path snapshots (%d): the loss started at hop %d (%s) and carried on to the destination (%d× there) – inside the ISP's network or beyond; the hops before it were fine. Show this to the ISP."
+msgstr "Migawki trasy (%d): straty zaczynały się od hopa %d (%s) i ciągnęły do celu (%d× tam) – w sieci operatora lub dalej; hopy przed nim były w porządku. Pokaż to operatorowi."
+
+msgid "Path snapshots (%d): the loss started already at the first hop (%s) – the access line or the ISP's first router."
+msgstr "Migawki trasy (%d): straty zaczynały się już na pierwszym hopie (%s) – łącze dostępowe lub pierwszy router operatora."
+
+msgid "Path snapshot (%s) to %s"
+msgstr "Migawka trasy (%s) do %s"
+
+msgid "(%s after the loss started)"
+msgstr "(%s po początku strat)"
+
+msgid "no result"
+msgstr "brak wyniku"
+
+msgid "no loss to the destination any more – the loss was over, or only ICMP replies of a router on the way were slow"
+msgstr "już bez strat do celu – straty minęły albo tylko router po drodze wolno odpowiadał na ICMP"
+
+msgid "loss from the first hop (%s) to the destination – the access line or the ISP's first router"
+msgstr "straty od pierwszego hopa (%s) do celu – łącze dostępowe lub pierwszy router operatora"
+
+msgid "loss starts at hop %d (%s) and carries on to the destination (%d%%); up to hop %s (%s) it was fine"
+msgstr "straty zaczynają się na hopie %d (%s) i ciągną do celu (%d%%); do hopa %s (%s) było w porządku"
+
+msgid "Hop"
+msgstr "Hop"
+
+msgid "Path snapshots at the moment of a loss"
+msgstr "Migawki trasy w chwili strat"
+
+msgid "Taken automatically when a loss started. Loss that starts at a hop and carries on to the destination shows where packets are lost; loss at a single hop only is a router that answers pings slowly."
+msgstr "Wykonywane automatycznie, gdy zaczynały się straty. Straty, które zaczynają się na danym hopie i ciągną do celu, pokazują, gdzie giną pakiety; straty tylko na jednym hopie to router, który wolno odpowiada na pingi."
+
+msgid "path snapshot at a loss: %s%s"
+msgstr "migawka trasy przy stratach: %s%s"
+
+msgid "running now"
+msgstr "trwa teraz"
+
+msgid "path snapshot at a loss: no traceroute / mtr on the router"
+msgstr "migawka trasy przy stratach: brak traceroute / mtr na routerze"
+
+msgid "Path snapshot at a loss"
+msgstr "Migawka trasy przy stratach"
+
+msgid "When a loss starts (or the connection is down), one traceroute is run to a far target – <code>mtr</code> when installed (10 rounds, more precise), otherwise the busybox <code>traceroute</code>. The timeline then shows at which hop the loss starts and carries on to the destination: concrete proof for the ISP. Takes a few seconds, at most once per the time below."
+msgstr "Gdy zaczynają się straty (albo łącze leży), uruchamiany jest jeden traceroute do dalekiego celu – <code>mtr</code>, jeśli jest zainstalowany (10 rund, dokładniejszy), inaczej <code>traceroute</code> z busybox. Oś czasu pokazuje wtedy, od którego hopa straty zaczynają się i ciągną do celu: konkretny dowód dla operatora. Trwa kilka sekund, najwyżej raz na czas podany niżej."
+
+msgid "At most every (s)"
+msgstr "Najwyżej co (s)"
+
+msgid "Bufferbloat %d×: the ping went up by as much as %d ms only while the link was full (%s) – your own traffic fills a buffer in the modem or at the ISP. Not an outage and not the ISP's fault: SQM (luci-app-sqm, cake) set a bit below the line speed fixes it."
+msgstr "Bufferbloat %d×: ping rósł nawet o %d ms tylko wtedy, gdy łącze było pełne (%s) – własny ruch zapełnia bufor w modemie lub u operatora. To nie awaria i nie wina operatora: pomoże SQM (luci-app-sqm, cake) ustawione nieco poniżej prędkości łącza."
+
+msgid "upload"
+msgstr "wysyłanie"
+
+msgid "download"
+msgstr "pobieranie"
+
+msgid "download and upload"
+msgstr "pobieranie i wysyłanie"
+
+msgid "%d high-ping warnings at those times are not counted against the ISP."
+msgstr "%d ostrzeżeń o wysokim pingu w tych chwilach nie liczy się przeciw operatorowi."
+
+msgid "Ping is up by %d ms while the link is %d%% full (%s) – bufferbloat, not an outage"
+msgstr "Ping wyższy o %d ms przy łączu zajętym w %d%% (%s) – bufferbloat, nie awaria"
+
+msgid "BUFFERBLOAT: ping %s → %s (+%d ms) with the link %d%% full (%s %s of %s Mbit/s)"
+msgstr "BUFFERBLOAT: ping %s → %s (+%d ms) przy łączu zajętym w %d%% (%s %s z %s Mbit/s)"
+
+msgid "Bufferbloat over after %s (at most +%d ms)"
+msgstr "Bufferbloat minął po %s (najwyżej +%d ms)"
+
+msgid "measuring…"
+msgstr "mierzę…"
+
+msgid "%s at low load; the link has not been full yet"
+msgstr "%s przy małym obciążeniu; łącze nie było jeszcze pełne"
+
+msgid "lags only when the link is full (bufferbloat)"
+msgstr "lagi tylko przy pełnym łączu (bufferbloat)"
+
+msgid "sometimes higher at full link"
+msgstr "czasem wyższy przy pełnym łączu"
+
+msgid "no extra delay at full link"
+msgstr "bez dodatkowego opóźnienia przy pełnym łączu"
+
+msgid "Line speed"
+msgstr "Prędkość łącza"
+
+msgid "highest seen"
+msgstr "najwyższa zaobserwowana"
+
+msgid "set"
+msgstr "ustawiona"
+
+msgid "Ping of the gateway at low load and with the link full, from collectd and the WAN traffic of the same interval"
+msgstr "Ping bramy przy małym obciążeniu i przy pełnym łączu, z collectd i ruchu WAN z tego samego przedziału"
+
+msgid "Ping idle / full link"
+msgstr "Ping w spoczynku / pełne łącze"
+
+msgid "Bufferbloat: ping +%d ms"
+msgstr "Bufferbloat: ping +%d ms"
+
+msgid "Download"
+msgstr "Pobieranie"
+
+msgid "Upload"
+msgstr "Wysyłanie"
+
+msgid "WAN traffic (Mbit/s) – yellow = bufferbloat (ping up while the link is full)"
+msgstr "Ruch WAN (Mbit/s) – żółte = bufferbloat (ping w górę przy pełnym łączu)"
+
+msgid "Detect bufferbloat"
+msgstr "Wykrywaj bufferbloat"
+
+msgid "Compares the ping from collectd with the WAN traffic of the same interval: when the ping goes up only while the link is full, the lag is your own traffic filling a buffer (modem, ISP) – not an outage, and SQM fixes it. No speed test is run: the line speed is the highest rate seen, or the values below."
+msgstr "Porównuje ping z collectd z ruchem WAN z tego samego przedziału: gdy ping rośnie tylko przy pełnym łączu, lag to własny ruch zapełniający bufor (modem, operator) – nie awaria, a SQM to naprawia. Bez własnego speedtestu: prędkość łącza to najwyższa zaobserwowana albo wartości poniżej."
+
+msgid "Ping increase (ms)"
+msgstr "Wzrost pingu (ms)"
+
+msgid "Above the ping at low load, twice in a row."
+msgstr "Ponad ping przy małym obciążeniu, dwa razy z rzędu."
+
+msgid "Link full from (%)"
+msgstr "Łącze pełne od (%)"
+
+msgid "Download speed (Mbit/s)"
+msgstr "Prędkość pobierania (Mbit/s)"
+
+msgid "Of your plan. Empty = the highest rate seen."
+msgstr "Z Twojej taryfy. Puste = najwyższa zaobserwowana."
+
+msgid "Upload speed (Mbit/s)"
+msgstr "Prędkość wysyłania (Mbit/s)"
+
+msgid "7 d"
+msgstr "7 dni"
+
+msgid "30 d"
+msgstr "30 dni"
+
+msgid "loading the archive…"
+msgstr "wczytuję archiwum…"
+
+msgid "IPTV bitrate (10 min average)"
+msgstr "Bitrate IPTV (średnia 10 min)"
+
+msgid "Interface errors per 10 minutes"
+msgstr "Błędy interfejsów na 10 minut"
+
+msgid "Preparing the report…"
+msgstr "Przygotowuję raport…"
+
+msgid "The archive of the last %d days on USB is deleted too."
+msgstr "Archiwum z ostatnich %d dni na USB też zostanie usunięte."
+
+msgid "Archive on USB"
+msgstr "Archiwum na USB"
+
+msgid "With the data on USB, every event and a 10-minute summary of the charts are also kept per day for this long, so the overview can show 7 or 30 days and the report for the ISP can cover a whole week. Appended once per event and once per 10 minutes, never rewritten. Without a USB folder it stays off (RAM is too small)."
+msgstr "Gdy dane są na USB, każde zdarzenie i 10-minutowe podsumowanie wykresów są też trzymane dzień po dniu przez tyle czasu, więc przegląd może pokazać 7 lub 30 dni, a raport dla operatora objąć cały tydzień. Dopisywane raz na zdarzenie i raz na 10 minut, nigdy nie przepisywane. Bez folderu na USB jest wyłączone (za mało RAM)."
+
+msgid "Off"
+msgstr "Wyłączone"
+
+msgid "7 days"
+msgstr "7 dni"
+
+msgid "30 days"
+msgstr "30 dni"
+
+msgid "90 days"
+msgstr "90 dni"
+
+msgid "%d of %d IPTV freezes happened while a decoder (%s) restarted – the decoder, not a lost stream; not counted against the ISP."
+msgstr "%d z %d zamrożeń IPTV wystąpiło podczas restartu dekodera (%s) – to dekoder, nie zniknięcie streamu; nie liczy się przeciw operatorowi."
+
+msgid "Decoder %s restarted %d× – power supply, firmware update or overheating (or someone switched it off and on)."
+msgstr "Dekoder %s restartował się %d× – zasilacz, aktualizacja oprogramowania lub przegrzewanie (albo ktoś go wyłączył i włączył)."
+
+msgid "Decoders: cannot read the bridge MAC table (bridge fdb)"
+msgstr "Dekodery: nie można odczytać tablicy MAC mostu (bridge fdb)"
+
+msgid "Decoder %s RESTARTED – away for %s on %s (%s)"
+msgstr "Dekoder %s ZRESTARTOWAŁ SIĘ – nie było go %s na %s (%s)"
+
+msgid "port link went down"
+msgstr "zanik linku portu"
+
+msgid "vanished from the MAC table"
+msgstr "zniknął z tablicy MAC"
+
+msgid "silent while the stream stopped"
+msgstr "cisza, gdy stream stanął"
+
+msgid "the stream stopped because of it, not at the ISP"
+msgstr "stream stanął przez to, nie u operatora"
+
+msgid "Decoder %s switched off or unplugged (%s)"
+msgstr "Dekoder %s wyłączony lub odłączony (%s)"
+
+msgid "Decoder %s is back after %s"
+msgstr "Dekoder %s wrócił po %s"
+
+msgid "%d during decoder restarts"
+msgstr "%d podczas restartów dekodera"
+
+msgid "Decoder %s"
+msgstr "Dekoder %s"
+
+msgid "on %s, for %s"
+msgstr "na %s, od %s"
+
+msgid "silent for %s"
+msgstr "cisza od %s"
+
+msgid "off / unplugged since %s"
+msgstr "wyłączony / odłączony od %s"
+
+msgid "not visible for %s"
+msgstr "niewidoczny od %s"
+
+msgid "on %s"
+msgstr "na %s"
+
+msgid "not visible (%s)"
+msgstr "niewidoczny (%s)"
+
+msgid "Decoder restarts"
+msgstr "Restarty dekodera"
+
+msgid "Decoders"
+msgstr "Dekodery"
+
+msgid "Tells “the decoder restarted” from “the stream vanished”. In a bridged IPTV VLAN the decoders get their address from the ISP, so the router has no neighbour entry for them; it uses the bridge's MAC table instead: every device in the IPTV VLAN on a port other than the one to the ISP is a decoder. A restart is seen when the port's link goes down (decoder directly on the port), when it vanishes from the MAC table and comes back, or when it is silent while the stream stops. Behind a switch the port stays up – install the package on the router the decoder is plugged into and let it send its events here. Needs the IPTV VLAN set above and the <code>ip-bridge</code> package."
+msgstr "Odróżnia „dekoder się zrestartował” od „zniknął stream”. W mostkowanym VLAN-ie IPTV dekodery dostają adres od operatora, więc router nie ma ich w tablicy sąsiadów; korzysta zamiast tego z tablicy MAC mostu: każde urządzenie w VLAN-ie IPTV na porcie innym niż port do operatora to dekoder. Restart widać, gdy link portu zanika (dekoder wpięty bezpośrednio), gdy znika z tablicy MAC i wraca albo gdy milczy, gdy stream staje. Za switchem port pozostaje aktywny – zainstaluj pakiet na routerze, do którego wpięty jest dekoder, i niech wysyła zdarzenia tutaj. Wymaga ustawionego wyżej VLAN-u IPTV i pakietu <code>ip-bridge</code>."
+
+msgid "Detect decoder restarts"
+msgstr "Wykrywaj restarty dekodera"
+
+msgid "Silent for (s)"
+msgstr "Cisza przez (s)"
+
+msgid "No frame from the decoder for this long while the stream stopped counts as a restart."
+msgstr "Brak ramek od dekodera przez tyle czasu, gdy stream stanął, liczy się jako restart."
+
+msgid "Switched off after (s)"
+msgstr "Wyłączony po (s)"
+
+msgid "Away longer than this: switched off or unplugged, not a restart."
+msgstr "Nieobecny dłużej: wyłączony lub odłączony, nie restart."
+
+msgid "Decoder names"
+msgstr "Nazwy dekoderów"
+
+msgid "Optional: a name per decoder MAC address, shown instead of the address. The decoders found now are offered in the list."
+msgstr "Opcjonalnie: nazwa dla adresu MAC dekodera, wyświetlana zamiast adresu. Lista podpowiada dekodery znalezione teraz."
+
+msgid "e.g. Living room"
+msgstr "np. Salon"

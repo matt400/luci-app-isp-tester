@@ -40,6 +40,11 @@ Target: **OpenWrt 24.10 and 25.12** (ucode + rpcd + LuCI JS). No compiled code, 
 | **Ports** | `/sys/class/net/<dev>` counters and link state | link down/up, link flapping between samples, speed change (e.g. 1 Gbit → 100 Mbit), RX/TX/CRC errors, drops |
 | **Router** | `/proc`: CPU per core (incl. softirq), RAM, connection tracking table. Only read to explain problems; for graphs use *Status → Realtime Graphs* or luci-app-statistics | router overloaded, low RAM, connection table full |
 | **You** | **⚑ Problem now** button | your report with the time of the click and an optional note |
+| **Decoders** (bridged IPTV VLAN) | bridge MAC table (`bridge -s fdb`: which MAC behind which port, seconds since its last frame) + link of that port | *decoder restarted* (away N s; port link down / vanished from the MAC table / silent while the stream stopped), *switched off*, *back* – freezes during a restart are not counted against the ISP |
+| **Path snapshot** | one `mtr -r` (when installed) or busybox `traceroute` when a loss starts or the WAN is down, at most every 10 min | *loss starts at hop N (IP) and carries on to the destination* – the hops fold out on the timeline and are in the report |
+| **Bufferbloat** | collectd's ping matched with the WAN traffic of the same interval (device counters); line speed = highest 30 s rate seen or set | *bufferbloat: ping +N ms with the link X % full* / *over*; WAN traffic chart with the periods marked; card: ping idle vs. full link |
+| **Wi-Fi** | hostapd over ubus (`get_clients` every interval + its disassoc/deauth/assoc notifications), signal from hostapd or iwinfo | a watched device (phone, TV) *dropped and reconnected* after N s (fault) or *left* (info), *moved to another band*, *weak signal* (two checks below the limit, default −75 dBm) |
+| **Second router** (optional) | Events of a router behind this one (access point with a decoder, phone, TV), sent over UDP | everything that router logs, on the same timeline marked with its name; *router stopped reporting* / *reports again* |
 
 Optionally it shows whether **IGMP snooping** and the **querier** are active on a bridge, and which group goes to which bridge port (needs `ip-bridge`).
 
@@ -111,6 +116,81 @@ Everything is kept in RAM in `/tmp/isp-tester/`, so flash is never written. The 
 
 To keep it across reboots, mount a USB stick (*System → Mount Points*) and set **Settings → General → Keep data on** to it (e.g. `/mnt/sda1`). `/tmp/isp-tester` then becomes a link to `<folder>/isp-tester`. If the stick is not mounted at start, the data stays in RAM. Do not point it at the internal flash. The current state (`state.json`) always stays in RAM in `/var/run/isp-tester/`.
 
+### Archive: 7 / 30 days, weekly report
+
+With the data on USB, **Settings → General → Archive on USB** (default 30 days) also keeps, per UTC day, in `/tmp/isp-tester/archive/`:
+
+| File | Content |
+|---|---|
+| `ev-YYYYMMDD.jsonl` | every event of that day (also those of the second router), one JSON object per line |
+| `h-YYYYMMDD.jsonl` | the chart data as 10-minute summaries (average / max / min as on the 24 h charts) |
+
+The files are only appended to – one line per event and one per 10 minutes, never rewritten – which is easy on the stick; days older than the limit are deleted once an hour. The overview then offers **7 d** and **30 d**, and ◀ ▶ go back beyond 24 h: the page reads the day files it needs. The charts use the 10-minute summaries there, the timeline and the analysis use the archived events, and **Report for the ISP** covers the selected period – choose *7 d* for a weekly report. *Download timeline (CSV)* exports the selected period. In RAM the archive stays off (30 days would not fit); *Clear logs* deletes it too.
+
+## Decoder restarts
+
+A decoder that restarts makes the picture stop just like a stream the ISP stopped sending. To tell them apart, the collector watches the decoders themselves. In a bridged IPTV VLAN the decoders get their address from the ISP, so the router has no neighbour (ARP) entry for them; it reads the bridge's MAC table instead: every MAC learned in the IPTV VLAN on a port other than the one towards the ISP is a decoder (found automatically; names can be set in *Settings → Decoders*).
+
+| Signal | When it works |
+|---|---|
+| **Port link down** | decoder plugged directly into this router's port |
+| **Vanished from the MAC table** and came back | the entry is flushed on a link change and ages out after 5 min of silence |
+| **Silent** for *Silent for* (40 s) **while the stream stopped**, then frames again | decoder behind a switch: its port on this router stays up |
+
+Back within *Switched off after* (10 min): **decoder restarted**, with how long it was away and which signal saw it. Longer: *switched off or unplugged*, then *back*. The IPTV card lists the decoders with their port and state.
+
+The analysis and the report put IPTV freezes during a decoder restart aside (*N freezes happened while decoder X restarted*), so they do not count against the ISP; repeated restarts point at the decoder (power supply, firmware, heat).
+
+With a second router: a decoder plugged into the second router is best watched there (its port link is the clearest signal) – its restarts reach the main router's timeline and analysis.
+
+## Path snapshot at a loss
+
+When a target starts losing packets (or everything is down), the collector runs one traceroute to a far target – the gateway alone would show nothing beyond hop 1. `mtr` (package `mtr`, 10 rounds at 0.5 s) is used when installed and gives loss per hop; otherwise busybox `traceroute -q 3`. The result is one event on the timeline: click it to fold out the hops.
+
+How to read it: a loss that **starts at a hop and carries on to the destination** is where packets are lost – the event names that hop and the last good one before it. Loss at a single hop that does not continue is only a router answering pings slowly (ICMP rate limiting) and is ignored. If the destination shows no loss any more, the loss was already over when the snapshot ran (collectd reports per its interval, so the snapshot comes some seconds after the start; the event says how long after).
+
+The report for the ISP lists every snapshot with its hop table. At most one per *At most every* (default 10 min), one at a time, stopped after 60 s.
+
+## Bufferbloat: lags only when the link is full?
+
+No speed test of its own: every collectd ping value (one average per collectd interval) is matched with the WAN traffic of the same interval, read from the WAN device's counters every tick. The line's speed is the highest 30-second rate ever seen (slowly forgotten, kept in `wanpeak.json`), or the speed of your plan when set (*Settings → Internet*).
+
+- Ping at a load below 20 % is the base (median of the last 60 such values).
+- Ping at a load of *Link full from* (70 %) or more that is *Ping increase* (30 ms) above the base, twice in a row, logs **bufferbloat** with the base, the ping, the load and the direction; two normal values end it.
+- The Internet card shows *Ping idle / full link* – e.g. *10 ms / 80 ms (+70 ms) – lags only when the link is full* – and the line speed it uses. The chart *WAN traffic* marks the periods in yellow.
+- The analysis puts it on the home side: your own traffic fills a buffer (modem or ISP). High-ping warnings during those periods are not counted against the ISP (loss still is). SQM (`luci-app-sqm`, cake, set a bit below the line speed) fixes it.
+
+The load is known only when the link was full at least once (or the speed is set); until then the card says so.
+
+## Wi-Fi
+
+*Settings → Wi-Fi*: add the devices to watch (the list offers the ones connected now). Only those are logged; the others are counted per interface.
+
+- **Dropped and reconnected** within *Reconnect within* (default 60 s) is a fault (yellow). A drop shorter than one interval is caught too, through hostapd's notifications.
+- **Left** – away longer than that (the phone left the house) – is only noted.
+- **Moved** to another band or access point of this router: noted, not a fault.
+- **Weak signal**: two checks in a row below *Weak signal below*, back after two checks 5 dB above it; the event keeps the lowest value.
+
+Why it matters: when you click **⚑ Problem now** and nothing was measured on the line, the analysis now says either *your report came with a Wi-Fi drop / weak signal of the phone – the cause is Wi-Fi*, or *the Wi-Fi of the watched devices was fine too – look at the decoder or the TV*. Devices behind a second router: set up Wi-Fi there and let it send its events here (next section).
+
+Needs hostapd with ubus (the OpenWrt default) and, for the signal on drivers where hostapd gives none, `rpcd-mod-iwinfo` (installed with LuCI). Without an access point on the router the card says so.
+
+## Two routers, one timeline
+
+When the decoder, the phone or the TV sit behind a second router (e.g. an access point on a LAN port of the main router), each router only sees itself: the main one sees the ISP, the second one sees the devices. Install the package on both and let the second one send its events to the main one:
+
+1. On the main router: *Settings → Second router → This router: Receives the events of a second router*, set a key (at least 8 characters).
+2. On the second router: *Sends its events to the main router*, the main router's IPv4 address and the same key.
+
+What you get on the main router:
+
+- Every event of the second router appears on the timeline with its name in front (*M477S · Ports: lan1 link DOWN*). The timeline can be filtered by router; the report for the ISP includes them.
+- A card shows the second router's state (its ports and IPTV), refreshed every interval. If it stops reporting for a minute (off, rebooting, the cable between the routers), that is logged and the banner turns yellow.
+- The analysis uses its ports and your reports there as evidence for the home side, and points out IPTV freezes that the second router saw but the main router (nearer the ISP) did not: the stream was lost between the routers.
+- Notifications of the main router include the second router's events.
+
+How it works: UDP (default port 51477), one JSON message per datagram, signed with HMAC-SHA256 of the shared key; messages with another key are ignored and counted. The receiver confirms what it stored; anything unconfirmed is sent again every interval (up to 300 events are kept), so a short outage of the main router loses nothing. If the second router's clock is off by more than 5 s, its events are moved to the main router's time. The LAN zone of the default firewall accepts the port; if the second router is in another zone, open UDP 51477 on the main router for it. Only IPv4 addresses are used, so nothing needs to be resolved at boot.
+
 ## Notifications
 
 **Settings → Notifications** sends a push message when something breaks and when it is fixed: [ntfy](https://ntfy.sh) (topic URL), a Telegram bot (token + chat id) or any webhook (JSON POST `{"text": …}`). Events are batched (default at most one message per 5 min). Messages that cannot be sent during an outage are sent when the Internet is back. Messages are in English or Polish. It uses `uclient-fetch` (part of OpenWrt) with HTTPS support.
@@ -122,6 +202,9 @@ To keep it across reboots, mount a USB stick (*System → Mount Points*) and set
 | `events.json` | timeline (ring buffer, default 1000 entries) |
 | `samples.csv` | one row per interval (ring buffer, default 8640 rows = 24 h at 10 s) |
 | `samples.prev.csv` | previous CSV after the column layout changed (config change) |
+| `archive/ev-*.jsonl`, `archive/h-*.jsonl` | with data on USB: events and 10-minute summaries per day (see *Archive*) |
+| `wanpeak.json` | highest WAN rate seen (line speed for the bufferbloat check) |
+| `/var/run/isp-tester/peers.json` | receiver: last event number stored per second router (always RAM) |
 
 ## Choosing what to measure IPTV on
 

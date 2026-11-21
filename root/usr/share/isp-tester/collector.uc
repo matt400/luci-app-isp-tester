@@ -60,6 +60,9 @@ const BRIDGE = find_bin('ISP_TESTER_BRIDGE', [ '/usr/sbin/bridge', '/sbin/bridge
 const PROXIES = [ 'igmpproxy', 'mcproxy', 'omcproxy', 'improxy' ];
 /* picture quality and channel names: the helper of package isp-tester-tsmon */
 const TSMON = find_bin('ISP_TESTER_TSMON', [ '/usr/sbin/isp-tester-tsmon' ]);
+/* snapshot of the path at a loss: mtr when installed, else busybox traceroute */
+const MTR = find_bin('ISP_TESTER_MTR', [ '/usr/sbin/mtr', '/usr/bin/mtr' ]);
+const TRACEROUTE = find_bin('ISP_TESTER_TRACEROUTE', [ '/usr/bin/traceroute', '/bin/traceroute', '/usr/sbin/traceroute' ]);
 
 const STAT_KEYS = [
 	'rx_bytes', 'tx_bytes', 'rx_packets', 'tx_packets',
@@ -108,6 +111,12 @@ function valid_group(g) {
 	return !!m && +m[2] <= 255 && +m[3] <= 255 && +m[4] <= 255;
 }
 
+/* plain IPv4 address (no names: nothing to resolve at boot) */
+function valid_ip(a) {
+	let m = match(`${a ?? ''}`, /^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$/);
+	return !!m && +m[1] <= 255 && +m[2] <= 255 && +m[3] <= 255 && +m[4] <= 255;
+}
+
 function write_atomic(path, data) {
 	let tmp = path + '.tmp';
 	if (fs.writefile(tmp, data) == null) return false;
@@ -133,12 +142,18 @@ function default_config() {
 		max_events: 1000,
 		history: 360,
 		long_history: 1440,
+		/* days kept in RUNDIR/archive when RUNDIR is on USB (data_dir); 0 = off */
+		archive_days: 30,
 		warn_window: 900,
 		logread: true,
 		wan: {
 			enabled: true, interface: 'wan', device: '', gateway: '',
 			loss_warn: 1, loss_fail: 50, rtt_warn: 80, jitter_warn: 0,
-			collectd_socket: '', rrd_dir: ''
+			collectd_socket: '', rrd_dir: '',
+			/* one traceroute/mtr when a loss starts, at most every trace_cooldown s */
+			trace: true, trace_cooldown: 600,
+			/* bufferbloat: ping vs. WAN load; down/up_mbit 0 = learn the line's speed */
+			bloat: true, bloat_ms: 30, bloat_load: 70, down_mbit: 0, up_mbit: 0
 		},
 		iptv: {
 			enabled: true, vlan: 0, upstream: '', device: '', direction: 'rx', bridge: '',
@@ -146,7 +161,9 @@ function default_config() {
 			sample_interval: 1, stall_after: 2,
 			igmp: true, igmp_device: '',
 			quality: false, q_warn: 1, q_fail: 30, q_gap: 500,
-			names: true, channels: {}
+			names: true, channels: {},
+			/* decoder restarts: bridge MAC table (bridged VLAN) + port link; decoders = { mac: label } */
+			decoders: true, dec_silence: 40, dec_off: 600, dec_labels: {}
 		},
 		system: {
 			enabled: true, cpu_warn: 90, mem_warn: 10, conntrack_warn: 90
@@ -155,6 +172,10 @@ function default_config() {
 			enabled: false, service: 'ntfy', url: '', token: '', chat_id: '',
 			min_level: 'err', cooldown: 300, lang: 'en'
 		},
+		/* Wi-Fi clients from hostapd (ubus): stations = { mac: label } */
+		wifi: { enabled: true, signal_warn: -75, reconnect_s: 60, stations: {} },
+		/* second router: 'send' its events to the one that 'receive's them */
+		peer: { role: 'off', host: '', port: 51477, key: '' },
 		ports: [],
 		err_cooldown: 60,
 		drop_warn: 50
@@ -182,11 +203,32 @@ function load_config() {
 		let t = cur.get_all('isp_tester', 'iptv') || {};
 		let y = cur.get_all('isp_tester', 'system') || {};
 		let n = cur.get_all('isp_tester', 'notify') || {};
+		let pr = cur.get_all('isp_tester', 'peer') || {};
+		let wf = cur.get_all('isp_tester', 'wifi') || {};
+
+		c.wifi.enabled     = bool(wf.enabled, true);
+		c.wifi.signal_warn = num(wf.signal_warn, c.wifi.signal_warn);
+		c.wifi.reconnect_s = num(wf.reconnect_s, c.wifi.reconnect_s);
+		cur.foreach('isp_tester', 'station', (s) => {
+			if (s.mac && bool(s.enabled, true)) c.wifi.stations[lc(trim(s.mac))] = s.label ?? '';
+		});
+
+		c.peer.role = (pr.role == 'send' || pr.role == 'receive') ? pr.role : 'off';
+		c.peer.host = trim(pr.host ?? '');
+		c.peer.port = num(pr.port, c.peer.port);
+		c.peer.key  = pr.key ?? '';
 
 		c.logread     = bool(g.logread, true);
 
 		c.wan.jitter_warn = num(w.jitter_warn, c.wan.jitter_warn);
 		c.wan.gateway     = w.gateway ?? '';
+		c.wan.trace          = bool(w.trace, true);
+		c.wan.trace_cooldown = num(w.trace_cooldown, c.wan.trace_cooldown);
+		c.wan.bloat          = bool(w.bloat, true);
+		c.wan.bloat_ms       = num(w.bloat_ms, c.wan.bloat_ms);
+		c.wan.bloat_load     = num(w.bloat_load, c.wan.bloat_load);
+		c.wan.down_mbit      = num(w.down_mbit, c.wan.down_mbit);
+		c.wan.up_mbit        = num(w.up_mbit, c.wan.up_mbit);
 
 		/* where luci-app-statistics keeps collectd's data */
 		let us = cur.get_all('luci_statistics', 'collectd_unixsock') || {};
@@ -197,6 +239,12 @@ function load_config() {
 		c.wan.ping_plugin = bool(pg.enable, false);
 		c.wan.ping_hosts = aslist(pg.Hosts);
 
+		c.iptv.decoders    = bool(t.decoders, true);
+		c.iptv.dec_silence = num(t.dec_silence, c.iptv.dec_silence);
+		c.iptv.dec_off     = num(t.dec_off, c.iptv.dec_off);
+		cur.foreach('isp_tester', 'decoder', (s) => {
+			if (s.mac) c.iptv.dec_labels[lc(trim(s.mac))] = s.label ?? '';
+		});
 		c.iptv.igmp        = bool(t.igmp, true);
 		c.iptv.igmp_device = t.igmp_device ?? '';
 
@@ -219,6 +267,7 @@ function load_config() {
 		c.max_events  = num(g.max_events, c.max_events);
 		c.history     = num(g.history, c.history);
 		c.long_history = num(g.long_history, c.long_history);
+		c.archive_days = num(g.archive_days, c.archive_days);
 		c.warn_window = num(g.warn_window, c.warn_window);
 		c.err_cooldown = num(g.err_cooldown, c.err_cooldown);
 		c.drop_warn   = num(g.drop_warn, c.drop_warn);
@@ -305,6 +354,38 @@ function load_config() {
 	c.iptv.igmp_dev = c.iptv.igmp_device || (c.iptv.direction == 'rx' ? c.iptv.device : '');
 	if (c.notify.cooldown < 30) c.notify.cooldown = 30;
 
+	let sta = {};
+	for (let mac, l in (type(c.wifi.stations) == 'object' ? c.wifi.stations : {})) {
+		mac = lc(mac);
+		if (match(mac, /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/)) sta[mac] = substr(trim(replace(`${l ?? ''}`, /[[:cntrl:]]+/g, ' ')), 0, 32);
+	}
+	c.wifi.stations = sta;
+	if (c.wifi.signal_warn > -30 || c.wifi.signal_warn < -100) c.wifi.signal_warn = -75;
+	if (c.wifi.reconnect_s < 5) c.wifi.reconnect_s = 5;
+
+	if (c.wan.trace_cooldown < 60) c.wan.trace_cooldown = 60;
+	let dl = {};
+	for (let mac, l in (type(c.iptv.dec_labels) == 'object' ? c.iptv.dec_labels : {})) {
+		mac = lc(mac);
+		if (match(mac, /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/)) dl[mac] = substr(trim(replace(`${l ?? ''}`, /[[:cntrl:]]+/g, ' ')), 0, 32);
+	}
+	c.iptv.dec_labels = dl;
+	if (c.iptv.dec_silence < 15) c.iptv.dec_silence = 15;
+	if (c.iptv.dec_off < c.iptv.dec_silence + 30) c.iptv.dec_off = c.iptv.dec_silence + 30;
+	c.archive_days = int(c.archive_days);
+	if (c.archive_days < 0) c.archive_days = 0;
+	if (c.archive_days > 366) c.archive_days = 366;
+	if (c.wan.bloat_ms < 5) c.wan.bloat_ms = 5;
+	if (c.wan.bloat_load < 30 || c.wan.bloat_load > 100) c.wan.bloat_load = 70;
+	if (!(c.wan.down_mbit >= 0)) c.wan.down_mbit = 0;
+	if (!(c.wan.up_mbit >= 0)) c.wan.up_mbit = 0;
+
+	c.peer.port = int(c.peer.port);
+	if (c.peer.port < 1 || c.peer.port > 65535) c.peer.port = 51477;
+	c.peer.err = null;
+	if (c.peer.role != 'off' && length(c.peer.key ?? '') < 8) c.peer.err = 'no_key';
+	else if (c.peer.role == 'send' && !valid_ip(c.peer.host)) c.peer.err = 'bad_host';
+
 	return c;
 }
 
@@ -376,7 +457,14 @@ const MSG = {
 		ts_errors: 'IPTV picture errors: %d lost-packet gaps (~%d packets) in %ss, channel %s',
 		proxy_down: 'Multicast proxy %s is not running', proxy_up: 'Multicast proxy %s running again', proxy_restart: 'Multicast proxy %s restarted',
 		cpu_high: 'Router CPU busy: %d%% (softirq %d%%)', mem_low: 'Router RAM low: %d%% free', conntrack_full: 'Connection table %d%% full',
-		user_mark: 'Problem reported by user: %s', test: 'Test message - notifications work.'
+		user_mark: 'Problem reported by user: %s', test: 'Test message - notifications work.',
+		peer_lost: 'Router %s does not report any more', peer_back: 'Router %s reports again after %s',
+		trace: 'Traceroute to %s: %s',
+		decoder_restart: 'Decoder %s restarted (gone %s, %s)', decoder_off: 'Decoder %s switched off or unplugged (%s)',
+		decoder_on: 'Decoder %s is back after %s',
+		bufferbloat: 'Bufferbloat: ping +%s ms with the link %d%% full (%s)', bufferbloat_ok: 'Bufferbloat over after %s (up to +%s ms)',
+		wifi_reconnect: 'Wi-Fi: %s dropped and reconnected after %s (%s)', wifi_leave: 'Wi-Fi: %s disconnected (%s)',
+		wifi_join: 'Wi-Fi: %s connected again after %s', wifi_roam: 'Wi-Fi: %s moved %s -> %s', wifi_weak: 'Wi-Fi: %s weak signal %d dBm', wifi_weak_ok: 'Wi-Fi: %s signal OK again after %s'
 	},
 	pl: {
 		link_down: '%s: BRAK ŁĄCZA', link_up: '%s: łącze wróciło po %s', link_flap: '%s: łącze mrugnęło',
@@ -392,7 +480,14 @@ const MSG = {
 		ts_errors: 'Błędy obrazu IPTV: %d przerw w pakietach (~%d pakietów) w %ss, kanał %s',
 		proxy_down: 'Proxy multicast %s nie działa', proxy_up: 'Proxy multicast %s znów działa', proxy_restart: 'Proxy multicast %s zrestartowany',
 		cpu_high: 'Router przeciążony: CPU %d%% (softirq %d%%)', mem_low: 'Mało RAM: wolne %d%%', conntrack_full: 'Tablica połączeń zajęta w %d%%',
-		user_mark: 'Problem zgłoszony ręcznie: %s', test: 'Wiadomość testowa - powiadomienia działają.'
+		user_mark: 'Problem zgłoszony ręcznie: %s', test: 'Wiadomość testowa - powiadomienia działają.',
+		peer_lost: 'Router %s przestał się zgłaszać', peer_back: 'Router %s znów się zgłasza po %s',
+		trace: 'Traceroute do %s: %s',
+		decoder_restart: 'Dekoder %s zrestartował się (nie było go %s, %s)', decoder_off: 'Dekoder %s wyłączony lub odłączony (%s)',
+		decoder_on: 'Dekoder %s wrócił po %s',
+		bufferbloat: 'Bufferbloat: ping +%s ms przy łączu zajętym w %d%% (%s)', bufferbloat_ok: 'Bufferbloat minął po %s (do +%s ms)',
+		wifi_reconnect: 'Wi-Fi: %s rozłączył się i wrócił po %s (%s)', wifi_leave: 'Wi-Fi: %s rozłączony (%s)',
+		wifi_join: 'Wi-Fi: %s znów połączony po %s', wifi_roam: 'Wi-Fi: %s przeszedł %s -> %s', wifi_weak: 'Wi-Fi: %s słaby sygnał %d dBm', wifi_weak_ok: 'Wi-Fi: %s sygnał znów OK po %s'
 	}
 };
 
@@ -429,6 +524,22 @@ function event_text(e, lang) {
 	case 'mem_low': return sprintf(f, d.pct);
 	case 'conntrack_full': return sprintf(f, d.pct);
 	case 'user_mark': return sprintf(f, d.note || '-');
+	case 'peer_lost': return sprintf(f, e.src);
+	case 'peer_back': return sprintf(f, e.src, dur_txt(d.dur));
+	case 'trace': return sprintf(f, d.host, d.first_bad
+		? sprintf(lang == 'pl' ? 'straty od hopa %d (%s)' : 'loss starts at hop %d (%s)', d.first_bad, d.bad_ip ?? '?')
+		: (lang == 'pl' ? 'bez strat do celu' : 'no loss to the destination'));
+	case 'decoder_restart': return sprintf(f, e.src, dur_txt(d.dur), d.port ?? '?');
+	case 'decoder_off': return sprintf(f, e.src, d.port ?? '?');
+	case 'decoder_on': return sprintf(f, e.src, dur_txt(d.dur));
+	case 'bufferbloat': return sprintf(f, d.add, d.load, d.dir == 'up' ? (lang == 'pl' ? 'wysyłanie' : 'upload') : (lang == 'pl' ? 'pobieranie' : 'download'));
+	case 'bufferbloat_ok': return sprintf(f, dur_txt(d.dur), d.max_add);
+	case 'wifi_reconnect': return sprintf(f, e.src, dur_txt(d.away), d.iface ?? '?');
+	case 'wifi_leave': return sprintf(f, e.src, d.iface ?? '?');
+	case 'wifi_join': return sprintf(f, e.src, dur_txt(d.away));
+	case 'wifi_roam': return sprintf(f, e.src, d.from ?? '?', d.iface ?? '?');
+	case 'wifi_weak': return sprintf(f, e.src, d.signal);
+	case 'wifi_weak_ok': return sprintf(f, e.src, dur_txt(d.dur));
 	default: return f;
 	}
 }
@@ -437,6 +548,8 @@ function event_msg(e, lang) {
 	let s = event_text(e, lang), d = e.d ?? {};
 	/* the channel(s) being watched, when known */
 	if (e.area == 'iptv' && d.ch && e.type != 'ts_errors') s += ` [${d.ch}]`;
+	/* received from the second router */
+	if (e.host) s = `[${e.host}] ${s}`;
 	return s;
 }
 
@@ -446,7 +559,8 @@ function event_msg(e, lang) {
  * only when the fault itself was sent (same area + source), so e.g. a decoder
  * port coming up or a target recovering from an unsent warning stays quiet */
 const RECOVERY = { wan_up: true, stream_resume: true, stream_lost: true, stream_off: true, link_up: true,
-	wan_if_up: true, proxy_up: true, target_ok: true, dev_present: true };
+	wan_if_up: true, proxy_up: true, target_ok: true, dev_present: true, peer_back: true, wifi_weak_ok: true,
+	bufferbloat_ok: true };
 
 function urlenc(s) {
 	let out = '';
@@ -463,7 +577,7 @@ function urlenc(s) {
 function notify_queue(e) {
 	let n = cfg.notify;
 	if (!n.enabled) return;
-	let key = `${e.area}|${e.src}`;
+	let key = `${e.host ?? ''}|${e.area}|${e.src}`;
 	let want;
 	if (RECOVERY[e.type]) {
 		want = notif.open[key] == true;
@@ -523,25 +637,149 @@ function notify_flush(force) {
 	if (!proc) notif.busy = false;
 }
 
+/* --------------------------------------------------------- second router */
+
+/*
+ * Two routers, one timeline: the router behind the main one (role "send")
+ * sends every event it logs to the main router (role "receive"), which puts
+ * them on its own timeline marked with the sender's host name, so a decoder
+ * or phone behind the second router shows up in one view.
+ *
+ * UDP, one JSON message per datagram, signed with HMAC-SHA256 of a shared
+ * key (wire format: 64 hex characters of the MAC, then the JSON):
+ *   sender -> receiver { v, h: host, ep: start time of the sender, now, iv,
+ *                        ev: [ { q: sequence number, e: event } ], hb: status }
+ *   receiver -> sender { v, ack: highest sequence number stored, ep, to, now }
+ * Unacknowledged events are sent again every interval, so a short outage of
+ * the receiver (or of the cable between the routers) loses nothing; the
+ * receiver drops what it has already stored (q <= last). Every interval the
+ * sender also sends a short status (heartbeat), so the receiver notices when
+ * the second router stops reporting. Clocks: when the sender's clock is off
+ * by more than 5 s, the receiver moves the events to its own time.
+ */
+const PEER_VER = 1;
+const PEER_MAXPKT = 1350;       /* bytes of one datagram, below the usual MTU */
+const PEER_OUTBOX = 300;        /* events kept for sending */
+
+let peer = { sk: null, socket: null, h: null, err: null, ipad: null, opad: null, bad: 0, bad_addr: null, bad_ts: null,
+	/* sender */ out: [], seq: 0, ep: 0, dropped: 0, last_send: 0, last_ack: null, kick: null,
+	/* receiver */ peers: {} };
+let peer_flush_fn = null;       /* set once uloop runs (see peer_start) */
+let digest = null;
+
+function unhex(h) {
+	let out = '';
+	for (let i = 0; i + 1 < length(h); i += 2) out += chr(hex(substr(h, i, 2)));
+	return out;
+}
+
+/* HMAC-SHA256 (RFC 2104); the module returns hex, the inner hash is used raw */
+function hmac_init(key) {
+	try { digest ??= require('digest'); } catch (e) { return false; }
+	if (length(key) > 64) key = unhex(digest.sha256(key));
+	let ip = '', op = '';
+	for (let i = 0; i < 64; i++) {
+		let c = (i < length(key)) ? ord(key, i) : 0;
+		ip += chr(c ^ 0x36);
+		op += chr(c ^ 0x5c);
+	}
+	peer.ipad = ip;
+	peer.opad = op;
+	return true;
+}
+
+function hmac(msg) {
+	return digest.sha256(peer.opad + unhex(digest.sha256(peer.ipad + msg)));
+}
+
+/* sender: an own event goes into the outbox, sent within a moment */
+function peer_queue(e) {
+	if (cfg.peer.role != 'send' || cfg.peer.err || e.host) return;
+	push(peer.out, { q: ++peer.seq, e });
+	if (length(peer.out) > PEER_OUTBOX) {
+		peer.dropped += length(peer.out) - PEER_OUTBOX;
+		peer.out = slice(peer.out, length(peer.out) - PEER_OUTBOX);
+	}
+	if (peer_flush_fn && !peer.kick)
+		peer.kick = uloop.timer(300, () => { peer.kick = null; peer_flush_fn(null); });
+}
+
 /* ----------------------------------------------------------------- events */
 
 function save_events() {
 	write_atomic(`${RUNDIR}/events.json`, sprintf('%J', events));
 }
 
-function emit(lvl, area, src, typ, data, ts) {
-	let e = { ts: ts ?? now(), lvl, area, src, type: typ, d: data ?? {} };
+/* ---------------------------------------------------------------- archive */
+
+/*
+ * Longer history (7 / 30 days) when RUNDIR is on USB (data_dir): one file
+ * per UTC day in RUNDIR/archive, appended to and never rewritten (easy on
+ * the flash), read by the web page directly:
+ *   ev-YYYYMMDD.jsonl  every event, one JSON object per line
+ *   h-YYYYMMDD.jsonl   10-minute aggregates { t, s: { key: value } }
+ * In RAM it stays off: 30 days would not fit. Files older than
+ * archive_days are deleted once an hour.
+ */
+const ARCH = `${RUNDIR}/archive`;
+let arch = { on: false, checked: 0, info: null };
+
+function arch_day(ts) {
+	let g = gmtime(ts);
+	return sprintf('%04d%02d%02d', g.year, g.mon, g.mday);
+}
+
+function arch_append(kind, ts, obj) {
+	if (!arch.on) return;
+	let fh = fs.open(`${ARCH}/${kind}-${arch_day(ts)}.jsonl`, 'a');
+	if (!fh) return;
+	fh.write(sprintf('%J\n', obj));
+	fh.close();
+}
+
+/* once an hour: on USB?, delete old days, sizes for the status */
+function arch_check() {
+	let t = now();
+	if (arch.checked && t - arch.checked < 3600) return;
+	arch.checked = t;
+	arch.on = cfg.archive_days > 0 && fs.lstat(RUNDIR)?.type == 'link';
+	if (!arch.on) { arch.info = null; return; }
+	if (!fs.stat(ARCH)) fs.mkdir(ARCH);
+	let keep = arch_day(t - cfg.archive_days * 86400), days = {}, size = 0, oldest = null;
+	for (let n in (fs.lsdir(ARCH) ?? [])) {
+		let m = match(n, /^(ev|h)-([0-9]{8})\.jsonl$/);
+		if (!m) continue;
+		if (m[2] < keep) { fs.unlink(`${ARCH}/${n}`); continue; }
+		days[m[2]] = true;
+		size += fs.stat(`${ARCH}/${n}`)?.size ?? 0;
+		if (oldest == null || m[2] < oldest) oldest = m[2];
+	}
+	arch.info = { days: cfg.archive_days, have: length(keys(days)), oldest, size };
+}
+
+/* store one event (own or received from the second router) */
+function store_event(e) {
+	arch_append('ev', e.ts, e);
 	push(events, e);
 	if (length(events) > cfg.max_events)
 		events = slice(events, length(events) - cfg.max_events);
-	save_events();
 	notify_queue(e);
 }
 
+function emit(lvl, area, src, typ, data, ts) {
+	let e = { ts: ts ?? now(), lvl, area, src, type: typ, d: data ?? {} };
+	store_event(e);
+	save_events();
+	peer_queue(e);
+}
+
+/* the cards show this router only: events of the second router (e.host)
+ * are skipped; they may also be a bit older than the newest own event */
 function recent_level(area, src) {
 	let lvl = 'ok', cutoff = now() - cfg.warn_window;
 	for (let i = length(events) - 1; i >= 0; i--) {
 		let e = events[i];
+		if (e.host) continue;
 		if (e.ts < cutoff) break;
 		if (e.area != area || (src != null && e.src != src)) continue;
 		if (e.lvl == 'warn' || e.lvl == 'err') lvl = 'warn';
@@ -553,6 +791,7 @@ function count_events(since) {
 	let n = { warn: 0, err: 0 };
 	for (let i = length(events) - 1; i >= 0; i--) {
 		let e = events[i];
+		if (e.host) continue;
 		if (e.ts < since) break;
 		if (e.lvl == 'warn') n.warn++;
 		else if (e.lvl == 'err') n.err++;
@@ -592,23 +831,39 @@ const AGG_MODE = { rtt: 'avg', rttmax: 'max', loss: 'max', jit: 'max',
 	'iptv:kbps': 'avg', 'iptv:min': 'min', 'iptv:cc': 'sum', err: 'sum', drop: 'sum', lvl: 'max' };
 
 let agg = null;
+let agg10 = null;     /* 10-minute aggregates for the archive */
 
 function agg_mode(k) {
 	return AGG_MODE[k] ?? AGG_MODE[split(k, ':')[0]] ?? 'avg';
 }
 
-function agg_flush() {
-	if (!agg) return;
+function agg_vals(a) {
 	let vals = {};
-	for (let k, a in agg.v) {
+	for (let k, x in a.v) {
 		switch (agg_mode(k)) {
-		case 'max': vals[k] = a.max; break;
-		case 'min': vals[k] = a.min; break;
-		case 'sum': vals[k] = a.sum; break;
-		default:    vals[k] = round(a.sum / a.n, 1);
+		case 'max': vals[k] = x.max; break;
+		case 'min': vals[k] = x.min; break;
+		case 'sum': vals[k] = x.sum; break;
+		default:    vals[k] = round(x.sum / x.n, 1);
 		}
 	}
-	hist_add(history_min, agg.t, vals, cfg.long_history);
+	return vals;
+}
+
+function agg_put(a, vals) {
+	for (let k, v in vals) {
+		if (v == null) continue;
+		let x = a.v[k] ??= { sum: 0, n: 0, min: v, max: v };
+		x.sum += v;
+		x.n++;
+		if (v < x.min) x.min = v;
+		if (v > x.max) x.max = v;
+	}
+}
+
+function agg_flush() {
+	if (!agg) return;
+	hist_add(history_min, agg.t, agg_vals(agg), cfg.long_history);
 	write_atomic(`${RUNDIR}/history.json`, sprintf('%J', history_min));
 	agg = null;
 }
@@ -617,14 +872,16 @@ function agg_add(t, vals) {
 	let m = t - t % 60;
 	if (agg && agg.t != m) agg_flush();
 	agg ??= { t: m, v: {} };
-	for (let k, v in vals) {
-		if (v == null) continue;
-		let a = agg.v[k] ??= { sum: 0, n: 0, min: v, max: v };
-		a.sum += v;
-		a.n++;
-		if (v < a.min) a.min = v;
-		if (v > a.max) a.max = v;
+	agg_put(agg, vals);
+
+	if (!arch.on) { agg10 = null; return; }
+	let m10 = t - t % 600;
+	if (agg10 && agg10.t != m10) {
+		arch_append('h', agg10.t, { t: agg10.t, s: agg_vals(agg10) });
+		agg10 = null;
 	}
+	agg10 ??= { t: m10, v: {} };
+	agg_put(agg10, vals);
 }
 
 /* --------------------------------------------------------------- devices */
@@ -823,6 +1080,252 @@ function target_level(r) {
 	return target_why(r) ? 'warn' : 'ok';
 }
 
+/* ------------------------------------------------------ path snapshot */
+
+/*
+ * When a loss starts (a target goes to loss, or the whole WAN is down) one
+ * traceroute is run - mtr -r (10 rounds) when installed, else busybox
+ * traceroute -  so the timeline shows at which hop the loss starts: proof for
+ * the ISP. Loss at a hop that does not carry on to the destination is just
+ * a router that answers ICMP slowly, so only loss that continues to the
+ * end counts. One at a time, at most every trace_cooldown seconds.
+ */
+let trace = { proc: null, last: 0, timer: null, n: 0 };
+
+function trace_file() { return `${VARDIR}/trace.out`; }
+
+/* mtr -r:  "  3.|-- 81.2.3.4   20.0%    10    5.1   5.3   4.9   6.0   0.3" */
+function trace_parse_mtr(txt) {
+	let hops = [];
+	for (let l in split(txt ?? '', '\n')) {
+		let m = match(l, /^ *([0-9]+)\.\|-- +([^ ]+) +([0-9.]+)%? +[0-9]+ +[0-9.]+ +([0-9.]+)/);
+		if (!m) continue;
+		let ip = (m[2] == '???') ? null : m[2];
+		push(hops, { n: +m[1], ip, loss: round(+m[3], 0), avg: ip ? round(+m[4], 1) : null });
+	}
+	return hops;
+}
+
+/* traceroute -q 3: " 4  10.0.0.1  5.123 ms  *  5.301 ms" / " 5  * * *" */
+function trace_parse_tr(txt) {
+	let hops = [];
+	for (let l in split(txt ?? '', '\n')) {
+		let m = match(l, /^ *([0-9]+) +(.*)$/);
+		if (!m) continue;
+		let rest = m[2], ip = match(rest, /([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+|[0-9A-Fa-f]*:[0-9A-Fa-f:]+)/);
+		let stars = length(match(rest, /\*/g) ?? []), rtts = [];
+		for (let x in (match(rest, /([0-9.]+) ms/g) ?? [])) push(rtts, +x[1]);
+		let sent = stars + length(rtts);
+		if (!sent) continue;
+		let sum = 0;
+		for (let r in rtts) sum += r;
+		push(hops, { n: +m[1], ip: ip ? ip[1] : null, loss: round(stars * 100 / sent, 0),
+			avg: length(rtts) ? round(sum / length(rtts), 1) : null });
+	}
+	return hops;
+}
+
+/* the first hop from which the loss carries on to the end */
+function trace_judge(hops) {
+	let r = { first_bad: null, bad_ip: null, last_good: null, good_ip: null, dest_loss: null };
+	if (!length(hops)) return r;
+	let last = hops[length(hops) - 1];
+	r.dest_loss = last.loss;
+	if (last.loss < 20) return r;          /* nothing lost to the end: the loss was over */
+	let i = length(hops) - 1;
+	while (i > 0 && hops[i - 1].loss >= 20) i--;
+	/* a hop that never answers (???, * * *) is not where it starts: the next one that does */
+	while (i < length(hops) - 1 && !hops[i].ip) i++;
+	r.first_bad = hops[i].n;
+	r.bad_ip = hops[i].ip;
+	for (let j = i - 1; j >= 0; j--)
+		if (hops[j].ip && hops[j].loss < 20) { r.last_good = hops[j].n; r.good_ip = hops[j].ip; break; }
+	return r;
+}
+
+function trace_request(host, label, trig, trig_ts) {
+	if (!cfg.wan.trace || trace.proc || (!MTR && !TRACEROUTE)) return;
+	if (now() - trace.last < cfg.wan.trace_cooldown) return;
+	if (!valid_host(host) || substr(host, 0, 1) == '-') return;
+	let tool = MTR ? 'mtr' : 'traceroute';
+	/* valid_host() keeps the host free of shell characters */
+	let cmd = MTR ? `exec ${MTR} -n -r -c 10 -i 0.5 ${host}` : `exec ${TRACEROUTE} -n -q 3 -w 1 -m 20 ${host}`;
+	let t0 = now();
+	trace.last = t0;
+	trace.n++;
+	let p;
+	p = uloop.process('/bin/sh', [ '-c', `${cmd} > ${trace_file()} 2>&1` ], null, (code) => {
+		if (trace.proc != p) return;
+		trace.proc = null;
+		trace.timer?.cancel();
+		trace.timer = null;
+		let txt = fs.readfile(trace_file()) ?? '';
+		fs.unlink(trace_file());
+		let hops = slice((tool == 'mtr') ? trace_parse_mtr(txt) : trace_parse_tr(txt), 0, 30);
+		if (!length(hops)) {
+			emit('info', 'wan', label, 'trace', { host, tool, trig, err: substr(trim(txt), 0, 120) || `exit ${code}`, hops: [] }, t0);
+			return;
+		}
+		let j = trace_judge(hops);
+		emit(j.first_bad ? 'warn' : 'info', 'wan', label, 'trace',
+			{ host, tool, trig, hops, ...j, dur: now() - t0, after: (trig_ts != null) ? t0 - trig_ts : null }, t0);
+	});
+	if (!p) return;
+	trace.proc = p;
+	/* never let a stuck trace block the next one */
+	trace.timer = uloop.timer(60000, () => {
+		trace.timer = null;
+		if (trace.proc == p) { try { p.kill(); } catch (e) {} }
+	});
+}
+
+/* the target to trace: the gateway itself shows nothing beyond hop 1, so a
+ * far target is traced when the gateway (or everything) loses */
+function trace_target(t) {
+	if (t && t.label != 'gateway') return t;
+	for (let k, x in targets)
+		if (x.active && x.label != 'gateway') return x;
+	return t;
+}
+
+/* ---------------------------------------------------------- bufferbloat */
+
+/*
+ * "Lags only when the link is full": collectd's ping (one average per its
+ * interval) is matched with the WAN traffic of the same interval, read
+ * from the WAN device's counters every tick. The line's speed is the
+ * highest 30 s rate seen (slowly forgotten, kept in RUNDIR) unless set in
+ * the settings. Ping at low load (< 20 %) is the base; ping at a load of
+ * bloat_load % or more that is bloat_ms above the base, twice in a row,
+ * is bufferbloat: the own traffic fills a buffer (modem, ISP) - not an
+ * outage, and fixable at home with SQM. No own speed test.
+ */
+const BLOAT_IDLE = 0.2;
+let bloat = { ring: [], peak_rx: 0, peak_tx: 0, peak_saved: 0, idle: [], seen: {},
+	active: false, since: null, bad_n: 0, ok_n: 0, max_add: 0, first: null,
+	stat: { idle_n: 0, idle_sum: 0, load_n: 0, load_sum: 0, bloat_n: 0 }, last: null };
+
+function bloat_load_peak() {
+	let j;
+	try { j = json(fs.readfile(`${RUNDIR}/wanpeak.json`) || 'null'); } catch (e) { j = null; }
+	if (type(j) == 'object') {
+		bloat.peak_rx = +j.rx || 0;
+		bloat.peak_tx = +j.tx || 0;
+	}
+}
+
+function median(a) {
+	if (!length(a)) return null;
+	let s = sort([ ...a ], (x, y) => x - y), n = length(s);
+	return (n % 2) ? s[n >> 1] : (s[n / 2 - 1] + s[n / 2]) / 2;
+}
+
+/* the target whose ping is used: the gateway (the first buffer on the way) */
+function bloat_target() {
+	let best = null;
+	for (let k, t in targets) {
+		if (!t.active || !t.res) continue;
+		if (t.label == 'gateway') return t;
+		best ??= t;
+	}
+	return best;
+}
+
+/* every tick: WAN traffic in bit/s; checks a new collectd value when there is one */
+function bloat_tick(t, rx, tx) {
+	if (!cfg.wan.bloat || rx == null) return;
+	push(bloat.ring, [ t, rx, tx ]);
+	while (length(bloat.ring) && bloat.ring[0][0] < t - 900) shift(bloat.ring);
+
+	/* line speed: a 30 s rate, so a burst or an uneven tick does not count; forgotten by ~8 %/day */
+	let n = length(bloat.ring), w = 0, sr = 0, stx = 0;
+	for (let i = n - 1; i >= 0 && bloat.ring[i][0] > t - 30; i--) { sr += bloat.ring[i][1]; stx += bloat.ring[i][2]; w++; }
+	let dec = 0.99999 ** cfg.interval;
+	bloat.peak_rx = max(bloat.peak_rx * dec, w ? sr / w : 0);
+	bloat.peak_tx = max(bloat.peak_tx * dec, w ? stx / w : 0);
+	if (t - bloat.peak_saved >= 600) {
+		bloat.peak_saved = t;
+		write_atomic(`${RUNDIR}/wanpeak.json`, sprintf('%J', { rx: round(bloat.peak_rx, 0), tx: round(bloat.peak_tx, 0), ts: t }));
+	}
+
+	let tg = bloat_target();
+	if (!tg) return;
+	let ts = tg.res.ts, prev = bloat.seen[tg.host];
+	if (ts == prev) return;
+	bloat.seen[tg.host] = ts;
+	if (prev == null || tg.res.rtt == null || tg.res.loss >= 100) return;
+
+	/* average traffic over the same interval as the ping value */
+	let cr = 0, ct = 0, m = 0;
+	for (let x in bloat.ring)
+		if (x[0] > prev && x[0] <= ts + 1) { cr += x[1]; ct += x[2]; m++; }
+	if (!m) return;
+	cr /= m;
+	ct /= m;
+	let cap_rx = cfg.wan.down_mbit > 0 ? cfg.wan.down_mbit * 1e6 : bloat.peak_rx;
+	let cap_tx = cfg.wan.up_mbit > 0 ? cfg.wan.up_mbit * 1e6 : bloat.peak_tx;
+	/* a speed that was never seen above 1 Mbit/s cannot tell what "full" is */
+	let lr = cap_rx >= 1e6 ? cr / cap_rx : 0, lt = cap_tx >= 1e6 ? ct / cap_tx : 0;
+	let load = max(lr, lt), dir = (lt > lr) ? 'up' : 'down';
+	let rtt = tg.res.rtt;
+
+	bloat.last = { ts, rtt, load: round(min(load, 1) * 100, 0), dir, rx: round(cr / 1000, 0), tx: round(ct / 1000, 0) };
+	if (load < BLOAT_IDLE) {
+		push(bloat.idle, rtt);
+		if (length(bloat.idle) > 60) shift(bloat.idle);
+		bloat.stat.idle_n++;
+		bloat.stat.idle_sum += rtt;
+	}
+	let base = (length(bloat.idle) >= 5) ? median(bloat.idle) : null;
+	let full = load * 100 >= cfg.wan.bloat_load;
+	let add = (base != null) ? rtt - base : null;
+	let bad = full && add != null && add >= cfg.wan.bloat_ms;
+	if (full && base != null) {
+		bloat.stat.load_n++;
+		bloat.stat.load_sum += rtt;
+		if (bad) bloat.stat.bloat_n++;
+	}
+
+	if (bad) {
+		bloat.ok_n = 0;
+		bloat.bad_n++;
+		bloat.first ??= { ts: prev, rtt, add, load: bloat.last.load, dir };
+		if (bloat.active) bloat.max_add = max(bloat.max_add, add);
+		else if (bloat.bad_n >= 2) {
+			bloat.active = true;
+			bloat.since = bloat.first.ts;
+			bloat.max_add = max(add, bloat.first.add);
+			emit('warn', 'wan', tg.label, 'bufferbloat', { host: tg.host, base: round(base, 1), rtt: round(rtt, 1),
+				add: round(add, 0), load: bloat.last.load, dir, rx_mbit: round(cr / 1e6, 1), tx_mbit: round(ct / 1e6, 1),
+				cap_rx_mbit: round(cap_rx / 1e6, 1), cap_tx_mbit: round(cap_tx / 1e6, 1),
+				learned: !(cfg.wan.down_mbit > 0 && cfg.wan.up_mbit > 0) }, bloat.since);
+		}
+	}
+	else {
+		bloat.bad_n = 0;
+		bloat.first = null;
+		if (bloat.active && ++bloat.ok_n >= 2) {
+			bloat.active = false;
+			emit('info', 'wan', tg.label, 'bufferbloat_ok', { host: tg.host, dur: ts - bloat.since, max_add: round(bloat.max_add, 0) });
+		}
+	}
+}
+
+function bloat_out() {
+	if (!cfg.wan.bloat) return null;
+	let s = bloat.stat, base = median(bloat.idle);
+	return {
+		active: bloat.active, since: bloat.since, base: round(base, 1),
+		idle_avg: s.idle_n ? round(s.idle_sum / s.idle_n, 1) : null,
+		load_avg: s.load_n ? round(s.load_sum / s.load_n, 1) : null,
+		idle_n: s.idle_n, load_n: s.load_n, bloat_n: s.bloat_n,
+		cap_rx: round((cfg.wan.down_mbit > 0 ? cfg.wan.down_mbit * 1e6 : bloat.peak_rx) / 1000, 0),
+		cap_tx: round((cfg.wan.up_mbit > 0 ? cfg.wan.up_mbit * 1e6 : bloat.peak_tx) / 1000, 0),
+		learned: !(cfg.wan.down_mbit > 0 && cfg.wan.up_mbit > 0),
+		last: bloat.last, ms: cfg.wan.bloat_ms, load_pct: cfg.wan.bloat_load
+	};
+}
+
 function check_wan_down() {
 	let all = 0, failed = 0;
 	for (let k, t in targets) {
@@ -835,6 +1338,8 @@ function check_wan_down() {
 	if (failed == all && wan_down_since == null) {
 		wan_down_since = now();
 		emit('err', 'wan', 'wan', 'wan_down', {});
+		let tt = trace_target(null);
+		if (tt) trace_request(tt.host, tt.label, 'wan_down', wan_down_since);
 	}
 	else if (failed < all && wan_down_since != null) {
 		emit('warn', 'wan', 'wan', 'wan_up', { dur: now() - wan_down_since });
@@ -1001,6 +1506,11 @@ function sample_pings() {
 			else
 				emit(lvl == 'fail' ? 'err' : 'warn', 'wan', t.label, lvl == 'fail' ? 'target_fail' : 'target_degraded',
 					{ host, loss: res.loss, rtt: res.rtt, jitter: res.jitter, why: target_why(res) }, v.ts);
+			/* a loss started: one snapshot of the path */
+			if (lvl != 'ok' && target_why(res) == 'loss') {
+				let tt = trace_target(t);
+				trace_request(tt.host, tt.label, lvl == 'fail' ? 'target_fail' : 'target_degraded', v.ts);
+			}
 			t.state = lvl;
 			t.since = t_now;
 		}
@@ -1503,6 +2013,122 @@ function vlan_sample() {
 	vl.mdb = (br && cfg.iptv.igmp)
 		? filter(bridge_mdb(br) ?? [], (e) => e.vid == null || e.vid == vid)
 		: null;
+}
+
+/* ------------------------------------------------------------- decoders */
+
+/*
+ * Decoder restarts, so "the decoder restarted" is not taken for "the
+ * stream vanished". In a bridged IPTV VLAN the decoders get their address
+ * from the ISP, so the router has no neighbour entry for them; what it has
+ * is the bridge's MAC table (bridge -s fdb: which MAC is behind which port,
+ * and how many seconds ago a frame came from it). Every MAC learned in the
+ * IPTV VLAN on a port other than the one to the ISP is a decoder; names
+ * come from the settings. Signals, strongest first:
+ *   link  - the port it is on went down (decoder directly on the port)
+ *   fdb   - its entry vanished from the table and came back
+ *   quiet - nothing from it for dec_silence s while the stream it watched
+ *           stopped, then frames again (behind a switch the port stays up)
+ * Back within dec_off s: decoder_restart; longer: decoder_off / decoder_on.
+ */
+let dec = { list: {}, err: null, t: 0 };
+
+/* MAC -> { port, age } of the decoders in the IPTV VLAN */
+function dec_fdb() {
+	let j = bridge_json(`-s fdb show br ${vl.bridge}`);
+	if (j == null) return null;
+	let out = {};
+	for (let e in j) {
+		let mac = lc(`${e?.mac ?? ''}`);
+		if (!match(mac, /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/)) continue;
+		/* multicast / local entries, other VLANs, the ISP side */
+		if (hex(substr(mac, 0, 2)) & 1) continue;
+		if (e.state == 'permanent' || e.state == 'static' || index(e.flags ?? [], 'self') >= 0) continue;
+		if (e.master && e.master != vl.bridge) continue;
+		if (e.vlan != null && e.vlan != cfg.iptv.vlan) continue;
+		if (!valid_dev(e.ifname) || e.ifname == vl.upstream || index(vl.ports, e.ifname) < 0) continue;
+		out[mac] = { port: e.ifname, age: (type(e.updated) == 'int') ? e.updated : null };
+	}
+	return out;
+}
+
+/* did the stream stop (freeze, lost, off) between from and to? */
+function dec_stream_hit(from, to) {
+	for (let i = length(events) - 1; i >= 0; i--) {
+		let e = events[i];
+		if (e.host) continue;
+		if (e.ts < from - 60) break;
+		if (e.area == 'iptv' && e.ts >= from - 10 && e.ts <= to + 5 &&
+		    (e.type == 'stream_stall' || e.type == 'stream_off' || e.type == 'stream_lost')) return true;
+	}
+	return false;
+}
+
+function dec_poll() {
+	if (!cfg.iptv.decoders || !cfg.iptv.vlan || !vl.bridge || !BRIDGE) { dec.err = null; return null; }
+	let fdb = dec_fdb(), t = now();
+	if (fdb == null) { dec.err = 'fdb_failed'; return null; }
+	dec.err = null;
+
+	for (let mac, x in fdb) {
+		let d = dec.list[mac] ??= { mac, present: true, since: t, port: x.port, gone_at: null, quiet_from: null, off: false };
+		d.port = x.port;
+		d.seen = t;
+	}
+	for (let mac, d in dec.list) {
+		let x = fdb[mac], src = cfg.iptv.dec_labels[mac] || mac;
+		let link = rd(d.port, 'carrier');
+		let here = x != null && link != '0';
+		let active = here ? t - (x.age ?? 0) : null;
+
+		if (!here) {
+			if (d.present) {
+				d.present = false;
+				/* the last frame, not the moment the entry aged out */
+				d.gone_at = (link == '0') ? t : (d.last_active ?? t);
+				d.via = (link == '0') ? 'link' : 'fdb';
+			}
+			if (!d.off && t - d.gone_at > cfg.iptv.dec_off) {
+				d.off = true;
+				emit('info', 'iptv', src, 'decoder_off', { mac, port: d.port, via: d.via }, d.gone_at);
+			}
+		}
+		else {
+			if (!d.present) {
+				let dur = max(1, t - d.gone_at);
+				if (d.off) emit('info', 'iptv', src, 'decoder_on', { mac, port: x.port, dur });
+				else emit('info', 'iptv', src, 'decoder_restart', { mac, port: x.port, dur, via: d.via,
+					stream: dec_stream_hit(d.gone_at, t) }, d.gone_at);
+				d.present = true;
+				d.off = false;
+				d.since = t;
+				d.quiet_from = null;
+			}
+			/* quiet: a restart behind a switch, only when the stream stopped meanwhile */
+			else if (x.age != null) {
+				if (x.age >= cfg.iptv.dec_silence) d.quiet_from ??= active;
+				else if (d.quiet_from != null) {
+					let dur = active - d.quiet_from;
+					if (dur >= cfg.iptv.dec_silence && dur <= cfg.iptv.dec_off && dec_stream_hit(d.quiet_from, active))
+						emit('info', 'iptv', src, 'decoder_restart', { mac, port: x.port, dur, via: 'quiet', stream: true }, d.quiet_from);
+					d.quiet_from = null;
+				}
+			}
+			d.last_active = active;
+		}
+		/* auto-found and gone for a day: forget it */
+		if (!here && cfg.iptv.dec_labels[mac] == null && t - (d.seen ?? t) > 86400) delete dec.list[mac];
+	}
+
+	let out = [];
+	for (let mac, d in dec.list) {
+		let chs = [];
+		for (let m in (vl.mdb ?? [])) if (m.port == d.port && index(chs, m.grp) < 0) push(chs, m.grp);
+		push(out, { mac, label: cfg.iptv.dec_labels[mac] ?? '', port: d.port, present: d.present, off: d.off,
+			since: d.present ? d.since : d.gone_at, active: d.last_active, quiet: d.quiet_from != null,
+			groups: slice(chs, 0, 4) });
+	}
+	return sort(out, (a, b) => (a.port < b.port) ? -1 : (a.port > b.port) ? 1 : 0);
 }
 
 /* ------------------------------------------------------------------ IPTV */
@@ -2183,6 +2809,238 @@ function tsm_poll() {
 	chn.err = tsq.err;
 }
 
+/* ------------------------------------------------- second router (2/2) */
+
+function peer_pack(o) {
+	let j = sprintf('%J', o);
+	return hmac(j) + j;
+}
+
+/* null unless signed with our key */
+function peer_unpack(data) {
+	if (type(data) != 'string' || length(data) < 66) return null;
+	let j = substr(data, 64);
+	if (hmac(j) != substr(data, 0, 64)) return null;
+	let o;
+	try { o = json(j); } catch (e) { return null; }
+	return (type(o) == 'object' && o.v == PEER_VER) ? o : null;
+}
+
+/* an event small enough for one datagram (traceroute hops are cut) */
+function peer_fit(x) {
+	if (length(sprintf('%J', x)) <= PEER_MAXPKT - 250) return x;
+	let d = {};
+	for (let k, v in x.e.d) {
+		if (type(v) == 'string') d[k] = substr(v, 0, 120);
+		else if (type(v) == 'array') d[k] = slice(v, 0, 8);
+		else if (type(v) != 'object') d[k] = v;
+	}
+	let e = { ...x.e, d };
+	if (length(sprintf('%J', e)) > PEER_MAXPKT - 250) e.d = { cut: true };
+	return { q: x.q, e };
+}
+
+/* sender: everything not acknowledged yet (and the status, once per tick) */
+function peer_flush(hb) {
+	if (!peer.sk || cfg.peer.role != 'send') return;
+	let dst = { address: cfg.peer.host, port: cfg.peer.port };
+	let base = { v: PEER_VER, h: HOSTNAME, ep: peer.ep, now: now(), iv: cfg.interval };
+	let i = 0, pkts = 0;
+	while (pkts < 8) {
+		let o = { ...base, ev: [] };
+		if (hb && pkts == 0) o.hb = hb;
+		while (i < length(peer.out)) {
+			push(o.ev, peer_fit(peer.out[i]));
+			if (length(o.ev) > 1 && length(sprintf('%J', o)) > PEER_MAXPKT) { pop(o.ev); break; }
+			i++;
+		}
+		if (!length(o.ev) && !o.hb) break;
+		if (peer.sk.send(peer_pack(o), 0, dst) == null) peer.send_err = now();
+		pkts++;
+		if (i >= length(peer.out)) break;
+	}
+	peer.last_send = now();
+}
+
+/* sender: the receiver stored everything up to o.ack */
+function peer_acked(o) {
+	if (o.ep != peer.ep || o.to != HOSTNAME) return;
+	let q = int(o.ack);
+	peer.out = filter(peer.out, (x) => x.q > q);
+	peer.last_ack = now();
+	peer.send_err = null;
+}
+
+/* receiver: what the sender reports about itself, size-limited */
+function peer_hb_clean(hb) {
+	if (type(hb) != 'object' || length(sprintf('%J', hb)) > 1200) return null;
+	return { ...hb, lvl: (LEVEL[hb.lvl] != null) ? hb.lvl : 'unknown' };
+}
+
+/* receiver: an event as received, made safe to store */
+function peer_event(x, host, off) {
+	if (type(x) != 'object') return null;
+	let lvl = `${x.lvl}`, area = `${x.area}`, typ = `${x.type}`;
+	if (LEVEL[lvl] == null || !match(area, /^[a-z]{1,12}$/) || !match(typ, /^[a-z_]{1,32}$/)) return null;
+	let d = (type(x.d) == 'object' && length(sprintf('%J', x.d)) <= PEER_MAXPKT) ? x.d : {};
+	let e = { ts: int(+x.ts || now()) + off, lvl, area, src: substr(`${x.src ?? ''}`, 0, 64), type: typ, d, host };
+	if (off) e.skew = off;
+	return e;
+}
+
+function peer_save() {
+	let o = {};
+	for (let n, p in peer.peers) o[n] = { ep: p.ep, last: p.last, seen: p.seen, lost_at: p.lost_at, online: p.online };
+	write_atomic(`${VARDIR}/peers.json`, sprintf('%J', o));
+}
+
+function peer_load() {
+	let j;
+	try { j = json(fs.readfile(`${VARDIR}/peers.json`) || '{}'); } catch (e) { j = null; }
+	for (let n, p in (type(j) == 'object' ? j : {}))
+		if (type(p) == 'object')
+			peer.peers[n] = { name: n, ep: int(p.ep ?? 0), last: int(p.last ?? 0), seen: p.seen ?? 0,
+				lost_at: p.lost_at, online: !!p.online, hb: null };
+}
+
+/* receiver: one datagram from the second router */
+function peer_ingest(o, addr) {
+	let name = `${o.h ?? ''}`;
+	if (!match(name, /^[A-Za-z0-9._-]{1,32}$/) || name == HOSTNAME) return;
+	let t = now();
+	let p = peer.peers[name] ??= { name, ep: 0, last: 0, seen: 0, online: false, hb: null };
+	let ep = int(+o.ep || 0);
+	if (ep < p.ep) return;              /* an older run of the sender (replayed) */
+	if (ep != p.ep) { p.ep = ep; p.last = 0; }
+
+	let off = (type(o.now) == 'int') ? t - o.now : 0;
+	if (off >= -5 && off <= 5) off = 0;
+	if (!p.online && p.lost_at)
+		emit('info', 'system', name, 'peer_back', { dur: t - p.lost_at, addr: addr?.address });
+	p.online = true;
+	p.lost_at = null;
+	p.seen = t;
+	p.off = off;
+	p.iv = (type(o.iv) == 'int' && o.iv > 0) ? o.iv : 10;
+	p.addr = addr?.address;
+	if (o.hb) p.hb = peer_hb_clean(o.hb);
+
+	let added = 0;
+	for (let x in (type(o.ev) == 'array' ? o.ev : [])) {
+		let q = int(+x?.q || 0);
+		if (q <= p.last) continue;
+		let e = peer_event(x.e, name, off);
+		p.last = q;
+		if (!e) continue;
+		store_event(e);
+		added++;
+	}
+	if (added) save_events();
+
+	if (addr?.address && addr?.port)
+		peer.sk.send(peer_pack({ v: PEER_VER, ack: p.last, ep: p.ep, to: name, now: t }), 0,
+			{ address: addr.address, port: addr.port });
+	peer_save();
+}
+
+function peer_recv() {
+	for (let i = 0; i < 64; i++) {
+		let addr = {};
+		let data = peer.sk.recv(4096, peer.socket.MSG_DONTWAIT, addr);
+		if (data == null || data == '') break;
+		let o = peer_unpack(data);
+		if (!o) {
+			/* wrong key, or not ours */
+			peer.bad++;
+			peer.bad_addr = addr.address;
+			peer.bad_ts = now();
+			continue;
+		}
+		if (cfg.peer.role == 'send') { if (o.ack != null) peer_acked(o); }
+		else if (o.ack == null) peer_ingest(o, addr);
+	}
+}
+
+/* open the socket (after uloop.init) */
+function peer_start() {
+	if (cfg.peer.role == 'off' || cfg.peer.err) return;
+	if (!hmac_init(cfg.peer.key)) { cfg.peer.err = 'no_digest'; return; }
+	let socket;
+	try { socket = require('socket'); } catch (e) { cfg.peer.err = 'no_socket_module'; return; }
+	let sk = socket.create(socket.AF_INET, socket.SOCK_DGRAM);
+	if (!sk) { cfg.peer.err = 'socket'; return; }
+	if (cfg.peer.role == 'receive') {
+		try { sk.setopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); } catch (e) {}
+		if (!sk.bind({ family: socket.AF_INET, address: '0.0.0.0', port: cfg.peer.port })) {
+			sk.close();
+			cfg.peer.err = 'bind';
+			return;
+		}
+		peer_load();
+	}
+	peer.sk = sk;
+	peer.socket = socket;
+	peer.ep = started;
+	peer.h = uloop.handle(sk, () => {
+		try { peer_recv(); }
+		catch (e) { warn(`isp-tester: peer receive failed: ${e}\n`); }
+	}, uloop.ULOOP_READ);
+	peer_flush_fn = peer_flush;
+}
+
+/* sender: short status of this router for the receiver's view */
+function peer_hb(overall, iptv_res, ports, wifi_res) {
+	let hb = { lvl: overall, up: started };
+	if (iptv_res) hb.iptv = { state: iptv_res.state, kbps: iptv_res.kbps, lvl: iptv_res.level,
+		dec: map(slice(iptv_res.decoders ?? [], 0, 4), (x) => ({ label: x.label || x.mac, port: x.port, up: x.present })) };
+	hb.ports = map(slice(ports, 0, 8), (x) => ({ dev: x.dev, label: substr(x.label ?? '', 0, 24), up: x.up, speed: x.speed, lvl: x.level }));
+	if (wifi_res)
+		hb.wifi = { n: wifi_res.total, sta: map(slice(wifi_res.stations, 0, 6), (x) => ({ label: x.label || x.mac, up: x.connected,
+			iface: x.iface, signal: x.signal, lvl: x.level })) };
+	return hb;
+}
+
+/* every tick: send (sender), notice a silent second router (receiver) */
+function peer_tick(hb) {
+	if (!peer.sk) return null;
+	if (cfg.peer.role == 'send') {
+		peer_flush(hb);
+		return null;
+	}
+	let t = now(), list = [], level = 'ok', reasons = [], changed = false;
+	for (let n, p in peer.peers) {
+		if (p.online && t - p.seen > max(60, p.iv * 4)) {
+			p.online = false;
+			p.lost_at = p.seen;
+			changed = true;
+			emit('warn', 'system', n, 'peer_lost', { last: p.seen, addr: p.addr });
+		}
+		if (!p.seen) continue;
+		/* a router that did not report for an hour is shown, but not judged */
+		let pl = p.online ? (p.hb?.lvl ?? 'unknown') : (t - p.seen < 3600 ? 'warn' : 'unknown');
+		if (!p.online && pl == 'warn') push(reasons, { c: 'peer_offline', name: n, since: p.seen });
+		else if (pl == 'warn' || pl == 'fail') push(reasons, { c: 'peer_level', name: n, lvl: pl });
+		if (LEVEL[pl] != null) level = worst(level, pl == 'fail' ? 'fail' : pl);
+		push(list, { name: n, addr: p.addr, online: p.online, seen: p.seen, off: p.off, iv: p.iv, level: pl, hb: p.online ? p.hb : null });
+	}
+	if (changed) peer_save();
+	return { level, reasons, list };
+}
+
+function peer_out() {
+	if (cfg.peer.role == 'off') return null;
+	let o = { role: cfg.peer.role, port: cfg.peer.port, err: cfg.peer.err, bad: peer.bad, bad_addr: peer.bad_addr, bad_ts: peer.bad_ts };
+	if (cfg.peer.role == 'send') {
+		o.host = cfg.peer.host;
+		o.last_ack = peer.last_ack;
+		o.pending = length(peer.out);
+		o.dropped = peer.dropped;
+		/* nothing acknowledged for a while: receiver down, wrong address or key */
+		if (!o.err && peer.sk && now() - (peer.last_ack ?? started) > max(60, cfg.interval * 6)) o.err = 'no_ack';
+	}
+	return o;
+}
+
 /* ------------------------------------------------------------------- CSV */
 
 function csv_columns(devs, tlist) {
@@ -2270,6 +3128,218 @@ function refresh_wan_device() {
 	cfg.wan.gw = valid_host(gw) ? gw : null;
 }
 
+/* ------------------------------------------------------------------ Wi-Fi */
+
+/*
+ * Wi-Fi clients, from hostapd over ubus (hostapd.<iface> get_clients, every
+ * interval) plus its notifications (disassoc / deauth / assoc), so a client
+ * that drops and comes back between two checks is caught too. Only the
+ * stations listed in the settings are logged (phone, TV); the others are
+ * counted. A drop that comes back within reconnect_s is a fault (warn); a
+ * client that stays away just left (info). Signal: hostapd's own value, or
+ * iwinfo's (rpcd-mod-iwinfo) when hostapd gives none.
+ */
+let wifi = { sta: {}, subs: {}, sub: null, err: null, clients: [] };
+
+function wifi_label(mac) {
+	return cfg.wifi.stations[mac] || mac;
+}
+
+/* hostapd objects -> get_clients results (testing: ISP_TESTER_HOSTAPD, a JSON file) */
+function hostapd_read() {
+	let f = getenv('ISP_TESTER_HOSTAPD');
+	if (f) {
+		let j;
+		try { j = json(fs.readfile(f) || 'null'); } catch (e) { j = null; }
+		return (type(j) == 'object') ? j : null;
+	}
+	if (getenv('ISP_TESTER_CONFIG')) return null;
+	try {
+		ubus_conn ??= require('ubus').connect();
+		let out = {};
+		for (let o in (ubus_conn?.list('hostapd.*') ?? [])) {
+			let r = ubus_conn.call(o, 'get_clients');
+			if (type(r) == 'object') out[o] = r;
+		}
+		return out;
+	}
+	catch (e) {
+		ubus_conn = null;
+		return null;
+	}
+}
+
+/* signal from iwinfo for an interface (only when hostapd has none) */
+function iwinfo_signals(ifn) {
+	let out = {};
+	if (getenv('ISP_TESTER_CONFIG') || !ubus_conn) return out;
+	try {
+		let r = ubus_conn.call('iwinfo', 'assoclist', { device: ifn });
+		for (let x in (r?.results ?? []))
+			if (x?.mac) out[lc(x.mac)] = x.signal;
+	}
+	catch (e) {}
+	return out;
+}
+
+/* a watched station left or was dropped (notification or poll) */
+function wifi_gone(st, t, why) {
+	if (st.left_at == null) {
+		st.left_at = t;
+		st.left_why = why;
+		st.left_signal = st.signal;
+		st.left_iface = st.iface;
+		st.left_weak = st.weak;
+	}
+}
+
+/* hostapd notifications: catch a drop that is back before the next check */
+function wifi_notify(ev) {
+	let mac = lc(`${ev?.data?.address ?? ''}`);
+	if (cfg.wifi.stations[mac] == null) return;
+	let st = wifi.sta[mac];
+	if (!st) return;
+	if (ev.type == 'disassoc' || ev.type == 'deauth') {
+		wifi_gone(st, now(), ev.type);
+		if (ev.data.reason != null) st.left_reason = ev.data.reason;
+	}
+	else if (ev.type == 'assoc' && st.left_at != null) {
+		st.back_at = now();
+	}
+}
+
+function wifi_subscribe(objs) {
+	if (getenv('ISP_TESTER_CONFIG') || !ubus_conn || !length(cfg.wifi.stations)) return;
+	try {
+		wifi.sub ??= ubus_conn.subscriber((ev) => {
+			try { wifi_notify(ev); } catch (e) {}
+		}, (id) => {
+			/* hostapd restarted (wifi reload): subscribe again on the next check */
+			wifi.subs = {};
+		});
+		for (let o in objs)
+			if (!wifi.subs[o] && wifi.sub?.subscribe(o)) wifi.subs[o] = true;
+	}
+	catch (e) {
+		wifi.sub = null;
+	}
+}
+
+function wifi_poll() {
+	if (!cfg.wifi.enabled) return null;
+	let objs = hostapd_read(), t = now();
+	if (objs == null) {
+		wifi.err = 'no_ubus';
+		return length(cfg.wifi.stations)
+			? { level: 'unknown', reasons: [ { c: 'wifi_no_ubus' } ], err: wifi.err, stations: [], ifaces: [], signal_warn: cfg.wifi.signal_warn }
+			: null;
+	}
+	wifi.err = length(objs) ? null : 'no_hostapd';
+	/* a router without an access point and nothing to watch: no card */
+	if (wifi.err && !length(cfg.wifi.stations)) return null;
+
+	let seen = {}, ifaces = [], total = 0, clients = [];
+	for (let o, r in objs) {
+		let ifn = replace(o, /^hostapd\./, ''), n = 0;
+		let cl = (type(r?.clients) == 'object') ? r.clients : {};
+		let sig = null;
+		for (let mac, c in cl) {
+			mac = lc(mac);
+			if (type(c) != 'object' || c.assoc === false) continue;
+			n++;
+			let s = c.signal;
+			if (s == null && cfg.wifi.stations[mac] != null) {
+				sig ??= iwinfo_signals(ifn);
+				s = sig[mac];
+			}
+			seen[mac] = { iface: ifn, signal: (type(s) == 'int' && s < 0) ? s : null,
+				rx: c.rate?.rx, tx: c.rate?.tx, freq: r.freq };
+			if (length(clients) < 64) push(clients, { mac, iface: ifn, signal: seen[mac].signal });
+		}
+		total += n;
+		push(ifaces, { iface: ifn, freq: r.freq, n });
+	}
+	wifi.clients = clients;
+	wifi_subscribe(keys(objs));
+
+	let level = 'ok', reasons = [], list = [];
+	for (let mac, label in cfg.wifi.stations) {
+		let src = label || mac;
+		let st = wifi.sta[mac] ??= { connected: null, since: t, weak: false, weak_n: 0, ok_n: 0 };
+		let cur = seen[mac];
+
+		if (cur) {
+			let back = st.left_at != null;
+			if (st.connected === false || back) {
+				let away = (st.back_at ?? t) - (st.left_at ?? t);
+				if (st.left_at != null && !st.left_logged) {
+					/* back within the limit: a drop the user notices; on another
+					 * band/AP of this router it was steered over (info) */
+					let roam = st.left_iface && st.left_iface != cur.iface;
+					emit(roam ? 'info' : 'warn', 'wifi', src, 'wifi_reconnect', { mac, iface: cur.iface, from: st.left_iface,
+						away: max(1, away), signal: st.left_signal, weak: st.left_weak, why: st.left_why, reason: st.left_reason, roam }, st.left_at);
+				}
+				else if (st.left_logged)
+					emit('info', 'wifi', src, 'wifi_join', { mac, iface: cur.iface, away: t - st.left_at, signal: cur.signal });
+				st.since = st.back_at ?? t;
+			}
+			else if (st.connected == null) st.since = t;
+			else if (st.iface && st.iface != cur.iface)
+				/* moved to another band / interface without a gap seen */
+				emit('info', 'wifi', src, 'wifi_roam', { mac, from: st.iface, iface: cur.iface, signal: cur.signal });
+			st.connected = true;
+			st.iface = cur.iface;
+			st.signal = cur.signal;
+			st.rx = cur.rx;
+			st.tx = cur.tx;
+			st.left_at = st.back_at = st.left_reason = st.left_why = null;
+			st.left_logged = false;
+
+			/* weak signal: two checks in a row, back with 5 dB hysteresis */
+			if (cur.signal != null) {
+				if (cur.signal < cfg.wifi.signal_warn) { st.weak_n++; st.ok_n = 0; }
+				else if (cur.signal >= cfg.wifi.signal_warn + 5) { st.ok_n++; st.weak_n = 0; }
+				if (!st.weak && st.weak_n >= 2) {
+					st.weak = true;
+					st.weak_since = t;
+					st.weak_min = cur.signal;
+					emit('warn', 'wifi', src, 'wifi_weak', { mac, iface: cur.iface, signal: cur.signal });
+				}
+				else if (st.weak && st.ok_n >= 2) {
+					st.weak = false;
+					emit('info', 'wifi', src, 'wifi_weak_ok', { mac, iface: cur.iface, signal: cur.signal, min: st.weak_min, dur: t - st.weak_since });
+				}
+				if (st.weak && cur.signal < st.weak_min) st.weak_min = cur.signal;
+			}
+		}
+		else {
+			if (st.connected === true) wifi_gone(st, t, 'gone');
+			/* away longer than the limit: it left (phone out of the house) */
+			if (st.left_at != null && !st.left_logged && t - st.left_at > cfg.wifi.reconnect_s) {
+				emit('info', 'wifi', src, 'wifi_leave', { mac, iface: st.left_iface, signal: st.left_signal, weak: st.left_weak,
+					why: st.left_why, reason: st.left_reason }, st.left_at);
+				st.left_logged = true;
+			}
+			if (st.connected !== false) st.since = st.left_at ?? t;
+			st.connected = false;
+			st.weak = false;
+			st.weak_n = st.ok_n = 0;
+		}
+
+		let sl = 'ok';
+		if (st.weak) { sl = 'warn'; push(reasons, { c: 'wifi_weak_now', name: src, signal: st.signal }); }
+		else if (recent_level('wifi', src) != 'ok') { sl = 'warn'; push(reasons, { c: 'recent_events', dev: src }); }
+		level = worst(level, sl);
+		push(list, { mac, label, connected: st.connected, iface: st.iface, signal: st.signal, rx: st.rx, tx: st.tx,
+			since: st.since, weak: st.weak, level: st.connected ? sl : 'unknown' });
+	}
+	/* no access point running: nothing to judge (a note, not a warning) */
+	if (wifi.err) { level = 'unknown'; push(reasons, { c: 'wifi_' + wifi.err }); }
+
+	return { level, reasons, err: wifi.err, total, ifaces, stations: list, signal_warn: cfg.wifi.signal_warn,
+		subscribed: length(keys(wifi.subs)) > 0 };
+}
+
 function handle_clear_request() {
 	let flag = `${VARDIR}/clear`;
 	if (!fs.stat(flag)) return;
@@ -2285,10 +3355,15 @@ function handle_clear_request() {
 	else
 		fs.unlink(`${RUNDIR}/samples.csv`);
 	csv_rows = 0;
+	agg10 = null;
+	for (let n in (fs.lsdir(ARCH) ?? []))
+		if (match(n, /^(ev|h)-[0-9]{8}\.jsonl$/)) fs.unlink(`${ARCH}/${n}`);
+	arch.checked = 0;
 	emit('info', 'system', 'collector', 'cleared', {});
 }
 
 function tick() {
+	arch_check();
 	handle_clear_request();
 	handle_marks();
 	handle_notify_test();
@@ -2339,6 +3414,11 @@ function tick() {
 			push(reasons, { c: 'no_ping_source', error: source.error, plugin: source.ping_plugin });
 
 		let wd = cfg.wan.device ? res[cfg.wan.device] : null;
+		if (wd?.delta) bloat_tick(now(), wd.delta.rx_bps, wd.delta.tx_bps);
+		if (bloat.active) {
+			level = worst(level, 'warn');
+			push(reasons, { c: 'bufferbloat_now', add: bloat.max_add, load: bloat.last?.load, dir: bloat.last?.dir });
+		}
 		if (wd && wd.level != 'ok') {
 			level = worst(level, wd.level);
 			for (let r in wd.reasons) push(reasons, r);
@@ -2349,6 +3429,9 @@ function tick() {
 		}
 
 		wan = { level, reasons, targets: tl, device: cfg.wan.device, interface: cfg.wan.interface,
+			trace: cfg.wan.trace ? { tool: MTR ? 'mtr' : (TRACEROUTE ? 'traceroute' : null), running: !!trace.proc, last: trace.last || null,
+				n: trace.n, cooldown: cfg.wan.trace_cooldown } : null,
+			bloat: bloat_out(),
 			rx_kbps: wd?.delta ? round(wd.delta.rx_bps / 1000, 0) : null,
 			tx_kbps: wd?.delta ? round(wd.delta.tx_bps / 1000, 0) : null,
 			source: { type: source.type, error: source.error, sock_error: source.sock_error, ping_plugin: source.ping_plugin, gateway: gateway_ip() },
@@ -2359,6 +3442,14 @@ function tick() {
 	let iptv_dev = cfg.iptv.vlan ? vl.upstream : cfg.iptv.device;
 	let iptv_res = sample_iptv(iptv_dev ? res[iptv_dev] : null);
 	tsm_poll();
+	let decs = dec_poll();
+	if (iptv_res && decs != null) {
+		iptv_res.decoders = decs;
+		if (dec.err) push(iptv_res.reasons, { c: 'dec_' + dec.err });
+	}
+
+	/* ---- Wi-Fi */
+	let wifi_res = wifi_poll();
 
 	/* ---- ports */
 	let ports = [];
@@ -2381,11 +3472,22 @@ function tick() {
 	if (wan) overall = worst(overall, wan.level);
 	if (iptv_res) overall = worst(overall, iptv_res.level);
 	overall = worst(overall, ports_level);
+	if (wifi_res && wifi_res.level != 'unknown') overall = worst(overall, wifi_res.level);
+	/* this router's own state, before the second router's is added */
+	let own = overall;
+
+	/* ---- second router */
+	let peers = peer_tick(cfg.peer.role == 'send' ? peer_hb(own, iptv_res, ports, wifi_res) : null);
+	if (peers && length(peers.list)) overall = worst(overall, peers.level);
 
 	/* ---- history (skip the baseline tick without deltas) */
 	let t = now();
 	if (dt > 0) {
 		let hv = { lvl: LEVEL[overall] };
+		if (wan?.rx_kbps != null) {
+			hv['wan:rx'] = wan.rx_kbps;
+			hv['wan:tx'] = wan.tx_kbps;
+		}
 		for (let x in (wan?.targets ?? [])) {
 			hv[`rtt:${x.label}`] = x.rtt;
 			hv[`loss:${x.label}`] = x.loss;
@@ -2446,10 +3548,15 @@ function tick() {
 		wan,
 		iptv: iptv_res,
 		ports: { level: ports_level, list: ports },
+		wifi: wifi_res,
+		wifi_clients: cfg.wifi.enabled ? wifi.clients : null,
+		own,
+		peer: peer_out(),
+		peers: peers ? peers : null,
 		counts: { h1: count_events(t - 3600), h24: count_events(t - 86400) },
 		history,
 		csv_rows,
-		data: { dir: RUNDIR, link: (fs.lstat(RUNDIR)?.type == 'link') ? fs.readlink(RUNDIR) : null },
+		data: { dir: RUNDIR, link: (fs.lstat(RUNDIR)?.type == 'link') ? fs.readlink(RUNDIR) : null, archive: arch.info },
 		notify: cfg.notify.enabled ? { service: cfg.notify.service, pending: length(notif.pending),
 			last_ok: notif.last_ok, last_fail: notif.last_fail, last_err: notif.last_err, fetch: FETCH != null } : null
 	};
@@ -2486,9 +3593,12 @@ history = load_hist('state.json', cfg.history);
 chn_load();
 history_min = load_hist('history.json', cfg.long_history);
 
+arch_check();
 emit('info', 'system', 'collector', 'monitor_start', { interval: cfg.interval, iptv_interval: iptv_fast() ? cfg.iptv.sample_interval : null });
 
 uloop.init();
+peer_start();
+bloat_load_peak();
 refresh_wan_device();
 /* the log so far is history: only remember where it ends */
 read_log();

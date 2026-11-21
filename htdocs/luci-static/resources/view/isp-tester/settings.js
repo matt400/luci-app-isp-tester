@@ -12,6 +12,12 @@ var callTestNotify = rpc.declare({
 	expect: { '': {} }
 });
 
+var callStatus = rpc.declare({
+	object: 'luci.isp_tester',
+	method: 'status',
+	expect: { '': {} }
+});
+
 var callChannels = rpc.declare({
 	object: 'luci.isp_tester',
 	method: 'channels',
@@ -190,11 +196,16 @@ var UPD_CSS = E('style', {}, '.ispt-update-ok{color:#2e9d4f;font-weight:bold}.is
 
 return view.extend({
 	load: function() {
-		return callChannels().catch(function() { return {}; });
+		return Promise.all([
+			callChannels().catch(function() { return {}; }),
+			callStatus().catch(function() { return {}; })
+		]);
 	},
 
-	render: function(learned) {
+	render: function(data) {
 		var m, s, o;
+		var learned = data[0];
+		var state = (data[1] && data[1].state) || {};
 
 		m = new form.Map('isp_tester', _('ISP Tester – Settings'),
 			_('Changes are applied immediately after “Save & Apply”; the collector restarts, keeping the timeline (charts start over).'));
@@ -252,6 +263,15 @@ return view.extend({
 		o.placeholder = '/mnt/sda1';
 		o.optional = true;
 
+		o = s.option(form.ListValue, 'archive_days', _('Archive on USB'),
+			_('With the data on USB, every event and a 10-minute summary of the charts are also kept per day for this long, so the overview can show 7 or 30 days and the report for the ISP can cover a whole week. Appended once per event and once per 10 minutes, never rewritten. Without a USB folder it stays off (RAM is too small).'));
+		o.value('0', _('Off'));
+		o.value('7', _('7 days'));
+		o.value('30', _('30 days'));
+		o.value('90', _('90 days'));
+		o.default = '30';
+		o.depends({ data_dir: '', '!reverse': true });
+
 		o = s.option(form.Flag, 'logread', _('Read the system log'),
 			_('Turns messages of other services into timeline events: pppd (LCP echo timeouts, authentication, PPPoE discovery), udhcpc (lease lost), igmpproxy/mcproxy errors, kernel (network driver hang, connection table full, out of memory), dnsmasq (query limit).'));
 		o.default = '1';
@@ -296,6 +316,41 @@ return view.extend({
 			_('Standard deviation of the ping time as reported by collectd. Matters for calls, games and IPTV over unicast. 0 = no warning.'));
 		o.datatype = 'uinteger';
 		o.placeholder = '0';
+
+		o = s.option(form.Flag, 'trace', _('Path snapshot at a loss'),
+			_('When a loss starts (or the connection is down), one traceroute is run to a far target – <code>mtr</code> when installed (10 rounds, more precise), otherwise the busybox <code>traceroute</code>. The timeline then shows at which hop the loss starts and carries on to the destination: concrete proof for the ISP. Takes a few seconds, at most once per the time below.'));
+		o.default = '1';
+		o.rmempty = false;
+
+		o = s.option(form.Value, 'trace_cooldown', _('At most every (s)'));
+		o.datatype = 'range(60,86400)';
+		o.placeholder = '600';
+		o.depends('trace', '1');
+
+		o = s.option(form.Flag, 'bloat', _('Detect bufferbloat'),
+			_('Compares the ping from collectd with the WAN traffic of the same interval: when the ping goes up only while the link is full, the lag is your own traffic filling a buffer (modem, ISP) – not an outage, and SQM fixes it. No speed test is run: the line speed is the highest rate seen, or the values below.'));
+		o.default = '1';
+		o.rmempty = false;
+
+		o = s.option(form.Value, 'bloat_ms', _('Ping increase (ms)'), _('Above the ping at low load, twice in a row.'));
+		o.datatype = 'range(5,1000)';
+		o.placeholder = '30';
+		o.depends('bloat', '1');
+
+		o = s.option(form.Value, 'bloat_load', _('Link full from (%)'));
+		o.datatype = 'range(30,100)';
+		o.placeholder = '70';
+		o.depends('bloat', '1');
+
+		o = s.option(form.Value, 'down_mbit', _('Download speed (Mbit/s)'), _('Of your plan. Empty = the highest rate seen.'));
+		o.datatype = 'ufloat';
+		o.optional = true;
+		o.depends('bloat', '1');
+
+		o = s.option(form.Value, 'up_mbit', _('Upload speed (Mbit/s)'), _('Of your plan. Empty = the highest rate seen.'));
+		o.datatype = 'ufloat';
+		o.optional = true;
+		o.depends('bloat', '1');
 
 		/* ---- IPTV */
 		s = m.section(form.NamedSection, 'iptv', 'iptv', _('IPTV'),
@@ -425,6 +480,109 @@ return view.extend({
 			_('When the table is full, new connections fail. 0 disables.'));
 		o.datatype = 'range(0,100)';
 		o.placeholder = '90';
+
+		/* ---- decoders */
+		s = m.section(form.NamedSection, 'iptv', 'iptv', _('Decoders'),
+			_('Tells “the decoder restarted” from “the stream vanished”. In a bridged IPTV VLAN the decoders get their address from the ISP, so the router has no neighbour entry for them; it uses the bridge\'s MAC table instead: every device in the IPTV VLAN on a port other than the one to the ISP is a decoder. A restart is seen when the port\'s link goes down (decoder directly on the port), when it vanishes from the MAC table and comes back, or when it is silent while the stream stops. Behind a switch the port stays up – install the package on the router the decoder is plugged into and let it send its events here. Needs the IPTV VLAN set above and the <code>ip-bridge</code> package.'));
+
+		o = s.option(form.Flag, 'decoders', _('Detect decoder restarts'));
+		o.default = '1';
+		o.rmempty = false;
+
+		o = s.option(form.Value, 'dec_silence', _('Silent for (s)'),
+			_('No frame from the decoder for this long while the stream stopped counts as a restart.'));
+		o.datatype = 'range(15,600)';
+		o.placeholder = '40';
+		o.depends('decoders', '1');
+
+		o = s.option(form.Value, 'dec_off', _('Switched off after (s)'),
+			_('Away longer than this: switched off or unplugged, not a restart.'));
+		o.datatype = 'range(60,86400)';
+		o.placeholder = '600';
+		o.depends('decoders', '1');
+
+		s = m.section(form.GridSection, 'decoder', _('Decoder names'),
+			_('Optional: a name per decoder MAC address, shown instead of the address. The decoders found now are offered in the list.'));
+		s.addremove = true;
+		s.anonymous = true;
+
+		o = s.option(form.Value, 'mac', _('MAC address'));
+		o.datatype = 'macaddr';
+		o.rmempty = false;
+		((state.iptv && state.iptv.decoders) || []).forEach(function(d) {
+			o.value(d.mac, '%s (%s)'.format(d.mac, d.port));
+		});
+
+		o = s.option(form.Value, 'label', _('Name'));
+		o.placeholder = _('e.g. Living room');
+
+		/* ---- Wi-Fi */
+		s = m.section(form.NamedSection, 'wifi', 'wifi', _('Wi-Fi'),
+			_('Watches the Wi-Fi clients of this router\'s access points (hostapd over ubus): when a watched device (phone, TV) drops and comes back, and when its signal gets weak. Then a “Problem now” report with nothing measured on the line has proof: it was Wi-Fi – or, when its Wi-Fi was fine, it was not. On a second router behind this one, set it up there and let it send its events here.'));
+
+		o = s.option(form.Flag, 'enabled', _('Watch Wi-Fi'));
+		o.default = '1';
+		o.rmempty = false;
+
+		o = s.option(form.Value, 'signal_warn', _('Weak signal below (dBm)'),
+			_('Two checks in a row below this are logged. Around −70 dBm streaming starts to suffer.'));
+		o.datatype = 'range(-100,-30)';
+		o.placeholder = '-75';
+
+		o = s.option(form.Value, 'reconnect_s', _('Reconnect within (s)'),
+			_('A device that is back within this time was dropped (a fault). One that stays away longer just left (e.g. the phone left the house) and is only noted.'));
+		o.datatype = 'range(5,3600)';
+		o.placeholder = '60';
+
+		s = m.section(form.GridSection, 'station', _('Wi-Fi devices to watch'),
+			_('Only these are logged; the others are counted. Devices connected now are offered in the list.'));
+		s.addremove = true;
+		s.anonymous = true;
+		s.sortable = true;
+
+		o = s.option(form.Flag, 'enabled', _('Enabled'));
+		o.default = '1';
+		o.editable = true;
+		o.rmempty = false;
+
+		o = s.option(form.Value, 'mac', _('MAC address'));
+		o.datatype = 'macaddr';
+		o.rmempty = false;
+		(state.wifi_clients || []).forEach(function(c) {
+			o.value(c.mac, '%s (%s%s)'.format(c.mac, c.iface, c.signal != null ? ', %d dBm'.format(c.signal) : ''));
+		});
+
+		o = s.option(form.Value, 'label', _('Name'));
+		o.placeholder = _('e.g. Phone');
+
+		/* ---- second router */
+		s = m.section(form.NamedSection, 'peer', 'peer', _('Second router'),
+			_('Two routers, one timeline: a router behind this one (e.g. an access point with a decoder, a phone or the TV behind it) sends every event it logs to the main router, which shows them on its timeline marked with the sender\'s name and uses them in the analysis. Install the package on both, choose “Send” on the second one and “Receive” on the main one, with the same key. Over UDP, signed with the key (HMAC-SHA256); events that cannot be delivered are sent again.'));
+
+		o = s.option(form.ListValue, 'role', _('This router'));
+		o.value('off', _('Works alone'));
+		o.value('send', _('Sends its events to the main router'));
+		o.value('receive', _('Receives the events of a second router'));
+		o.default = 'off';
+
+		o = s.option(form.Value, 'host', _('Address of the main router'),
+			_('IPv4 address of the router that receives, e.g. <code>192.168.1.1</code>.'));
+		o.datatype = 'ip4addr("nomask")';
+		o.depends('role', 'send');
+
+		o = s.option(form.Value, 'port', _('UDP port'),
+			_('The same on both routers. The receiver listens on it; the LAN zone of the firewall accepts it by default (input ACCEPT).'));
+		o.datatype = 'port';
+		o.placeholder = '51477';
+		o.depends('role', 'send');
+		o.depends('role', 'receive');
+
+		o = s.option(form.Value, 'key', _('Key'),
+			_('The same secret on both routers, at least 8 characters. Messages signed with another key are ignored.'));
+		o.password = true;
+		o.datatype = 'minlength(8)';
+		o.depends('role', 'send');
+		o.depends('role', 'receive');
 
 		/* ---- notifications */
 		s = m.section(form.NamedSection, 'notify', 'notify', _('Notifications'),

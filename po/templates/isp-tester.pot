@@ -140,9 +140,6 @@ msgstr ""
 msgid "%s: high jitter %s (ping %s)"
 msgstr ""
 
-msgid "%s: high latency %s"
-msgstr ""
-
 msgid "%s: not responding (%d%% loss)"
 msgstr ""
 
@@ -1449,4 +1446,529 @@ msgid "the measuring helper does not respond"
 msgstr ""
 
 msgid "the measuring helper stopped, restarting"
+msgstr ""
+
+msgid "%d of %d IPTV freezes seen by %s did not happen here – the stream is lost between the routers (cable, the second router, its Wi-Fi or switch), not at the ISP."
+msgstr ""
+
+msgid "Router %s stopped reporting %d× – switched off, rebooted or the cable between the routers."
+msgstr ""
+
+msgid "Router %s has not reported for %s (switched off, rebooting or the cable between the routers)"
+msgstr ""
+
+msgid "Router %s reports: %s"
+msgstr ""
+
+msgid "Router %s stopped reporting"
+msgstr ""
+
+msgid "Router %s reports again after %s"
+msgstr ""
+
+msgid "Logged by router %s"
+msgstr ""
+
+msgid "%s: not reporting"
+msgstr ""
+
+msgid "Reports"
+msgstr ""
+
+msgid "%s ago from %s"
+msgstr ""
+
+msgid "nothing for %s (last from %s)"
+msgstr ""
+
+msgid "Monitoring for"
+msgstr ""
+
+msgid "Clock"
+msgstr ""
+
+msgid "off by %d s – its events are moved to this router's time"
+msgstr ""
+
+msgid "Router %s"
+msgstr ""
+
+msgid "Its events are on the timeline below, marked with its name."
+msgstr ""
+
+msgid "Second router"
+msgstr ""
+
+msgid "%s (its events are included, marked with its name)"
+msgstr ""
+
+msgid "All routers"
+msgstr ""
+
+msgid "This router"
+msgstr ""
+
+msgid "no key set (at least 8 characters)"
+msgstr ""
+
+msgid "the address of the main router is not a valid IPv4 address"
+msgstr ""
+
+msgid "the ucode-mod-digest package is missing"
+msgstr ""
+
+msgid "the ucode-mod-socket package is missing"
+msgstr ""
+
+msgid "cannot open a socket"
+msgstr ""
+
+msgid "UDP port %d is in use"
+msgstr ""
+
+msgid "no answer – check the address, the key and that the main router receives"
+msgstr ""
+
+msgid "sending events to %s: %s"
+msgstr ""
+
+msgid "sending events to %s (waiting for the first confirmation)"
+msgstr ""
+
+msgid "sending events to %s (last confirmed %s ago%s)"
+msgstr ""
+
+msgid "%d waiting"
+msgstr ""
+
+msgid "receiving events: %s"
+msgstr ""
+
+msgid "receiving events of the second router on UDP port %d"
+msgstr ""
+
+msgid "%d messages with a wrong key (last from %s)"
+msgstr ""
+
+msgid "Two routers, one timeline: a router behind this one (e.g. an access point with a decoder, a phone or the TV behind it) sends every event it logs to the main router, which shows them on its timeline marked with the sender's name and uses them in the analysis. Install the package on both, choose “Send” on the second one and “Receive” on the main one, with the same key. Over UDP, signed with the key (HMAC-SHA256); events that cannot be delivered are sent again."
+msgstr ""
+
+msgid "Works alone"
+msgstr ""
+
+msgid "Sends its events to the main router"
+msgstr ""
+
+msgid "Receives the events of a second router"
+msgstr ""
+
+msgid "Address of the main router"
+msgstr ""
+
+msgid "IPv4 address of the router that receives, e.g. <code>192.168.1.1</code>."
+msgstr ""
+
+msgid "UDP port"
+msgstr ""
+
+msgid "The same on both routers. The receiver listens on it; the LAN zone of the firewall accepts it by default (input ACCEPT)."
+msgstr ""
+
+msgid "Key"
+msgstr ""
+
+msgid "The same secret on both routers, at least 8 characters. Messages signed with another key are ignored."
+msgstr ""
+
+msgid "%d of %d of your reports came with a Wi-Fi drop or weak signal of %s, and nothing on the line – the cause is Wi-Fi."
+msgstr ""
+
+msgid "%d of %d of your reports have nothing measured around them, and the Wi-Fi of the watched devices was fine too – the cause is probably the decoder or the TV (or a device that is not watched)."
+msgstr ""
+
+msgid "Wi-Fi of %s dropped and reconnected %d× – range, interference or the device's power saving."
+msgstr ""
+
+msgid "Weak Wi-Fi signal of %s (%d×) – move the access point or the device, or use a cable."
+msgstr ""
+
+msgid "Wi-Fi"
+msgstr ""
+
+msgid "%s: weak Wi-Fi signal (%d dBm)"
+msgstr ""
+
+msgid "Wi-Fi: cannot reach ubus"
+msgstr ""
+
+msgid "Wi-Fi: no access point (hostapd) running on this router"
+msgstr ""
+
+msgid "Wi-Fi: %s moved from %s to %s (gap %s)"
+msgstr ""
+
+msgid "Wi-Fi: %s DROPPED and reconnected after %s"
+msgstr ""
+
+msgid "Wi-Fi: %s disconnected (not back within the reconnect time)"
+msgstr ""
+
+msgid "Wi-Fi: %s connected again after %s"
+msgstr ""
+
+msgid "Wi-Fi: %s moved from %s to %s"
+msgstr ""
+
+msgid "Wi-Fi: %s weak signal %d dBm"
+msgstr ""
+
+msgid "Wi-Fi: %s signal OK again after %s (lowest %d dBm)"
+msgstr ""
+
+msgid "signal before %d dBm"
+msgstr ""
+
+msgid "weak"
+msgstr ""
+
+msgid "deauthenticated"
+msgstr ""
+
+msgid "disassociated"
+msgstr ""
+
+msgid "reason %d"
+msgstr ""
+
+msgid "not connected"
+msgstr ""
+
+msgid "Interface"
+msgstr ""
+
+msgid "Signal"
+msgstr ""
+
+msgid "Link rate received / sent (Mbit/s)"
+msgstr ""
+
+msgid "Rate"
+msgstr ""
+
+msgid "For"
+msgstr ""
+
+msgid "Add the devices to watch (phone, TV) in Settings → Wi-Fi."
+msgstr ""
+
+msgid "Clients"
+msgstr ""
+
+msgid "Weak below"
+msgstr ""
+
+msgid "Wi-Fi clients"
+msgstr ""
+
+msgid "Wi-Fi: %s"
+msgstr ""
+
+msgid "Wi-Fi drops of watched devices"
+msgstr ""
+
+msgid "Watches the Wi-Fi clients of this router's access points (hostapd over ubus): when a watched device (phone, TV) drops and comes back, and when its signal gets weak. Then a “Problem now” report with nothing measured on the line has proof: it was Wi-Fi – or, when its Wi-Fi was fine, it was not. On a second router behind this one, set it up there and let it send its events here."
+msgstr ""
+
+msgid "Watch Wi-Fi"
+msgstr ""
+
+msgid "Weak signal below (dBm)"
+msgstr ""
+
+msgid "Two checks in a row below this are logged. Around −70 dBm streaming starts to suffer."
+msgstr ""
+
+msgid "Reconnect within (s)"
+msgstr ""
+
+msgid "A device that is back within this time was dropped (a fault). One that stays away longer just left (e.g. the phone left the house) and is only noted."
+msgstr ""
+
+msgid "Wi-Fi devices to watch"
+msgstr ""
+
+msgid "Only these are logged; the others are counted. Devices connected now are offered in the list."
+msgstr ""
+
+msgid "MAC address"
+msgstr ""
+
+msgid "e.g. Phone"
+msgstr ""
+
+msgid "Path snapshots (%d): the loss started at hop %d (%s) and carried on to the destination (%d× there) – inside the ISP's network or beyond; the hops before it were fine. Show this to the ISP."
+msgstr ""
+
+msgid "Path snapshots (%d): the loss started already at the first hop (%s) – the access line or the ISP's first router."
+msgstr ""
+
+msgid "Path snapshot (%s) to %s"
+msgstr ""
+
+msgid "(%s after the loss started)"
+msgstr ""
+
+msgid "no result"
+msgstr ""
+
+msgid "no loss to the destination any more – the loss was over, or only ICMP replies of a router on the way were slow"
+msgstr ""
+
+msgid "loss from the first hop (%s) to the destination – the access line or the ISP's first router"
+msgstr ""
+
+msgid "loss starts at hop %d (%s) and carries on to the destination (%d%%); up to hop %s (%s) it was fine"
+msgstr ""
+
+msgid "Hop"
+msgstr ""
+
+msgid "Path snapshots at the moment of a loss"
+msgstr ""
+
+msgid "Taken automatically when a loss started. Loss that starts at a hop and carries on to the destination shows where packets are lost; loss at a single hop only is a router that answers pings slowly."
+msgstr ""
+
+msgid "path snapshot at a loss: %s%s"
+msgstr ""
+
+msgid "running now"
+msgstr ""
+
+msgid "path snapshot at a loss: no traceroute / mtr on the router"
+msgstr ""
+
+msgid "Path snapshot at a loss"
+msgstr ""
+
+msgid "When a loss starts (or the connection is down), one traceroute is run to a far target – <code>mtr</code> when installed (10 rounds, more precise), otherwise the busybox <code>traceroute</code>. The timeline then shows at which hop the loss starts and carries on to the destination: concrete proof for the ISP. Takes a few seconds, at most once per the time below."
+msgstr ""
+
+msgid "At most every (s)"
+msgstr ""
+
+msgid "Bufferbloat %d×: the ping went up by as much as %d ms only while the link was full (%s) – your own traffic fills a buffer in the modem or at the ISP. Not an outage and not the ISP's fault: SQM (luci-app-sqm, cake) set a bit below the line speed fixes it."
+msgstr ""
+
+msgid "upload"
+msgstr ""
+
+msgid "download"
+msgstr ""
+
+msgid "download and upload"
+msgstr ""
+
+msgid "%d high-ping warnings at those times are not counted against the ISP."
+msgstr ""
+
+msgid "Ping is up by %d ms while the link is %d%% full (%s) – bufferbloat, not an outage"
+msgstr ""
+
+msgid "BUFFERBLOAT: ping %s → %s (+%d ms) with the link %d%% full (%s %s of %s Mbit/s)"
+msgstr ""
+
+msgid "Bufferbloat over after %s (at most +%d ms)"
+msgstr ""
+
+msgid "measuring…"
+msgstr ""
+
+msgid "%s at low load; the link has not been full yet"
+msgstr ""
+
+msgid "lags only when the link is full (bufferbloat)"
+msgstr ""
+
+msgid "sometimes higher at full link"
+msgstr ""
+
+msgid "no extra delay at full link"
+msgstr ""
+
+msgid "Line speed"
+msgstr ""
+
+msgid "highest seen"
+msgstr ""
+
+msgid "set"
+msgstr ""
+
+msgid "Ping of the gateway at low load and with the link full, from collectd and the WAN traffic of the same interval"
+msgstr ""
+
+msgid "Ping idle / full link"
+msgstr ""
+
+msgid "Bufferbloat: ping +%d ms"
+msgstr ""
+
+msgid "Download"
+msgstr ""
+
+msgid "Upload"
+msgstr ""
+
+msgid "WAN traffic (Mbit/s) – yellow = bufferbloat (ping up while the link is full)"
+msgstr ""
+
+msgid "Detect bufferbloat"
+msgstr ""
+
+msgid "Compares the ping from collectd with the WAN traffic of the same interval: when the ping goes up only while the link is full, the lag is your own traffic filling a buffer (modem, ISP) – not an outage, and SQM fixes it. No speed test is run: the line speed is the highest rate seen, or the values below."
+msgstr ""
+
+msgid "Ping increase (ms)"
+msgstr ""
+
+msgid "Above the ping at low load, twice in a row."
+msgstr ""
+
+msgid "Link full from (%)"
+msgstr ""
+
+msgid "Download speed (Mbit/s)"
+msgstr ""
+
+msgid "Of your plan. Empty = the highest rate seen."
+msgstr ""
+
+msgid "Upload speed (Mbit/s)"
+msgstr ""
+
+msgid "7 d"
+msgstr ""
+
+msgid "30 d"
+msgstr ""
+
+msgid "loading the archive…"
+msgstr ""
+
+msgid "IPTV bitrate (10 min average)"
+msgstr ""
+
+msgid "Interface errors per 10 minutes"
+msgstr ""
+
+msgid "Preparing the report…"
+msgstr ""
+
+msgid "The archive of the last %d days on USB is deleted too."
+msgstr ""
+
+msgid "Archive on USB"
+msgstr ""
+
+msgid "With the data on USB, every event and a 10-minute summary of the charts are also kept per day for this long, so the overview can show 7 or 30 days and the report for the ISP can cover a whole week. Appended once per event and once per 10 minutes, never rewritten. Without a USB folder it stays off (RAM is too small)."
+msgstr ""
+
+msgid "Off"
+msgstr ""
+
+msgid "7 days"
+msgstr ""
+
+msgid "30 days"
+msgstr ""
+
+msgid "90 days"
+msgstr ""
+
+msgid "%d of %d IPTV freezes happened while a decoder (%s) restarted – the decoder, not a lost stream; not counted against the ISP."
+msgstr ""
+
+msgid "Decoder %s restarted %d× – power supply, firmware update or overheating (or someone switched it off and on)."
+msgstr ""
+
+msgid "Decoders: cannot read the bridge MAC table (bridge fdb)"
+msgstr ""
+
+msgid "Decoder %s RESTARTED – away for %s on %s (%s)"
+msgstr ""
+
+msgid "port link went down"
+msgstr ""
+
+msgid "vanished from the MAC table"
+msgstr ""
+
+msgid "silent while the stream stopped"
+msgstr ""
+
+msgid "the stream stopped because of it, not at the ISP"
+msgstr ""
+
+msgid "Decoder %s switched off or unplugged (%s)"
+msgstr ""
+
+msgid "Decoder %s is back after %s"
+msgstr ""
+
+msgid "%d during decoder restarts"
+msgstr ""
+
+msgid "Decoder %s"
+msgstr ""
+
+msgid "on %s, for %s"
+msgstr ""
+
+msgid "silent for %s"
+msgstr ""
+
+msgid "off / unplugged since %s"
+msgstr ""
+
+msgid "not visible for %s"
+msgstr ""
+
+msgid "on %s"
+msgstr ""
+
+msgid "not visible (%s)"
+msgstr ""
+
+msgid "Decoder restarts"
+msgstr ""
+
+msgid "Decoders"
+msgstr ""
+
+msgid "Tells “the decoder restarted” from “the stream vanished”. In a bridged IPTV VLAN the decoders get their address from the ISP, so the router has no neighbour entry for them; it uses the bridge's MAC table instead: every device in the IPTV VLAN on a port other than the one to the ISP is a decoder. A restart is seen when the port's link goes down (decoder directly on the port), when it vanishes from the MAC table and comes back, or when it is silent while the stream stops. Behind a switch the port stays up – install the package on the router the decoder is plugged into and let it send its events here. Needs the IPTV VLAN set above and the <code>ip-bridge</code> package."
+msgstr ""
+
+msgid "Detect decoder restarts"
+msgstr ""
+
+msgid "Silent for (s)"
+msgstr ""
+
+msgid "No frame from the decoder for this long while the stream stopped counts as a restart."
+msgstr ""
+
+msgid "Switched off after (s)"
+msgstr ""
+
+msgid "Away longer than this: switched off or unplugged, not a restart."
+msgstr ""
+
+msgid "Decoder names"
+msgstr ""
+
+msgid "Optional: a name per decoder MAC address, shown instead of the address. The decoders found now are offered in the list."
+msgstr ""
+
+msgid "e.g. Living room"
 msgstr ""

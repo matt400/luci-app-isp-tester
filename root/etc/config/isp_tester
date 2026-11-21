@@ -17,6 +17,10 @@ config general 'general'
 	# keep timeline, history and CSV in this folder (e.g. a USB stick, /mnt/sda1)
 	# instead of RAM, so they survive a reboot. Avoid the internal flash.
 	option data_dir ''
+	# with data_dir: keep every event and 10-minute summaries per day for
+	# this many days in <data_dir>/isp-tester/archive (7/30-day view, weekly
+	# report); 0 = off
+	option archive_days '30'
 	# turn messages of other services in the system log (pppd, udhcpc,
 	# igmpproxy, kernel, dnsmasq) into timeline events
 	option logread '1'
@@ -36,9 +40,26 @@ config wan 'wan'
 	option rtt_warn '80'
 	# jitter (ms, collectd ping_stddev) for yellow, 0 = off
 	option jitter_warn '0'
+	# one traceroute (mtr when installed) when a loss starts, at most every
+	# trace_cooldown seconds: shows at which hop the loss starts
+	option trace '1'
+	option trace_cooldown '600'
+	# bufferbloat: ping (collectd) vs. WAN traffic of the same interval
+	option bloat '1'
+	option bloat_ms '30'
+	option bloat_load '70'
+	# speed of the plan in Mbit/s; unset = the highest rate seen
+	#option down_mbit '300'
+	#option up_mbit '50'
 
 config iptv 'iptv'
 	option enabled '1'
+	# decoder restarts from the bridge MAC table of the IPTV VLAN (+ port link)
+	option decoders '1'
+	# silent this long while the stream stops = restart
+	option dec_silence '40'
+	# away longer = switched off, not a restart
+	option dec_off '600'
 	# IPTV VLAN number (e.g. 236). Enough when the VLAN is only bridged to the
 	# decoders: bitrate from the bridge's per-VLAN counters, channels from the
 	# bridge's multicast table, ports detected. Empty = use 'device' below.
@@ -95,6 +116,36 @@ config system 'system'
 	option mem_warn '10'
 	# connection tracking table fill (%), 0 = off
 	option conntrack_warn '90'
+
+# Wi-Fi clients of this router's access points (hostapd over ubus)
+config wifi 'wifi'
+	option enabled '1'
+	# two checks in a row below this signal (dBm) are logged
+	option signal_warn '-75'
+	# back within this many seconds = dropped (fault); longer = it left
+	option reconnect_s '60'
+
+# a name for a decoder (MAC address as seen in the bridge MAC table)
+#config decoder
+#	option mac 'aa:bb:cc:dd:ee:01'
+#	option label 'Living room'
+
+# a Wi-Fi device to watch (only these are logged)
+#config station
+#	option mac 'aa:bb:cc:dd:ee:ff'
+#	option label 'Phone'
+
+# two routers, one timeline: a second router (e.g. an access point with a
+# decoder behind it) sends its events to the main router over UDP, signed
+# with the shared key (HMAC-SHA256)
+config peer 'peer'
+	# off | send (second router) | receive (main router)
+	option role 'off'
+	# send: IPv4 address of the main router
+	option host ''
+	option port '51477'
+	# the same secret on both routers, at least 8 characters
+	option key ''
 
 config notify 'notify'
 	option enabled '0'

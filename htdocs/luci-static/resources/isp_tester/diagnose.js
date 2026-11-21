@@ -31,7 +31,12 @@ function lastTs(list) {
 
 function uniq(list, key) {
 	var seen = {}, out = [];
-	list.forEach(function(e) { var k = e[key] != null ? e[key] : (e.d && e.d[key]); if (!seen[k]) { seen[k] = true; out.push(k); } });
+	list.forEach(function(e) {
+		var k = e[key] != null ? e[key] : (e.d && e.d[key]);
+		/* a port of the second router: "M477S:lan1" */
+		if (key === 'src' && e.host) k = e.host + ':' + k;
+		if (!seen[k]) { seen[k] = true; out.push(k); }
+	});
 	return out;
 }
 
@@ -89,16 +94,37 @@ return baseclass.extend({
 	 */
 	analyze: function(events, from, to, ctx) {
 		ctx = ctx || {};
-		var ev = events.filter(function(e) { return e.ts >= from && e.ts <= to; });
+		var evAll = events.filter(function(e) { return e.ts >= from && e.ts <= to; });
+		/*
+		 * Events of the second router (e.host) are evidence for the home side
+		 * only (its ports, Wi-Fi, decoders, your reports there); Internet and
+		 * IPTV stream analysis uses what this router measured, so the same
+		 * freeze seen by both routers is not counted twice.
+		 */
+		var ev = evAll.filter(function(e) { return !e.host; });
+		var remote = evAll.filter(function(e) { return !!e.host; });
 		var by = function(f) { return ev.filter(f); };
+		var byAll = function(f) { return evAll.filter(f); };
 		/* resume / "_ok" events can come after the window end; look a bit further */
-		var sorted = events.filter(function(e) { return e.ts >= from - 3600 && e.ts <= to + 3600; })
+		var sorted = events.filter(function(e) { return !e.host && e.ts >= from - 3600 && e.ts <= to + 3600; })
 			.sort(function(a, b) { return a.ts - b.ts; });
 
 		var wanDev = ctx.wan_device;
 		var isJitter = function(e) { return e.type === 'target_degraded' && e.d && e.d.why === 'jitter'; };
-		var isLoss = function(e) { return e.area === 'wan' && (e.type === 'target_degraded' || e.type === 'target_fail') && !isJitter(e); };
-		var gwJitter = by(function(e) { return e.area === 'wan' && e.src === 'gateway' && isJitter(e); });
+		/* bufferbloat periods: high ping there is the own traffic, not the ISP */
+		var bloats      = by(function(e) { return e.type === 'bufferbloat'; });
+		var inBloat = function(ts) {
+			return bloats.some(function(b) {
+				var end = b.ts + 3600;
+				for (var i = 0; i < sorted.length; i++)
+					if (sorted[i].ts > b.ts && (sorted[i].type === 'bufferbloat_ok' || sorted[i].type === 'monitor_start')) { end = sorted[i].ts; break; }
+				return ts >= b.ts - 60 && ts <= end + 60;
+			});
+		};
+		/* a high ping / jitter (no loss) while the link was full belongs to the bufferbloat finding */
+		var bloatLag = function(e) { return e.type === 'target_degraded' && e.d && !(e.d.loss > 0) && inBloat(e.ts); };
+		var isLoss = function(e) { return e.area === 'wan' && (e.type === 'target_degraded' || e.type === 'target_fail') && !isJitter(e) && !bloatLag(e); };
+		var gwJitter = by(function(e) { return e.area === 'wan' && e.src === 'gateway' && isJitter(e) && !bloatLag(e); });
 
 		var wanLinkDown = by(function(e) { return e.type === 'link_down' && (e.area === 'wan' || e.src === wanDev); });
 		var wanDown     = by(function(e) { return e.type === 'wan_down'; });
@@ -113,10 +139,12 @@ return baseclass.extend({
 		var pppDown     = logOf([ 'ppp_down' ]);
 		var anyWan      = gwLoss.concat(farLoss, wanDown, wanLinkDown, wanDevGone, wanSess, pppEcho, pppIsp, pppDown);
 
-		var portLink    = by(function(e) { return e.area === 'ports' && (e.type === 'link_down' || e.type === 'link_flap'); });
-		var portSpeed   = by(function(e) { return e.area === 'ports' && e.type === 'speed_change' && e.d && e.d.to < e.d.from; });
-		var portErr     = by(function(e) { return e.area === 'ports' && (e.type === 'errors' || e.type === 'drops'); });
-		var portMissing = by(function(e) { return e.type === 'dev_missing' && e.area !== 'wan' && e.src !== wanDev; });
+		/* ports of both routers (a port of the second router is never the WAN of this one) */
+		var portLink    = byAll(function(e) { return e.area === 'ports' && (e.type === 'link_down' || e.type === 'link_flap'); });
+		var portSpeed   = byAll(function(e) { return e.area === 'ports' && e.type === 'speed_change' && e.d && e.d.to < e.d.from; });
+		var portErr     = byAll(function(e) { return e.area === 'ports' && (e.type === 'errors' || e.type === 'drops'); });
+		var portMissing = byAll(function(e) { return e.type === 'dev_missing' && (e.host || (e.area !== 'wan' && e.src !== wanDev)); });
+		var devName     = function(e) { return e.host ? e.host + ':' + e.src : e.src; };
 		var wanErr      = by(function(e) { return e.area === 'wan' && e.type === 'errors'; });
 		var iptvDevErr  = by(function(e) { return e.area === 'iptv' && (e.type === 'errors' || e.type === 'drops' || e.type === 'link_down'); });
 		var anyPort     = portLink.concat(portSpeed, portErr);
@@ -126,7 +154,16 @@ return baseclass.extend({
 		var tsErr       = by(function(e) { return e.type === 'ts_errors'; });
 		var proxyBad    = by(function(e) { return e.type === 'proxy_down' || e.type === 'proxy_restart' ||
 			(e.type === 'log' && e.d && e.d.kind === 'proxy_log'); });
-		var marks       = by(function(e) { return e.type === 'user_mark'; });
+		var marks       = byAll(function(e) { return e.type === 'user_mark'; });
+		/* Wi-Fi of the watched devices (phone, TV), on both routers */
+		var wifiDrop    = byAll(function(e) { return e.type === 'wifi_reconnect' && e.lvl !== 'info'; });
+		var wifiWeak    = byAll(function(e) { return e.type === 'wifi_weak'; });
+		var wifiBad     = wifiDrop.concat(wifiWeak);
+		/* traceroute/mtr snapshots that found where the loss starts */
+		var traces      = by(function(e) { return e.type === 'trace' && e.d && e.d.first_bad; });
+		/* the second router: freezes seen only there, times it did not report */
+		var remoteStalls = remote.filter(function(e) { return e.type === 'stream_stall'; });
+		var peerLost    = by(function(e) { return e.type === 'peer_lost'; });
 		var busy        = periods(sorted, [ 'cpu_high', 'mem_low', 'conntrack_full' ], to);
 		/* single moments from the system log count as short overload periods */
 		logOf([ 'conntrack_drop', 'oom', 'dns_limit' ]).forEach(function(e) { busy.push({ from: e.ts, to: e.ts }); });
@@ -137,10 +174,16 @@ return baseclass.extend({
 			var r = nextOf(sorted, s.ts, function(e) { return e.type === 'stream_resume' || e.type === 'stream_lost' || e.type === 'monitor_start'; });
 			return (r && r.type === 'stream_resume' && r.d) ? r.d.igmp : null;
 		};
-		var zaps = [], stalls = [], igmpLeft = [], igmpJoined = [];
+		/* decoder restarts (both routers): a freeze while a decoder was away is the decoder, not the stream */
+		var decRestarts = byAll(function(e) { return e.type === 'decoder_restart'; });
+		var duringRestart = function(s) {
+			return decRestarts.some(function(r) { return s.ts >= r.ts - 15 && s.ts <= r.ts + ((r.d && r.d.dur) || 0) + 10; });
+		};
+		var zaps = [], stalls = [], igmpLeft = [], igmpJoined = [], decStalls = [];
 		allStalls.forEach(function(s) {
 			var ig = igmpOf(s);
 			if (ig === 'zap') { zaps.push(s); return; }
+			if (duringRestart(s)) { decStalls.push(s); return; }
 			stalls.push(s);
 			if (ig === 'left') igmpLeft.push(s);
 			else if (ig === 'joined') igmpJoined.push(s);
@@ -175,6 +218,14 @@ return baseclass.extend({
 
 		add('edge', 1, 'wan_errors', wanErr, { dev: wanDev });
 
+		/* lags only with the link full: own traffic fills a buffer; SQM at home fixes it */
+		if (bloats.length) {
+			var maxAdd = 0, dirs = {};
+			bloats.forEach(function(e) { maxAdd = Math.max(maxAdd, e.d.add || 0); dirs[e.d.dir || 'down'] = true; });
+			add('home', 1, 'bufferbloat', bloats, { add: maxAdd, dir: Object.keys(dirs).join('+'),
+				lags: by(bloatLag).length });
+		}
+
 		/* PPPoE/DHCP session dropped while the cable link stayed up */
 		add('isp', 2, 'wan_session', wanSess.filter(function(e) { return !near(wanLinkDown, e.ts, 60); }));
 
@@ -208,6 +259,10 @@ return baseclass.extend({
 		lonely = lonely.filter(function(s) { return igmpLeft.indexOf(s) < 0; });
 
 		add('info', 0, 'stall_zap', zaps, { total: allStalls.length });
+		add('info', 0, 'stall_decoder', decStalls, { total: allStalls.length,
+			devs: uniq(decRestarts.filter(function(r) { return decStalls.some(function(s) { return s.ts >= r.ts - 15 && s.ts <= r.ts + ((r.d && r.d.dur) || 0) + 10; }); }), 'src').join(', ') });
+		/* a decoder that restarts by itself: power supply, firmware, overheating */
+		add('home', 1, 'decoder_restarts', decRestarts, { devs: uniq(decRestarts, 'src').join(', ') });
 		var proxyStop = proxyBad.filter(function(e) { return e.type !== 'log'; });
 		add('home', 3, 'proxy_down', proxyStop, { name: proxyStop[0] && proxyStop[0].d && proxyStop[0].d.name });
 		add('home', 1, 'log_proxy', proxyBad.filter(function(e) { return e.type === 'log'; }));
@@ -241,20 +296,45 @@ return baseclass.extend({
 		if (stalls.length && ctx.igmp && ctx.igmp.dev && ctx.igmp.proxy_seen === false && ctx.iptv_direction !== 'tx')
 			findings.push({ side: 'info', code: 'no_proxy', n: 1, last: 0, weight: 0, args: {} });
 
+		/* the second router saw a freeze that this router (nearer the ISP) did not:
+		 * the stream got lost between the routers or on the second one */
+		if (ctx.iptv_on) {
+			var onlyThere = remoteStalls.filter(function(e) { return !near(allStalls, e.ts); });
+			add('home', 2, 'stall_remote_only', onlyThere, { total: remoteStalls.length, hosts: uniq(onlyThere, 'host').join(', ') });
+		}
+		add('home', 1, 'peer_lost', peerLost, { hosts: uniq(peerLost, 'src').join(', ') });
+
+		/* ---- path snapshots: the most common hop where the loss started */
+		if (traces.length) {
+			var hopN = {};
+			traces.forEach(function(e) { var k = e.d.first_bad + '|' + (e.d.bad_ip || '?'); hopN[k] = (hopN[k] || 0) + 1; });
+			var top = Object.keys(hopN).sort(function(a, b) { return hopN[b] - hopN[a]; })[0].split('|');
+			add('isp', 1, +top[0] === 1 ? 'trace_first_hop' : 'trace_hop', traces, { hop: +top[0], ip: top[1], same: hopN[top.join('|')] });
+		}
+
 		add(ctx.iptv_direction === 'tx' ? 'info' : 'isp', 0.5, 'stream_dip', dips);
 		/* counted on the stream as it arrives, before the router: lost packets are upstream */
 		add(ctx.iptv_direction === 'tx' ? 'info' : 'isp', 1.5, 'ts_errors', tsErr);
 
 		/* ---- the user's own reports: was anything measured at that moment? */
-		var measured = ev.filter(function(e) { return e.lvl !== 'info' && e.area !== 'user' && e.area !== 'system'; });
-		var seen = [], unseen = [];
+		var measured = evAll.filter(function(e) { return e.lvl !== 'info' && e.area !== 'user' && e.area !== 'system' && e.area !== 'wifi'; });
+		var seen = [], unseen = [], onWifi = [];
+		/* people notice a problem a little after it starts */
+		var around = function(list, m) { return list.some(function(e) { return e.ts >= m.ts - 120 && e.ts <= m.ts + 30; }); };
 		marks.forEach(function(m) {
-			/* people notice a problem a little after it starts */
-			var hit = measured.some(function(e) { return e.ts >= m.ts - 120 && e.ts <= m.ts + 30; });
-			(hit ? seen : unseen).push(m);
+			if (around(measured, m)) seen.push(m);
+			else if (around(wifiBad, m)) onWifi.push(m);
+			else unseen.push(m);
 		});
 		add('info', 0, 'marks_seen', seen, { total: marks.length });
-		add('info', 0, 'marks_unseen', unseen, { total: marks.length });
+		/* nothing on the line, but the watched device's Wi-Fi dropped or was weak: that is the proof */
+		add('home', 1.5, 'marks_wifi', onWifi, { total: marks.length, devs: uniq(wifiBad.filter(function(e) {
+			return onWifi.some(function(m) { return e.ts >= m.ts - 120 && e.ts <= m.ts + 30; }); }), 'src').join(', ') });
+		add('info', 0, ctx.wifi_watched ? 'marks_unseen_wifi_ok' : 'marks_unseen', unseen, { total: marks.length });
+
+		/* ---- Wi-Fi */
+		add('home', 1, 'wifi_drops', wifiDrop, { devs: uniq(wifiDrop, 'src').join(', ') });
+		add('home', 0.5, 'wifi_weak', wifiWeak, { devs: uniq(wifiWeak, 'src').join(', ') });
 
 		/* ---- home network */
 		add('home', 2, 'port_speed', portSpeed, { devs: uniq(portSpeed, 'src').join(', ') });
@@ -287,8 +367,9 @@ return baseclass.extend({
 			home: home,
 			stalls: stalls.length,
 			zaps: zaps.length,
+			decoder_stalls: decStalls.length,
 			marks: marks.length,
-			problems: ev.filter(function(e) { return e.lvl !== 'info'; }).length,
+			problems: evAll.filter(function(e) { return e.lvl !== 'info' && e.type !== 'trace'; }).length,
 			findings: findings
 		};
 	},
@@ -353,10 +434,23 @@ return baseclass.extend({
 		case 'router_load':     return _('The router was overloaded %d× (no problems at those moments).').format(f.n);
 		case 'marks_seen':      return _('%d of %d of your reports match a measured problem.').format(f.n, a.total);
 		case 'marks_unseen':    return _('%d of %d of your reports have nothing measured around them – the problem is not visible on this router: check the IPTV device setting, or the cause is the decoder, the TV or Wi-Fi.').format(f.n, a.total);
+		case 'bufferbloat':     return _('Bufferbloat %d×: the ping went up by as much as %d ms only while the link was full (%s) – your own traffic fills a buffer in the modem or at the ISP. Not an outage and not the ISP\'s fault: SQM (luci-app-sqm, cake) set a bit below the line speed fixes it.').format(f.n, a.add,
+			a.dir === 'up' ? _('upload') : a.dir === 'down' ? _('download') : _('download and upload')) +
+			(a.lags ? ' ' + _('%d high-ping warnings at those times are not counted against the ISP.').format(a.lags) : '');
+		case 'stall_decoder':   return _('%d of %d IPTV freezes happened while a decoder (%s) restarted – the decoder, not a lost stream; not counted against the ISP.').format(f.n, a.total, a.devs);
+		case 'decoder_restarts': return _('Decoder %s restarted %d× – power supply, firmware update or overheating (or someone switched it off and on).').format(a.devs, f.n);
+		case 'trace_hop':       return _('Path snapshots (%d): the loss started at hop %d (%s) and carried on to the destination (%d× there) – inside the ISP\'s network or beyond; the hops before it were fine. Show this to the ISP.').format(f.n, a.hop, a.ip, a.same);
+		case 'trace_first_hop': return _('Path snapshots (%d): the loss started already at the first hop (%s) – the access line or the ISP\'s first router.').format(f.n, a.ip);
+		case 'marks_wifi':      return _('%d of %d of your reports came with a Wi-Fi drop or weak signal of %s, and nothing on the line – the cause is Wi-Fi.').format(f.n, a.total, a.devs);
+		case 'marks_unseen_wifi_ok': return _('%d of %d of your reports have nothing measured around them, and the Wi-Fi of the watched devices was fine too – the cause is probably the decoder or the TV (or a device that is not watched).').format(f.n, a.total);
+		case 'wifi_drops':      return _('Wi-Fi of %s dropped and reconnected %d× – range, interference or the device\'s power saving.').format(a.devs, f.n);
+		case 'wifi_weak':       return _('Weak Wi-Fi signal of %s (%d×) – move the access point or the device, or use a cable.').format(a.devs, f.n);
 		case 'stall_router':    return _('%d of %d IPTV freezes: the router stopped sending to the decoder while everything else was fine – IGMP snooping/querier on the router.').format(f.n, a.total);
 		case 'stall_upstream':  return _('%d of %d IPTV freezes: multicast stopped arriving from the ISP while Internet and ports were fine – ISP IPTV/multicast side (less often an IGMP issue on the router).').format(f.n, a.total);
 		case 'no_querier':      return _('IGMP snooping is on but the querier is off on %s – streams can time out on the switch.').format(a.bridge);
 		case 'stream_dip':      return _('IPTV bitrate dropped sharply %d× – unstable stream from the ISP.').format(f.n);
+		case 'stall_remote_only': return _('%d of %d IPTV freezes seen by %s did not happen here – the stream is lost between the routers (cable, the second router, its Wi-Fi or switch), not at the ISP.').format(f.n, a.total, a.hosts);
+		case 'peer_lost':       return _('Router %s stopped reporting %d× – switched off, rebooted or the cable between the routers.').format(a.hosts, f.n);
 		case 'ts_errors':       return _('Lost packets were counted in the IPTV stream (%d×) – the picture glitches come with the stream itself: ISP IPTV/multicast side, not your home network.').format(f.n);
 		case 'port_speed':      return _('Link renegotiated to a lower speed (%s, %d×) – damaged cable or connector (e.g. only 2 pairs working).').format(a.devs, f.n);
 		case 'port_link':       return _('Link drops on %s (%d×) – cable, connector, power of the connected device, or switch.').format(a.devs, f.n);
