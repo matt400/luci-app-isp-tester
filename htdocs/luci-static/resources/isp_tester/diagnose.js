@@ -101,6 +101,9 @@ function periodicity(list) {
 }
 
 return baseclass.extend({
+	/* the view counts problems per hour with the same list */
+	recovery: RECOVERY,
+
 	/*
 	 * events: [{ ts, lvl, area, src, type, d }]
 	 * ctx: { wan_device, iptv_direction, bridge: { name, snooping, querier } }

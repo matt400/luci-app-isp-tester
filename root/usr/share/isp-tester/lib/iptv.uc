@@ -6,7 +6,7 @@
 
 import * as fs from 'fs';
 import * as uloop from 'uloop';
-import { RUNDIR, VARDIR, PROC, SYSNET, BRIDGE, PROXIES, TSMON, LEVEL, now, mono, num, round, valid_dev, valid_group, write_atomic, kill_pids, worst } from './common.uc';
+import { RUNDIR, VARDIR, PROC, SYSNET, BRIDGE, PROXIES, TSMON, LEVEL, now, mono, num, round, valid_dev, valid_group, mc_ignored, write_atomic, kill_pids, worst } from './common.uc';
 import { median } from './parsers.uc';
 import { rd, base, is_uplink, bridge_json, bridge_mdb } from './sysinfo.uc';
 
@@ -80,7 +80,7 @@ function igmp_groups(dev) {
 		let ip = rev
 			? sprintf('%d.%d.%d.%d', lo, (g >> 8) & 255, (g >> 16) & 255, (g >> 24) & 255)
 			: sprintf('%d.%d.%d.%d', (g >> 24) & 255, (g >> 16) & 255, (g >> 8) & 255, g & 255);
-		if (match(ip, /^224\.0\.0\./) || ip == '239.255.255.250') continue;   /* link-local, SSDP */
+		if (mc_ignored(ip)) continue;   /* link-local, SSDP, SLP */
 		push(out.groups, ip);
 	}
 	return out;

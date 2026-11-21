@@ -276,8 +276,10 @@ function count_events(since) {
 		let e = events[i];
 		if (e.ts < since) break;
 		/* a recovery (link up, Internet back, stream resumed) ends a problem
-		 * already counted: one outage is one problem, not two */
-		if (e.host || e.m || RECOVERY[e.type]) continue;
+		 * already counted: one outage is one problem, not two. A path
+		 * snapshot (trace) is evidence for the loss it was taken for, not a
+		 * problem of its own (as in the analysis and the per-hour chart) */
+		if (e.host || e.m || RECOVERY[e.type] || e.type == 'trace') continue;
 		if (e.lvl == 'warn') n.warn++;
 		else if (e.lvl == 'err') n.err++;
 	}
@@ -947,7 +949,11 @@ function tick() {
 			level = worst(level, lv == 'fail' ? 'warn' : lv);
 		}
 		if (n_active > 0 && n_fail == n_active) level = 'fail';
-		if (wanst.down != null) push(reasons, { c: 'wan_down', since: wanst.down });
+		/* only while there is ping data: with collectd stopped (or its values
+		 * older than 5 min) an outage in progress cannot end, and the card
+		 * showed "Internet unreachable" for good; it is ended (wan_up) by
+		 * the first values again, so no second outage is logged */
+		if (wanst.down != null && n_active > 0) push(reasons, { c: 'wan_down', since: wanst.down });
 		if (wansess.up === false) {
 			level = 'fail';
 			push(reasons, { c: 'wan_if_down', iface: cfg.wan.interface, since: wansess.since });
