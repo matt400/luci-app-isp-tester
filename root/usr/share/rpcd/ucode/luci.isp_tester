@@ -48,6 +48,17 @@ function run(cmd) {
 	return out;
 }
 
+const BK_SH = '/usr/share/isp-tester/backup.sh';
+const BK_IN = '/tmp/isp-tester-restore.tar.gz';
+
+/* backup.sh prints one JSON object */
+function backup_run(args) {
+	let out = run(`/bin/sh ${BK_SH} ${args}`);
+	let j;
+	try { j = json(trim(out ?? '') || 'null'); } catch (e) { j = null; }
+	return (type(j) == 'object') ? j : { result: false, error: 'script', out: substr(out ?? '', 0, 300) };
+}
+
 function pkg_manager() {
 	if (stat('/usr/bin/apk') != null) return 'apk';
 	if (stat('/bin/opkg') != null || stat('/usr/bin/opkg') != null) return 'opkg';
@@ -315,6 +326,31 @@ return {
 				mkdir(VARDIR);
 				writefile(`${VARDIR}/maint.pending`, sprintf('%J', { ts: time(), minutes: min, note }));
 				return { result: true, running: service_running() };
+			}
+		},
+
+		/* backup of the settings (and the data) as one .tar.gz, read by the
+		 * web UI from /tmp/isp-tester-backup.tar.gz */
+		backup: {
+			args: { data: false },
+			call: function(req) {
+				return backup_run(`create ${req.args.data ? 1 : 0}`);
+			}
+		},
+
+		/* what an uploaded /tmp/isp-tester-restore.tar.gz holds (checked) */
+		backup_check: {
+			call: function(req) {
+				return backup_run(`check ${BK_IN}`);
+			}
+		},
+
+		/* restore the settings and/or the data from it (stops the collector
+		 * meanwhile) */
+		restore: {
+			args: { config: false, data: false },
+			call: function(req) {
+				return backup_run(`restore ${BK_IN} ${req.args.config ? 1 : 0} ${req.args.data ? 1 : 0}`);
 			}
 		},
 

@@ -10,13 +10,18 @@
 				"/tmp/isp-tester/samples.prev.csv": [ "read" ],
 				"/tmp/isp-tester/events.json": [ "read" ],
 				"/tmp/isp-tester/history.json": [ "read" ],
-				"/tmp/isp-tester/archive/*": [ "read" ]
+				"/tmp/isp-tester/archive/*": [ "read" ],
+				"/tmp/isp-tester-backup.tar.gz": [ "read" ]
 			},
 			"uci": [ "isp_tester" ]
 		},
 		"write": {
 			"ubus": {
-				"luci.isp_tester": [ "clear", "set_enabled", "mark", "test_notify", "update_apply", "channels_forget", "maint" ]
+				"luci.isp_tester": [ "clear", "set_enabled", "mark", "test_notify", "update_apply", "channels_forget", "maint",
+					"backup", "backup_check", "restore" ]
+			},
+			"file": {
+				"/tmp/isp-tester-restore.tar.gz": [ "write" ]
 			},
 			"uci": [ "isp_tester" ]
 		}

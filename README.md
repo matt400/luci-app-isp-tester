@@ -137,6 +137,10 @@ A monitor that silently stops is worse than none. The init script uses procd's o
 
 On the overview a red **MONITOR IS NOT WORKING** banner appears as soon as the collector has not updated its state for three intervals (with *Restart*), and a yellow strip when it restarted more than once in the last hour. The report counts the monitor restarts.
 
+### Backup and restore
+
+*Settings → Backup and restore*: **Download settings + data** makes one `.tar.gz` with `/etc/config/isp_tester` and the data – timeline, history, measurements CSV, channel names, the archive on USB – plus a small manifest (router name, time); **Download settings only** without the data. **Restore from a file…** uploads such an archive, checks it (only regular files with the names the backup writes – no links, no paths outside, a manifest of this package, a settings file that is a UCI file) and shows what it holds; then choose *settings*, *data* or both. Monitoring stops for a moment while the files are replaced; the previous settings are kept as `/etc/config/isp_tester.before-restore`. Moving between two routers (e.g. M477 → M477S): a backup from another router is marked – its settings name that router's ports, interfaces and role towards the second router, so check them or restore the data only.
+
 ### The tester's own load
 
 Proof that the measurement does not load the router (and is not what breaks IPTV): under the banner's times a small line shows *Tester itself: CPU 0.3 % · RAM 4.1 MB* – the share of the router's **whole** CPU (all cores) used by the collector (including the commands it runs: logread, bridge, rrdtool) and by tsmon, from `/proc/<pid>/stat` and `status`. Hover it for now / average / maximum of each. The report says the same in one row (*Load of the tester itself*), and the 1-min history keeps its maximum.

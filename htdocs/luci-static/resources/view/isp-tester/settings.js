@@ -5,6 +5,107 @@
 'require rpc';
 'require ui';
 'require dom';
+'require fs';
+
+var callBackup = rpc.declare({
+	object: 'luci.isp_tester',
+	method: 'backup',
+	params: [ 'data' ],
+	expect: { '': {} }
+});
+
+var callBackupCheck = rpc.declare({
+	object: 'luci.isp_tester',
+	method: 'backup_check',
+	expect: { '': {} }
+});
+
+var callRestore = rpc.declare({
+	object: 'luci.isp_tester',
+	method: 'restore',
+	params: [ 'config', 'data' ],
+	expect: { '': {} }
+});
+
+var BK_ERR = {
+	no_file: _('No file was uploaded.'),
+	too_big: _('The file is too big (over 64 MB).'),
+	not_targz: _('This is not a .tar.gz archive.'),
+	empty: _('The archive is empty.'),
+	bad_entry: _('The archive contains links or special files – refused.'),
+	bad_name: _('The archive contains files that are not from ISP Tester – refused.'),
+	extract: _('The archive cannot be unpacked.'),
+	no_manifest: _('This is not an ISP Tester backup.'),
+	bad_config: _('The settings in the archive are not a valid settings file.'),
+	nothing: _('Nothing was chosen to restore.'),
+	no_config: _('The settings file cannot be read.')
+};
+
+function bkError(r) {
+	return (r && BK_ERR[r.error]) || _('Failed: %s').format((r && (r.error || r.out)) || '?');
+}
+
+/* settings (and data) as one .tar.gz, e.g. to move to another router */
+function backupSection() {
+	var download = function(data) {
+		return callBackup(data).then(function(r) {
+			if (!r || !r.result) throw new Error(bkError(r));
+			return fs.read_direct(r.path, 'blob').then(function(blob) {
+				var a = E('a', { 'href': URL.createObjectURL(blob), 'download': r.name, 'style': 'display:none' });
+				document.body.appendChild(a);
+				a.click();
+				setTimeout(function() { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+			});
+		}).catch(function(e) { ui.addNotification(null, E('p', e.message), 'danger'); });
+	};
+
+	var restore = function() {
+		return ui.uploadFile('/tmp/isp-tester-restore.tar.gz').then(function() {
+			return callBackupCheck();
+		}).then(function(r) {
+			if (!r || !r.result) throw new Error(bkError(r));
+			var m = r.manifest || {};
+			/* the manifest comes from the uploaded file: only a host name */
+			m.host = String(m.host || '').replace(/[^A-Za-z0-9._-]/g, '');
+			m.created = +m.created || 0;
+			var cConf = E('input', { 'type': 'checkbox', 'checked': r.config ? '' : null, 'disabled': r.config ? null : '' });
+			var cData = E('input', { 'type': 'checkbox', 'checked': r.data_files ? '' : null, 'disabled': r.data_files ? null : '' });
+			var other = m.host && r.this_host && m.host !== r.this_host;
+			ui.showModal(_('Restore from a backup'), [
+				E('p', {}, _('Backup of %s from %s: %s.').format(m.host || '?', new Date(m.created * 1000).toLocaleString(),
+					r.data_files ? _('settings and data (%d files, %d of them archive days, %d kB)').format(+r.data_files, +r.archive_files, +r.kb) : _('settings only'))),
+				other ? E('p', { 'class': 'alert-message warning' }, _('It comes from another router (%s). Its settings name that router\'s ports, interfaces and the role towards the second router – check them after restoring, or restore the data only.').format(m.host)) : '',
+				E('label', { 'style': 'display:block;margin:.3em 0' }, [ cConf, ' ', _('Settings (replace the current ones; the old file is kept as /etc/config/isp_tester.before-restore)') ]),
+				E('label', { 'style': 'display:block;margin:.3em 0' }, [ cData, ' ', _('Data: timeline, history, archive, channel names (replace the current ones)') ]),
+				E('p', { 'class': 'ispt-muted' }, _('Monitoring stops for a moment while the files are replaced.')),
+				E('div', { 'class': 'right' }, [
+					E('button', { 'class': 'cbi-button', 'click': ui.hideModal }, _('Cancel')), ' ',
+					E('button', { 'class': 'cbi-button cbi-button-negative', 'click': ui.createHandlerFn(this, function() {
+						return callRestore(cConf.checked, cData.checked).then(function(x) {
+							ui.hideModal();
+							if (!x || !x.result) throw new Error(bkError(x));
+							ui.addNotification(null, E('p', _('Restored: %s. The page reloads.').format(
+								[ x.config ? _('settings') : null, x.data ? _('data') : null ].filter(Boolean).join(', '))), 'info');
+							setTimeout(function() { location.reload(); }, 2500);
+						}).catch(function(e) { ui.addNotification(null, E('p', e.message), 'danger'); });
+					}) }, _('Restore'))
+				])
+			]);
+		}).catch(function(e) {
+			if (e && e.message) ui.addNotification(null, E('p', e.message), 'danger');
+		});
+	};
+
+	return E('div', { 'class': 'cbi-section' }, [
+		E('h3', {}, _('Backup and restore')),
+		E('div', { 'class': 'cbi-section-descr' }, _('One .tar.gz with the settings of the tester and, if you want, its data (timeline, history, the archive on USB, channel names) – to keep it, or to move the monitoring to another router (e.g. from M477 to M477S). Restoring checks the archive first: only files this page writes are accepted.')),
+		E('div', { 'style': 'display:flex;gap:.5em;flex-wrap:wrap' }, [
+			E('button', { 'class': 'cbi-button cbi-button-action', 'click': ui.createHandlerFn(this, download, true) }, _('Download settings + data')),
+			E('button', { 'class': 'cbi-button', 'click': ui.createHandlerFn(this, download, false) }, _('Download settings only')),
+			E('button', { 'class': 'cbi-button cbi-button-apply', 'click': ui.createHandlerFn(this, restore) }, _('Restore from a file…'))
+		])
+	]);
+}
 
 var callTestNotify = rpc.declare({
 	object: 'luci.isp_tester',
@@ -735,6 +836,6 @@ return view.extend({
 		o.editable = true;
 		o.rmempty = false;
 
-		return m.render().then(function(n) { n.insertBefore(UPD_CSS, n.firstChild); return n; });
+		return m.render().then(function(n) { n.insertBefore(UPD_CSS, n.firstChild); n.appendChild(backupSection()); return n; });
 	}
 });
