@@ -228,6 +228,10 @@ function reasonText(r) {
 	case 'vlan_no_bridge_tool': return _('The bridge command is missing: install ip-bridge.');
 	case 'vlan_bridge_failed':
 	case 'vlan_no_stats':   return _('Cannot read the counters of VLAN %d from the bridge.').format(r.vlan);
+	case 'v6_down':         return _('IPv6 does not work for %s while IPv4 does – pages load slowly (the browser tries IPv6 first)').format(fmtDur(Date.now() / 1000 - r.since));
+	case 'v6_if_down':      return _('IPv6 interface %s is down for %s').format(r.iface, fmtDur(Date.now() / 1000 - r.since));
+	case 'v6_pd_lost':      return _('No IPv6 prefix from the ISP for %s – the home network has no IPv6').format(fmtDur(Date.now() / 1000 - r.since));
+	case 'v6_no_route':     return _('No IPv6 default route for %s – the ISP stopped sending router advertisements').format(fmtDur(Date.now() / 1000 - r.since));
 	default:                return r.c;
 	}
 }
@@ -300,6 +304,15 @@ function eventText(e) {
 	case 'wifi_weak_ok':    return _('Wi-Fi: %s signal OK again after %s (lowest %d dBm)').format(e.src, fmtDur(d.dur), d.min);
 	case 'peer_lost':       return _('Router %s stopped reporting').format(e.src);
 	case 'peer_back':       return _('Router %s reports again after %s').format(e.src, fmtDur(d.dur));
+	case 'v6_down':         return _('IPv6 DOWN – no IPv6 target responds while IPv4 works (pages load slowly)');
+	case 'v6_up':           return _('IPv6 works again after %s').format(fmtDur(d.dur));
+	case 'v6_if_down':      return _('IPv6 interface %s DOWN (DHCPv6 session lost)').format(d.iface);
+	case 'v6_if_up':        return _('IPv6 interface %s up again after %s').format(d.iface, fmtDur(d.dur));
+	case 'v6_pd_lost':      return _('IPv6 prefix LOST (%s) – the home network has no IPv6').format((d.prev || []).join(', ') || '–');
+	case 'v6_pd_back':      return _('IPv6 prefix back after %s: %s').format(fmtDur(d.dur), (d.prefix || []).join(', ')) + (d.same === false ? ' · ' + _('a different one') : '');
+	case 'v6_pd_change':    return _('IPv6 prefix CHANGED %s → %s – devices at home renumber, IPv6 connections break').format((d.from || []).join(', '), (d.to || []).join(', '));
+	case 'v6_no_route':     return _('No IPv6 default route on %s – no router advertisement from the ISP for %s').format(d.iface, fmtDur(d.after));
+	case 'v6_route_back':   return _('IPv6 default route back after %s').format(fmtDur(d.dur));
 	default:                return e.type;
 	}
 }
@@ -325,6 +338,7 @@ function logText(k) {
 	case 'ppp_discovery':  return _('PPPoE: no answer from the ISP access server');
 	case 'ppp_down':       return _('PPPoE: connection terminated');
 	case 'dhcp_fail':      return _('DHCP: no lease from the ISP');
+	case 'dhcp6_fail':     return _('DHCPv6: no answer or no prefix from the ISP');
 	case 'proxy_log':      return _('Multicast proxy error');
 	case 'nic_timeout':    return _('Network driver / switch chip hang');
 	case 'conntrack_drop': return _('Connection table full, packets dropped');
@@ -442,7 +456,8 @@ function hourHistogram(events, from, to) {
 	for (var i = 0; i < 24; i++) h.push(0);
 	events.forEach(function(e) {
 		if (e.ts < from || e.ts > to || e.lvl === 'info' || e.type === 'trace') return;
-		if (e.type === 'stream_resume' || e.type === 'wan_up' || e.type === 'link_up' || e.type === 'wan_if_up' || e.type === 'proxy_up') return;
+		if (e.type === 'stream_resume' || e.type === 'wan_up' || e.type === 'link_up' || e.type === 'wan_if_up' || e.type === 'proxy_up' || e.type === 'v6_up') return;
+
 		h[new Date(e.ts * 1000).getHours()]++;
 	});
 	return h;
@@ -999,6 +1014,23 @@ return view.extend({
 			kv.push(E('span', { 'class': 'k' }, _('Address')), E('span', {}, (ss.ip || '–') +
 				(ss.reconnects ? ' · ' + _('%d reconnects since start').format(ss.reconnects) : '')));
 		}
+		if (w.v6) {
+			var v6 = w.v6, v6t = [];
+			if (!v6.found) v6t.push(_('no DHCPv6 interface (wan6)'));
+			else if (!v6.up) v6t.push(E('span', { 'class': v6.pd_seen ? 'ispt-warn-text' : '' }, _('%s down').format(v6.iface)));
+			else {
+				v6t.push(v6.prefixes && v6.prefixes.length ? _('prefix %s').format(v6.prefixes.join(', '))
+					: E('span', { 'class': v6.pd_seen ? 'ispt-warn-text' : '' }, v6.pd_seen ? _('prefix lost') : _('no prefix from the ISP')));
+				v6t.push(v6.route ? _('RA OK') : E('span', { 'class': v6.route_seen ? 'ispt-warn-text' : '' }, _('no default route')));
+			}
+			if (v6.targets)
+				v6t.push(E('span', { 'class': v6.down ? 'ispt-warn-text' : '' }, _('ping %d/%d').format(v6.targets_ok, v6.targets)));
+			else if (v6.found && v6.up)
+				v6t.push(E('span', { 'class': 'ispt-muted', 'title': _('Add an IPv6 host (e.g. 2606:4700:4700::1111) to the collectd Ping plugin') }, _('no IPv6 ping target')));
+			var v6p = [];
+			v6t.forEach(function(x, i) { if (i) v6p.push(' · '); v6p.push(x); });
+			kv.push(E('span', { 'class': 'k' }, 'IPv6'), E('span', {}, v6p));
+		}
 		if (w.bloat) {
 			var b = w.bloat;
 			kv.push(E('span', { 'class': 'k' }, _('Line speed')), E('span', {},
@@ -1437,9 +1469,13 @@ return view.extend({
 			'</table><h2>' + x(_('Summary')) + '</h2><table>' +
 			row(_('Internet outages'), _('%d, total %s, longest %s').format(net.n, fmtDur(net.total), fmtDur(net.longest))) +
 			row(_('Packet loss at the ISP gateway'), _('%d×').format(count(function(e) { return e.src === 'gateway' && (e.type === 'target_degraded' || e.type === 'target_fail') && e.d && e.d.loss > 0; }))) +
-			row(_('Packet loss to far targets'), _('%d×').format(count(function(e) { return e.area === 'wan' && e.src !== 'gateway' && e.src !== 'dns' && e.src !== 'netifd' && (e.type === 'target_degraded' || e.type === 'target_fail') && e.d && e.d.loss > 0; }))) +
+			row(_('Packet loss to far targets'), _('%d×').format(count(function(e) { return e.area === 'wan' && e.src !== 'gateway' && e.src !== 'dns' && e.src !== 'netifd' && !(e.d && e.d.fam === 6) && (e.type === 'target_degraded' || e.type === 'target_fail') && e.d && e.d.loss > 0; }))) +
+
 			row(_('WAN session drops (PPPoE/DHCP)'), _('%d×').format(count(function(e) { return e.type === 'wan_reconnect' || e.type === 'wan_if_down'; }))) +
 			row(_('WAN port link drops'), _('%d×').format(count(function(e) { return e.type === 'link_down' && e.area === 'wan'; }))) +
+			(st.wan && st.wan.v6 && st.wan.v6.found ? row(_('IPv6 outages (IPv4 working)'), (function() { var v = sum('v6_down', [ 'v6_up', 'monitor_start' ]); return _('%d, total %s, longest %s').format(v.n, fmtDur(v.total), fmtDur(v.longest)); })()) +
+				row(_('IPv6 prefix lost / changed'), _('%d× / %d×').format(count(function(e) { return e.type === 'v6_pd_lost'; }), count(function(e) { return e.type === 'v6_pd_change'; }))) +
+				row(_('No IPv6 router advertisement'), _('%d×').format(count(function(e) { return e.type === 'v6_no_route'; }))) : '') +
 			row(_('Related messages in the system log'), _('%d×').format(count(function(e) { return e.type === 'log'; }))) +
 			row(_('IPTV freezes'), _('%d, total %s, longest %s').format(tv.n, fmtDur(tv.total), fmtDur(tv.longest)) + (r.zaps ? ' · ' + _('%d channel changes not counted').format(r.zaps) : '')) +
 			row(_('Decoder restarts'), _('%d×').format(evs.filter(function(e) { return e.type === 'decoder_restart'; }).length)) +

@@ -73,7 +73,17 @@ function inPeriods(list, ts, slack) {
 }
 
 /* regular spacing of stalls -> IGMP membership/query timeout */
+/* "1 h 5 min" without the view's helpers (this module has none) */
+function fmtSec(s) {
+	s = Math.max(0, Math.round(s || 0));
+	var h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+	if (h) return _('%d h %d min').format(h, m);
+	if (m) return _('%d min %d s').format(m, s % 60);
+	return _('%d s').format(s);
+}
+
 function periodicity(list) {
+
 	if (list.length < 4) return null;
 	var ts = list.map(function(e) { return e.ts; }).sort(function(a, b) { return a - b; });
 	var gaps = [];
@@ -123,7 +133,9 @@ return baseclass.extend({
 		};
 		/* a high ping / jitter (no loss) while the link was full belongs to the bufferbloat finding */
 		var bloatLag = function(e) { return e.type === 'target_degraded' && e.d && !(e.d.loss > 0) && inBloat(e.ts); };
-		var isLoss = function(e) { return e.area === 'wan' && (e.type === 'target_degraded' || e.type === 'target_fail') && !isJitter(e) && !bloatLag(e); };
+		/* IPv6 targets are judged on their own (IPv6 can break while IPv4 works) */
+		var isV6 = function(e) { return !!(e.d && e.d.fam === 6); };
+		var isLoss = function(e) { return e.area === 'wan' && (e.type === 'target_degraded' || e.type === 'target_fail') && !isJitter(e) && !bloatLag(e) && !isV6(e); };
 		var gwJitter = by(function(e) { return e.area === 'wan' && e.src === 'gateway' && isJitter(e) && !bloatLag(e); });
 
 		var wanLinkDown = by(function(e) { return e.type === 'link_down' && (e.area === 'wan' || e.src === wanDev); });
@@ -138,6 +150,13 @@ return baseclass.extend({
 		var pppIsp      = logOf([ 'ppp_auth', 'ppp_discovery', 'dhcp_fail' ]);
 		var pppDown     = logOf([ 'ppp_down' ]);
 		var anyWan      = gwLoss.concat(farLoss, wanDown, wanLinkDown, wanDevGone, wanSess, pppEcho, pppIsp, pppDown);
+		/* IPv6 */
+		var v6Down      = by(function(e) { return e.type === 'v6_down'; });
+		var v6Pd        = by(function(e) { return e.type === 'v6_pd_lost' || e.type === 'v6_pd_change'; });
+		var v6Route     = by(function(e) { return e.type === 'v6_no_route'; });
+		var v6If        = by(function(e) { return e.type === 'v6_if_down'; });
+		var v6Log       = logOf([ 'dhcp6_fail' ]);
+		var v6Loss      = by(function(e) { return e.area === 'wan' && e.type === 'target_degraded' && isV6(e) && e.d.loss > 0; });
 
 		/* ports of both routers (a port of the second router is never the WAN of this one) */
 		var portLink    = byAll(function(e) { return e.area === 'ports' && (e.type === 'link_down' || e.type === 'link_flap'); });
@@ -217,6 +236,22 @@ return baseclass.extend({
 			add('info', 0, 'one_target', farOnly, { host: farHosts[0] });
 
 		add('edge', 1, 'wan_errors', wanErr, { dev: wanDev });
+
+		/* IPv6 broken while IPv4 works: browsers try IPv6 first, so pages hang
+		 * for a while before falling back - "the Internet is slow" */
+		var v6Total = 0, v6Long = 0;
+		v6Down.forEach(function(e) {
+			var r = nextOf(sorted, e.ts + 1, function(x) { return x.type === 'v6_up' || x.type === 'monitor_start'; });
+			var d = (r && r.type === 'v6_up' && r.d) ? r.d.dur : 0;
+			v6Total += d; if (d > v6Long) v6Long = d;
+		});
+		add('isp', 2, 'v6_down', v6Down.filter(function(e) { return !near(wanDown, e.ts, 60); }), { total: v6Total, longest: v6Long });
+		add('isp', 1.5, 'v6_prefix', v6Pd, { lost: v6Pd.filter(function(e) { return e.type === 'v6_pd_lost'; }).length,
+			changed: v6Pd.filter(function(e) { return e.type === 'v6_pd_change'; }).length });
+		add('isp', 1, 'v6_no_ra', v6Route);
+		add('isp', 1, 'v6_session', v6If.filter(function(e) { return !near(wanLinkDown, e.ts, 60) && !near(wanSess, e.ts, 60); }));
+		add('isp', 1, 'log_dhcp6', v6Log.filter(function(e) { return !near(wanLinkDown, e.ts, 60); }));
+		add('isp', 0.5, 'v6_loss', v6Loss.filter(function(e) { return !near(v6Down, e.ts); }));
 
 		/* lags only with the link full: own traffic fills a buffer; SQM at home fixes it */
 		if (bloats.length) {
@@ -412,6 +447,12 @@ return baseclass.extend({
 		case 'far_loss':        return _('Loss only beyond the gateway (%d×) – ISP backbone / peering.').format(f.n);
 		case 'one_target':      return _('Only %s had loss (%d×) – most likely that server, not your connection.').format(a.host, f.n);
 		case 'wan_errors':      return _('Errors on the WAN port (%d×) – cable to the ONT/modem or its port.').format(f.n);
+		case 'v6_down':         return _('IPv6 did not work while IPv4 did (%d×, %s in total, longest %s) – browsers try IPv6 first, so pages load slowly or hang. ISP IPv6 (prefix, routing) – ask them to check it, or switch IPv6 off as a workaround.').format(f.n, fmtSec(a.total), fmtSec(a.longest));
+		case 'v6_prefix':       return _('IPv6 prefix from the ISP lost %d× / changed %d× – devices at home lose or change their IPv6 addresses, open connections break. ISP DHCPv6 (prefix delegation).').format(a.lost, a.changed);
+		case 'v6_no_ra':        return _('No IPv6 router advertisement from the ISP (%d×) – the IPv6 default route vanished. ISP side (less often the router\'s firewall dropping ICMPv6).').format(f.n);
+		case 'v6_session':      return _('IPv6 (DHCPv6) session dropped %d× while IPv4 stayed up – ISP DHCPv6.').format(f.n);
+		case 'log_dhcp6':       return _('odhcp6c: no answer or no prefix from the ISP\'s DHCPv6 server (%d×).').format(f.n);
+		case 'v6_loss':         return _('Packet loss over IPv6 only (%d×) – ISP IPv6 routing.').format(f.n);
 		case 'stall_with_wan':  return _('%d of %d IPTV freezes happened together with Internet problems – shared cause on the ISP line.').format(f.n, a.total);
 		case 'stall_with_port': return _('%d of %d IPTV freezes coincided with port problems (%s) – cable or switch at home.').format(f.n, a.total, a.devs);
 		case 'stall_with_dev':  return _('%d of %d IPTV freezes came with errors on the IPTV device – cable/port on the IPTV path.').format(f.n, a.total);

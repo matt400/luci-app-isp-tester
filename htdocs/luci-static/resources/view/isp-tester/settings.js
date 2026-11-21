@@ -317,7 +317,25 @@ return view.extend({
 		o.datatype = 'uinteger';
 		o.placeholder = '0';
 
+		o = s.option(form.Flag, 'ipv6', _('Watch IPv6'),
+			_('Often IPv4 works and only IPv6 breaks – then pages hang for a while, because the browser tries IPv6 first. Logged from what odhcp6c reports to netifd: the DHCPv6 session, the delegated prefix (lost or changed) and the default route from the ISP\'s router advertisement. For the ping over IPv6 add one or two IPv6 hosts (e.g. <code>2606:4700:4700::1111</code>, <code>2001:4860:4860::8888</code>) to the collectd Ping plugin: when all of them fail while IPv4 targets answer, “IPv6 down” is logged.'));
+		o.default = '1';
+		o.rmempty = false;
+
+		o = s.option(widgets.NetworkSelect, 'interface6', _('IPv6 interface'),
+			_('The DHCPv6 interface. Empty = <code>wan6</code>, or <code>wan_6</code> when IPv6 is set to automatic on the WAN interface.'));
+		o.nocreate = true;
+		o.optional = true;
+		o.depends('ipv6', '1');
+
+		o = s.option(form.Value, 'ra_after', _('No router advertisement after (s)'),
+			_('How long the IPv6 default route may be missing before it is logged.'));
+		o.datatype = 'range(10,3600)';
+		o.placeholder = '60';
+		o.depends('ipv6', '1');
+
 		o = s.option(form.Flag, 'trace', _('Path snapshot at a loss'),
+
 			_('When a loss starts (or the connection is down), one traceroute is run to a far target – <code>mtr</code> when installed (10 rounds, more precise), otherwise the busybox <code>traceroute</code>. The timeline then shows at which hop the loss starts and carries on to the destination: concrete proof for the ISP. Takes a few seconds, at most once per the time below.'));
 		o.default = '1';
 		o.rmempty = false;

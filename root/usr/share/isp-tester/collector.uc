@@ -63,6 +63,7 @@ const TSMON = find_bin('ISP_TESTER_TSMON', [ '/usr/sbin/isp-tester-tsmon' ]);
 /* snapshot of the path at a loss: mtr when installed, else busybox traceroute */
 const MTR = find_bin('ISP_TESTER_MTR', [ '/usr/sbin/mtr', '/usr/bin/mtr' ]);
 const TRACEROUTE = find_bin('ISP_TESTER_TRACEROUTE', [ '/usr/bin/traceroute', '/bin/traceroute', '/usr/sbin/traceroute' ]);
+const TRACEROUTE6 = find_bin('ISP_TESTER_TRACEROUTE6', [ '/usr/bin/traceroute6', '/bin/traceroute6', '/usr/sbin/traceroute6' ]);
 
 const STAT_KEYS = [
 	'rx_bytes', 'tx_bytes', 'rx_packets', 'tx_packets',
@@ -153,7 +154,9 @@ function default_config() {
 			/* one traceroute/mtr when a loss starts, at most every trace_cooldown s */
 			trace: true, trace_cooldown: 600,
 			/* bufferbloat: ping vs. WAN load; down/up_mbit 0 = learn the line's speed */
-			bloat: true, bloat_ms: 30, bloat_load: 70, down_mbit: 0, up_mbit: 0
+			bloat: true, bloat_ms: 30, bloat_load: 70, down_mbit: 0, up_mbit: 0,
+			/* IPv6: netifd status of the DHCPv6 interface (odhcp6c), '' = wan6 / <wan>_6 */
+			ipv6: true, interface6: '', ra_after: 60
 		},
 		iptv: {
 			enabled: true, vlan: 0, upstream: '', device: '', direction: 'rx', bridge: '',
@@ -229,6 +232,9 @@ function load_config() {
 		c.wan.bloat_load     = num(w.bloat_load, c.wan.bloat_load);
 		c.wan.down_mbit      = num(w.down_mbit, c.wan.down_mbit);
 		c.wan.up_mbit        = num(w.up_mbit, c.wan.up_mbit);
+		c.wan.ipv6           = bool(w.ipv6, true);
+		c.wan.interface6     = w.interface6 ?? '';
+		c.wan.ra_after       = num(w.ra_after, c.wan.ra_after);
 
 		/* where luci-app-statistics keeps collectd's data */
 		let us = cur.get_all('luci_statistics', 'collectd_unixsock') || {};
@@ -364,6 +370,8 @@ function load_config() {
 	if (c.wifi.reconnect_s < 5) c.wifi.reconnect_s = 5;
 
 	if (c.wan.trace_cooldown < 60) c.wan.trace_cooldown = 60;
+	if (c.wan.interface6 && !match(c.wan.interface6, /^[A-Za-z0-9_]{1,15}$/)) c.wan.interface6 = '';
+	if (c.wan.ra_after < 10) c.wan.ra_after = 10;
 	let dl = {};
 	for (let mac, l in (type(c.iptv.dec_labels) == 'object' ? c.iptv.dec_labels : {})) {
 		mac = lc(mac);
@@ -412,6 +420,9 @@ let csv_header = null;
 let last_mono = null;
 let started = now();
 let wansess = { up: null, uptime: null, seen: null, ip: null, since: now(), reconnects: 0 };
+/* IPv6 of the WAN (see v6_session): found = a DHCPv6 interface exists */
+let v6s = { iface: null, found: false, up: null, since: now(), prefixes: null, addr: null, route: null,
+	pd_seen: false, route_seen: false, pd_lost: null, route_lost: null, nr_logged: false, reconnects: 0 };
 /* bridged IPTV VLAN (see vlan_sample) */
 let vl = { bridge: null, upstream: null, ports: [], stats: null, mdb: null, error: null, cnt: null };
 /* joined = group -> when it was joined (0 = already there at start) */
@@ -464,7 +475,11 @@ const MSG = {
 		decoder_on: 'Decoder %s is back after %s',
 		bufferbloat: 'Bufferbloat: ping +%s ms with the link %d%% full (%s)', bufferbloat_ok: 'Bufferbloat over after %s (up to +%s ms)',
 		wifi_reconnect: 'Wi-Fi: %s dropped and reconnected after %s (%s)', wifi_leave: 'Wi-Fi: %s disconnected (%s)',
-		wifi_join: 'Wi-Fi: %s connected again after %s', wifi_roam: 'Wi-Fi: %s moved %s -> %s', wifi_weak: 'Wi-Fi: %s weak signal %d dBm', wifi_weak_ok: 'Wi-Fi: %s signal OK again after %s'
+		wifi_join: 'Wi-Fi: %s connected again after %s', wifi_roam: 'Wi-Fi: %s moved %s -> %s', wifi_weak: 'Wi-Fi: %s weak signal %d dBm', wifi_weak_ok: 'Wi-Fi: %s signal OK again after %s',
+		v6_down: 'IPv6 DOWN - no IPv6 target responds (IPv4 works)', v6_up: 'IPv6 back after %s',
+		v6_if_down: 'IPv6 interface %s went down', v6_if_up: 'IPv6 interface %s up again after %s',
+		v6_pd_lost: 'IPv6 prefix lost (%s)', v6_pd_back: 'IPv6 prefix back after %s: %s', v6_pd_change: 'IPv6 prefix changed %s -> %s',
+		v6_no_route: 'No IPv6 default route (no router advertisement) on %s', v6_route_back: 'IPv6 default route back after %s'
 	},
 	pl: {
 		link_down: '%s: BRAK ŁĄCZA', link_up: '%s: łącze wróciło po %s', link_flap: '%s: łącze mrugnęło',
@@ -487,7 +502,11 @@ const MSG = {
 		decoder_on: 'Dekoder %s wrócił po %s',
 		bufferbloat: 'Bufferbloat: ping +%s ms przy łączu zajętym w %d%% (%s)', bufferbloat_ok: 'Bufferbloat minął po %s (do +%s ms)',
 		wifi_reconnect: 'Wi-Fi: %s rozłączył się i wrócił po %s (%s)', wifi_leave: 'Wi-Fi: %s rozłączony (%s)',
-		wifi_join: 'Wi-Fi: %s znów połączony po %s', wifi_roam: 'Wi-Fi: %s przeszedł %s -> %s', wifi_weak: 'Wi-Fi: %s słaby sygnał %d dBm', wifi_weak_ok: 'Wi-Fi: %s sygnał znów OK po %s'
+		wifi_join: 'Wi-Fi: %s znów połączony po %s', wifi_roam: 'Wi-Fi: %s przeszedł %s -> %s', wifi_weak: 'Wi-Fi: %s słaby sygnał %d dBm', wifi_weak_ok: 'Wi-Fi: %s sygnał znów OK po %s',
+		v6_down: 'IPv6 NIE DZIAŁA - żaden cel IPv6 nie odpowiada (IPv4 działa)', v6_up: 'IPv6 wróciło po %s',
+		v6_if_down: 'Interfejs IPv6 %s rozłączony', v6_if_up: 'Interfejs IPv6 %s znów działa po %s',
+		v6_pd_lost: 'Utrata prefiksu IPv6 (%s)', v6_pd_back: 'Prefiks IPv6 wrócił po %s: %s', v6_pd_change: 'Zmiana prefiksu IPv6 %s -> %s',
+		v6_no_route: 'Brak domyślnej trasy IPv6 (brak RA) na %s', v6_route_back: 'Domyślna trasa IPv6 wróciła po %s'
 	}
 };
 
@@ -540,6 +559,12 @@ function event_text(e, lang) {
 	case 'wifi_roam': return sprintf(f, e.src, d.from ?? '?', d.iface ?? '?');
 	case 'wifi_weak': return sprintf(f, e.src, d.signal);
 	case 'wifi_weak_ok': return sprintf(f, e.src, dur_txt(d.dur));
+	case 'v6_up': case 'v6_route_back': return sprintf(f, dur_txt(d.dur));
+	case 'v6_if_down': case 'v6_no_route': return sprintf(f, d.iface);
+	case 'v6_if_up': return sprintf(f, d.iface, dur_txt(d.dur));
+	case 'v6_pd_lost': return sprintf(f, join(' ', d.prev ?? []) || '-');
+	case 'v6_pd_back': return sprintf(f, dur_txt(d.dur), join(' ', d.prefix ?? []));
+	case 'v6_pd_change': return sprintf(f, join(' ', d.from ?? []), join(' ', d.to ?? []));
 	default: return f;
 	}
 }
@@ -560,7 +585,8 @@ function event_msg(e, lang) {
  * port coming up or a target recovering from an unsent warning stays quiet */
 const RECOVERY = { wan_up: true, stream_resume: true, stream_lost: true, stream_off: true, link_up: true,
 	wan_if_up: true, proxy_up: true, target_ok: true, dev_present: true, peer_back: true, wifi_weak_ok: true,
-	bufferbloat_ok: true };
+	bufferbloat_ok: true, v6_up: true, v6_if_up: true, v6_pd_back: true, v6_route_back: true };
+
 
 function urlenc(s) {
 	let out = '';
@@ -1147,9 +1173,13 @@ function trace_request(host, label, trig, trig_ts) {
 	if (!cfg.wan.trace || trace.proc || (!MTR && !TRACEROUTE)) return;
 	if (now() - trace.last < cfg.wan.trace_cooldown) return;
 	if (!valid_host(host) || substr(host, 0, 1) == '-') return;
+	/* IPv6: mtr handles it; busybox traceroute only as traceroute6 */
+	let v6 = index(host, ':') >= 0;
+	if (v6 && !MTR && !TRACEROUTE6) return;
 	let tool = MTR ? 'mtr' : 'traceroute';
 	/* valid_host() keeps the host free of shell characters */
-	let cmd = MTR ? `exec ${MTR} -n -r -c 10 -i 0.5 ${host}` : `exec ${TRACEROUTE} -n -q 3 -w 1 -m 20 ${host}`;
+	let cmd = MTR ? `exec ${MTR} -n -r -c 10 -i 0.5 ${host}`
+		: `exec ${v6 ? TRACEROUTE6 : TRACEROUTE} -n -q 3 -w 1 -m 20 ${host}`;
 	let t0 = now();
 	trace.last = t0;
 	trace.n++;
@@ -1180,11 +1210,13 @@ function trace_request(host, label, trig, trig_ts) {
 }
 
 /* the target to trace: the gateway itself shows nothing beyond hop 1, so a
- * far target is traced when the gateway (or everything) loses */
-function trace_target(t) {
+ * far target (of the same address family) is traced when the gateway (or
+ * everything) loses */
+function trace_target(t, fam) {
 	if (t && t.label != 'gateway') return t;
+	fam ??= t?.fam ?? 4;
 	for (let k, x in targets)
-		if (x.active && x.label != 'gateway') return x;
+		if (x.active && x.label != 'gateway' && x.fam == fam) return x;
 	return t;
 }
 
@@ -1220,13 +1252,14 @@ function median(a) {
 	return (n % 2) ? s[n >> 1] : (s[n / 2 - 1] + s[n / 2]) / 2;
 }
 
-/* the target whose ping is used: the gateway (the first buffer on the way) */
+/* the target whose ping is used: the gateway (the first buffer on the way),
+ * else an IPv4 one (IPv6 may be broken on its own) */
 function bloat_target() {
 	let best = null;
 	for (let k, t in targets) {
 		if (!t.active || !t.res) continue;
 		if (t.label == 'gateway') return t;
-		best ??= t;
+		if (best == null || (best.fam == 6 && t.fam == 4)) best = t;
 	}
 	return best;
 }
@@ -1326,24 +1359,56 @@ function bloat_out() {
 	};
 }
 
-function check_wan_down() {
+/* responding / all targets of one address family */
+function fam_count(fam) {
 	let all = 0, failed = 0;
 	for (let k, t in targets) {
-		if (!t.active || t.res == null) continue;
+		if (!t.active || t.res == null || t.fam != fam) continue;
 		all++;
 		if (t.res.loss >= 100) failed++;
 	}
-	if (all == 0) return;
+	return { all, failed };
+}
 
-	if (failed == all && wan_down_since == null) {
-		wan_down_since = now();
-		emit('err', 'wan', 'wan', 'wan_down', {});
-		let tt = trace_target(null);
-		if (tt) trace_request(tt.host, tt.label, 'wan_down', wan_down_since);
+/*
+ * Internet down = every IPv4 target lost (only IPv6 targets: those). IPv6
+ * is judged on its own: all IPv6 targets lost while IPv4 still answers is
+ * "IPv6 down" - the case where pages load slowly because the browser tries
+ * IPv6 first and falls back after a delay.
+ */
+let v6_down_since = null;
+
+function check_wan_down() {
+	let c4 = fam_count(4), c6 = fam_count(6);
+	let c = c4.all ? c4 : c6;
+	if (c.all) {
+		if (c.failed == c.all && wan_down_since == null) {
+			wan_down_since = now();
+			emit('err', 'wan', 'wan', 'wan_down', {});
+			let tt = trace_target(null, c4.all ? 4 : 6);
+			if (tt) trace_request(tt.host, tt.label, 'wan_down', wan_down_since);
+		}
+		else if (c.failed < c.all && wan_down_since != null) {
+			emit('warn', 'wan', 'wan', 'wan_up', { dur: now() - wan_down_since });
+			wan_down_since = null;
+		}
 	}
-	else if (failed < all && wan_down_since != null) {
-		emit('warn', 'wan', 'wan', 'wan_up', { dur: now() - wan_down_since });
-		wan_down_since = null;
+
+	/* IPv6 alone: needs IPv4 targets that still answer */
+	let v6bad = cfg.wan.ipv6 && c6.all > 0 && c6.failed == c6.all && c4.all > 0 && c4.failed < c4.all;
+	if (v6bad && v6_down_since == null) {
+		v6_down_since = now();
+		emit('err', 'wan', 'ipv6', 'v6_down', { n: c6.all, pd: v6s.prefixes, route: v6s.route != null });
+		let tt = trace_target(null, 6);
+		if (tt) trace_request(tt.host, tt.label, 'v6_down', v6_down_since);
+	}
+	else if (!v6bad && v6_down_since != null && (c6.failed < c6.all || !c6.all)) {
+		emit('warn', 'wan', 'ipv6', 'v6_up', { dur: now() - v6_down_since });
+		v6_down_since = null;
+	}
+	else if (!v6bad && v6_down_since != null && c4.failed == c4.all) {
+		/* now everything is down: that is the Internet outage, not IPv6 */
+		v6_down_since = null;
 	}
 }
 
@@ -1483,7 +1548,8 @@ function sample_pings() {
 	for (let host, v in r.hosts) {
 		if (!valid_host(host)) continue;
 		seen[host] = true;
-		let t = targets[host] ??= { host, state: 'ok', since: t_now, res: null, last_ts: null };
+		let t = targets[host] ??= { host, state: 'ok', since: t_now, res: null, last_ts: null,
+			fam: (index(host, ':') >= 0) ? 6 : 4 };
 		t.active = true;
 		t.label = (host == gw) ? 'gateway' : host;
 
@@ -1501,11 +1567,12 @@ function sample_pings() {
 
 		let lvl = target_level(res);
 		if (lvl != t.state) {
+			let fam = (t.fam == 6) ? 6 : null;
 			if (lvl == 'ok')
-				emit('info', 'wan', t.label, 'target_ok', { host, dur: t_now - t.since, loss: res.loss, rtt: res.rtt });
+				emit('info', 'wan', t.label, 'target_ok', { host, dur: t_now - t.since, loss: res.loss, rtt: res.rtt, fam });
 			else
 				emit(lvl == 'fail' ? 'err' : 'warn', 'wan', t.label, lvl == 'fail' ? 'target_fail' : 'target_degraded',
-					{ host, loss: res.loss, rtt: res.rtt, jitter: res.jitter, why: target_why(res) }, v.ts);
+					{ host, loss: res.loss, rtt: res.rtt, jitter: res.jitter, why: target_why(res), fam }, v.ts);
 			/* a loss started: one snapshot of the path */
 			if (lvl != 'ok' && target_why(res) == 'loss') {
 				let tt = trace_target(t);
@@ -1552,6 +1619,105 @@ function wan_session(st) {
 	wansess.uptime = up ? upt : null;
 	wansess.proto = st.proto;
 	if (ip) wansess.ip = ip;
+}
+
+/* ------------------------------------------------------------ IPv6 (WAN) */
+
+/*
+ * odhcp6c reports to netifd, so the DHCPv6 interface (wan6, or wan_6 when
+ * IPv6 is set to "auto" on wan) shows what it got: the delegated prefix
+ * (ipv6-prefix, what the LAN addresses come from) and the default route,
+ * which comes from the ISP's router advertisement. Logged:
+ *   v6_if_down / v6_if_up   - the interface (DHCPv6 session) went down
+ *   v6_pd_lost / v6_pd_back - the delegated prefix vanished (LAN has no IPv6)
+ *   v6_pd_change            - a new prefix: LAN devices renumber, open
+ *                             connections over IPv6 break
+ *   v6_no_route / v6_route_back - no default route for ra_after s: the
+ *                             ISP's router advertisements stopped
+ * Only what was seen once is missed: an ISP without IPv6 is not a fault.
+ */
+
+function v6_prefixes(st) {
+	let out = [];
+	for (let p in (st['ipv6-prefix'] ?? []))
+		if (p?.address && p.mask != null) push(out, `${p.address}/${p.mask}`);
+	return sort(out);
+}
+
+function v6_session(st) {
+	let t = now(), iface = v6s.iface;
+	let up = st.up === true;
+	let pd = up ? v6_prefixes(st) : [];
+	let addr = st['ipv6-address']?.[0];
+	let gw = null;
+	for (let r in (st.route ?? []))
+		if ((r.target == '::' || r.target == '::/0') && r.mask == 0) { gw = r.nexthop ?? '::'; break; }
+
+	if (v6s.up != null) {
+		if (v6s.up && !up) {
+			emit('warn', 'wan', 'ipv6', 'v6_if_down', { iface, prev: v6s.prefixes });
+		}
+		else if (!v6s.up && up) {
+			v6s.reconnects++;
+			emit('info', 'wan', 'ipv6', 'v6_if_up', { iface, dur: t - v6s.since });
+		}
+	}
+	if (up != v6s.up) v6s.since = t;
+
+	if (up && v6s.up != null) {
+		let had = v6s.prefixes ?? [];
+		if (length(pd) && length(had) && join(' ', pd) != join(' ', had))
+			emit('warn', 'wan', 'ipv6', 'v6_pd_change', { iface, from: had, to: pd });
+		else if (!length(pd) && length(had) && v6s.pd_lost == null) {
+			v6s.pd_lost = t;
+			v6s.pd_prev = had;
+			emit('warn', 'wan', 'ipv6', 'v6_pd_lost', { iface, prev: had });
+		}
+		if (length(pd) && v6s.pd_lost != null) {
+			emit('info', 'wan', 'ipv6', 'v6_pd_back', { iface, dur: t - v6s.pd_lost, prefix: pd,
+				same: join(' ', pd) == join(' ', v6s.pd_prev ?? []) });
+			v6s.pd_lost = null;
+		}
+	}
+	if (length(pd)) { v6s.pd_seen = true; v6s.prefixes = pd; }
+	else if (!up) v6s.pd_lost = null;
+	else if (v6s.pd_lost == null) v6s.prefixes = pd;
+
+	/* default route from the router advertisement */
+	if (up && v6s.route_seen && gw == null) {
+		v6s.route_lost ??= t;
+		if (!v6s.nr_logged && t - v6s.route_lost >= cfg.wan.ra_after) {
+			v6s.nr_logged = true;
+			emit('warn', 'wan', 'ipv6', 'v6_no_route', { iface, after: t - v6s.route_lost }, v6s.route_lost);
+		}
+	}
+	if (gw != null) {
+		if (v6s.nr_logged) emit('info', 'wan', 'ipv6', 'v6_route_back', { iface, dur: t - v6s.route_lost, gw });
+		v6s.route_lost = null;
+		v6s.nr_logged = false;
+		v6s.route_seen = true;
+	}
+	if (!up) { v6s.route_lost = null; v6s.nr_logged = false; }
+
+	v6s.up = up;
+	v6s.route = gw;
+	v6s.addr = addr ? `${addr.address}/${addr.mask}` : null;
+	v6s.proto = st.proto;
+	v6s.uptime = up ? st.uptime : null;
+}
+
+function v6_out() {
+	if (!cfg.wan.ipv6) return null;
+	let c6 = fam_count(6), c4 = fam_count(4);
+	let o = { iface: v6s.iface, found: v6s.found, up: v6s.up, since: v6s.since, uptime: v6s.uptime, proto: v6s.proto,
+		prefixes: v6s.prefixes, addr: v6s.addr, route: v6s.route, pd_seen: v6s.pd_seen, route_seen: v6s.route_seen,
+		pd_lost: v6s.pd_lost, route_lost: v6s.nr_logged ? v6s.route_lost : null, down: v6_down_since,
+		targets: c6.all, targets_ok: c6.all - c6.failed, v4_targets: c4.all, reasons: [] };
+	if (v6_down_since != null) push(o.reasons, { c: 'v6_down', since: v6_down_since });
+	if (v6s.found && v6s.up === false && v6s.pd_seen) push(o.reasons, { c: 'v6_if_down', iface: v6s.iface, since: v6s.since });
+	if (v6s.pd_lost != null) push(o.reasons, { c: 'v6_pd_lost', since: v6s.pd_lost });
+	if (v6s.nr_logged) push(o.reasons, { c: 'v6_no_route', since: v6s.route_lost });
+	return o;
 }
 
 /* ------------------------------------------------------------------ IGMP */
@@ -1848,7 +2014,8 @@ const LOG_RULES = [
 	[ /^pppd$/, /Timeout waiting for PAD[OS]|Unable to complete PPPoE Discovery/, 'ppp_discovery', 'err', 'wan' ],
 	[ /^pppd$/, /LCP terminated by peer|Modem hangup|Connection terminated/, 'ppp_down', 'warn', 'wan' ],
 	[ /^udhcpc$/, /no lease, failing|lease lost/, 'dhcp_fail', 'warn', 'wan' ],
-	[ /^odhcp6c$/, /Failed to send|timed out/, 'dhcp_fail', 'warn', 'wan' ],
+	[ /^odhcp6c$/, /Failed to send|timed out|[Nn]o (prefix|address)|NoPrefixAvail|NoAddrsAvail/, 'dhcp6_fail', 'warn', 'wan' ],
+
 	[ /^(igmpproxy|mcproxy|omcproxy|improxy)$/, /(error|fail|cannot|unable|invalid)/i, 'proxy_log', 'warn', 'iptv' ],
 	[ /^kernel$/, /NETDEV WATCHDOG|transmit queue [0-9]+ timed out|[Tt][Xx] timeout/, 'nic_timeout', 'err', 'system' ],
 	[ /^kernel$/, /nf_conntrack: table full/, 'conntrack_drop', 'warn', 'system' ],
@@ -3093,21 +3260,49 @@ function csv_append(row) {
 
 let ubus_conn = null;
 
-function wan_status() {
-	let f = getenv('ISP_TESTER_WANSTATUS');      /* testing: JSON file instead of ubus */
+/* netifd status of a logical interface (testing: a JSON file in env) */
+function iface_status(name, env) {
+	let f = getenv(env);
 	if (f) {
 		try { return json(fs.readfile(f) || 'null'); } catch (e) { return null; }
 	}
 	if (getenv('ISP_TESTER_CONFIG')) return null;
 	try {
 		ubus_conn ??= require('ubus').connect();
-		return ubus_conn?.call(`network.interface.${cfg.wan.interface}`, 'status');
+		return ubus_conn?.call(`network.interface.${name}`, 'status');
 	}
 	catch (e) {
 		ubus_conn = null;
 		return null;
 	}
 }
+
+function wan_status() {
+	return iface_status(cfg.wan.interface, 'ISP_TESTER_WANSTATUS');
+}
+
+function uniq_list(a) {
+	let out = [];
+	for (let x in a) if (x != null && index(out, x) < 0) push(out, x);
+	return out;
+}
+
+/* the DHCPv6 interface: as set, else wan6 or <wan>_6 (IPv6 "auto" on wan) */
+function refresh_wan6() {
+	if (!cfg.wan.enabled || !cfg.wan.ipv6) return;
+	let names = cfg.wan.interface6 ? [ cfg.wan.interface6 ] : uniq_list([ v6s.iface, 'wan6', `${cfg.wan.interface}_6` ]);
+	for (let n in names) {
+		if (!n) continue;
+		let st = iface_status(n, 'ISP_TESTER_WAN6STATUS');
+		if (type(st) != 'object') continue;
+		v6s.iface = n;
+		v6s.found = true;
+		v6_session(st);
+		return;
+	}
+	v6s.found = false;
+}
+
 
 function refresh_wan_device() {
 	if (!cfg.wan.enabled || !cfg.wan.interface) return;
@@ -3369,6 +3564,7 @@ function tick() {
 	handle_notify_test();
 	handle_chn_forget();
 	refresh_wan_device();
+	refresh_wan6();
 	sample_proxy();
 	if (!iptv_fast()) igmp_poll();
 	sample_system();
@@ -3423,6 +3619,12 @@ function tick() {
 			level = worst(level, wd.level);
 			for (let r in wd.reasons) push(reasons, r);
 		}
+		/* IPv6 trouble while IPv4 works: yellow (pages are slow, not gone) */
+		let v6 = v6_out();
+		if (v6 && length(v6.reasons)) {
+			level = worst(level, 'warn');
+			for (let r in v6.reasons) push(reasons, r);
+		}
 		if (level == 'ok' && recent_level('wan') != 'ok') {
 			level = 'warn';
 			push(reasons, { c: 'recent_events' });
@@ -3432,6 +3634,8 @@ function tick() {
 			trace: cfg.wan.trace ? { tool: MTR ? 'mtr' : (TRACEROUTE ? 'traceroute' : null), running: !!trace.proc, last: trace.last || null,
 				n: trace.n, cooldown: cfg.wan.trace_cooldown } : null,
 			bloat: bloat_out(),
+			v6,
+
 			rx_kbps: wd?.delta ? round(wd.delta.rx_bps / 1000, 0) : null,
 			tx_kbps: wd?.delta ? round(wd.delta.tx_bps / 1000, 0) : null,
 			source: { type: source.type, error: source.error, sock_error: source.sock_error, ping_plugin: source.ping_plugin, gateway: gateway_ip() },

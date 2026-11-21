@@ -32,6 +32,7 @@ Target: **OpenWrt 24.10 and 25.12** (ucode + rpcd + LuCI JS). No compiled code, 
 |------|-----|---------------|
 | **Internet** | Ping results of **collectd** (luci-app-statistics, Ping plugin): loss, latency and jitter per host. The host netifd reports as gateway is marked as the ISP gateway | packet loss, high latency, high jitter (optional), host not responding, *Internet down* (no host responds), recovery with duration |
 | **WAN session** | netifd status of the WAN interface | interface down/up (PPPoE/DHCP session lost), session restarted between two checks, WAN address changed |
+| **IPv6** | netifd status of the DHCPv6 interface (`wan6`, what odhcp6c got) + the IPv6 hosts of the collectd Ping plugin | *IPv6 down* (no IPv6 host answers while IPv4 does), DHCPv6 session down/up, delegated **prefix lost / changed**, **no router advertisement** (default route gone) |
 | **System log** | `logread`: pppd, udhcpc, igmpproxy/mcproxy, kernel, dnsmasq | LCP echo timeouts, PPPoE discovery/authentication failures, DHCP lease lost, proxy errors, network driver hang, connection table full, out of memory, DNS query limit |
 | **IPTV** | Bitrate of the IPTV VLAN (bridge per-VLAN counters), or of a device that carries only IPTV traffic (e.g. `eth1.387`, or the decoder's port measured outgoing) | stream started, **stream stopped**, stream resumed after *N s* (with what IGMP did meanwhile), **decoder switched off** (stream gone and no channel subscribed any more: logged as info, not a fault), stream lost (still subscribed: long outage), bitrate dip |
 | **IGMP** | Joined groups on the proxy's upstream (`/proc/net/igmp`), multicast proxy process (igmpproxy, mcproxy, omcproxy), bridge MDB and IGMP timers | proxy stopped / restarted; every freeze is tagged as *channel change*, *membership dropped* or *still subscribed* |
@@ -56,7 +57,7 @@ The package does not duplicate what OpenWrt already does: ping comes from collec
 opkg install luci-app-statistics collectd-mod-ping collectd-mod-unixsock
 ```
 
-In *Statistics → Setup → Network plugins → Ping* add the ISP gateway (the WAN gateway or PPPoE peer) and one or two far hosts (e.g. `1.1.1.1`, `8.8.8.8`). Enable *UnixSock* in *General plugins* so the tester gets live values; without it, it reads the RRD files, which lag behind by the rrdtool cache time (minutes).
+In *Statistics → Setup → Network plugins → Ping* add the ISP gateway (the WAN gateway or PPPoE peer) and one or two far hosts (e.g. `1.1.1.1`, `8.8.8.8`), and for IPv6 one or two IPv6 hosts (e.g. `2606:4700:4700::1111`, `2001:4860:4860::8888`). Enable *UnixSock* in *General plugins* so the tester gets live values; without it, it reads the RRD files, which lag behind by the rrdtool cache time (minutes).
 
 Gateway vs. far-target loss helps pinpoint the cause. Loss to the gateway points at the line or the ISP access network. Loss only to the far targets points further into the ISP's network.
 
@@ -102,6 +103,7 @@ The panel looks at what happened **at the same time** (within 30 s) in the selec
 | Stream gone and no channel subscribed for 15 s (`off_after`) | decoder switched off: not a fault, not counted |
 | Multicast proxy stopped or restarted | router |
 | PPPoE/DHCP session dropped while the WAN link stayed up | ISP |
+| IPv6 down while IPv4 works, IPv6 prefix lost / changed, no router advertisement | ISP IPv6 |
 | DNS failing while ping works | DNS server (ISP's, if you set it) |
 | Problems while the router CPU / RAM / connection table was overloaded | router |
 | Your "Problem now" reports with / without anything measured around them | context (no weight) |
@@ -143,7 +145,18 @@ The analysis and the report put IPTV freezes during a decoder restart aside (*N 
 
 With a second router: a decoder plugged into the second router is best watched there (its port link is the clearest signal) – its restarts reach the main router's timeline and analysis.
 
+## IPv6: IPv4 works, IPv6 does not
+
+A common fault that looks like "the Internet is slow": IPv6 breaks while IPv4 keeps working. Browsers try IPv6 first and fall back to IPv4 only after a delay, so pages hang for a moment instead of failing. Nothing is measured twice for it:
+
+- **What odhcp6c got**, from netifd (`ubus call network.interface.wan6 status`): the DHCPv6 session, the delegated prefix (*ipv6-prefix*, what the LAN addresses come from) and the IPv6 default route, which comes from the ISP's router advertisement. Logged: *IPv6 interface down / up*, **prefix lost** (the home network has no IPv6) and *back*, **prefix changed** (devices renumber, open IPv6 connections break), **no router advertisement** for *No router advertisement after* (60 s) and *back*. Only what was seen once is missed, so an ISP without IPv6 is not a fault. The interface is `wan6`, or `wan_6` when IPv6 is set to automatic on `wan` (*Settings → Internet → IPv6 interface* to choose another).
+- **IPv6 ping**: the IPv6 hosts of the collectd Ping plugin are targets like the IPv4 ones (chart, CSV), but judged on their own: when all IPv6 hosts fail while an IPv4 host answers, **IPv6 down** is logged (a fault) and *IPv6 works again after N* when one answers. *Internet down* needs every IPv4 host to fail, so a dead IPv6 does not look like a total outage. The path snapshot traces an IPv6 host with `mtr` (or `traceroute6`).
+- odhcp6c messages in the system log (no answer, no prefix available) are logged as *DHCPv6* events.
+
+The Internet card shows *IPv6: prefix …/56 · RA OK · ping 2/2*; the analysis puts IPv6 faults on the ISP side, and the report counts IPv6 outages with their total and longest time.
+
 ## Path snapshot at a loss
+
 
 When a target starts losing packets (or everything is down), the collector runs one traceroute to a far target – the gateway alone would show nothing beyond hop 1. `mtr` (package `mtr`, 10 rounds at 0.5 s) is used when installed and gives loss per hop; otherwise busybox `traceroute -q 3`. The result is one event on the timeline: click it to fold out the hops.
 

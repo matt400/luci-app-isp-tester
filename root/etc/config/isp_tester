@@ -48,7 +48,14 @@ config wan 'wan'
 	option bloat '1'
 	option bloat_ms '30'
 	option bloat_load '70'
+	# IPv6: DHCPv6 session, delegated prefix and default route (router
+	# advertisement) from netifd/odhcp6c; IPv6 ping = the IPv6 hosts of the
+	# collectd Ping plugin. interface6 empty = wan6 or <wan>_6
+	option ipv6 '1'
+	option interface6 ''
+	option ra_after '60'
 	# speed of the plan in Mbit/s; unset = the highest rate seen
+
 	#option down_mbit '300'
 	#option up_mbit '50'
 
