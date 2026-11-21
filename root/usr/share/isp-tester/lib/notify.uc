@@ -9,7 +9,7 @@ import { tstamp, MSG, event_msg } from './messages.uc';
 import * as fs from 'fs';
 
 let C = null;
-let notif = { pending: [], cut: 0, last: 0, busy: false, last_ok: null, last_fail: null, last_err: null, open: {} };
+let notif = { pending: [], cut: 0, last: 0, busy: false, force: false, last_ok: null, last_fail: null, last_err: null, open: {} };
 
 function notify_init(ctx) { C = ctx; }
 
@@ -144,6 +144,10 @@ function post_fetch(url, body, ctype, done) {
 
 function notify_flush(force) {
 	let n = C.cfg.notify;
+	/* a test asked for while another message was on its way: sent as soon
+	 * as that one is done, not after the whole cooldown (5 min by default,
+	 * while the settings page said "within one interval") */
+	force = force || notif.force;
 	if (!n.enabled || notif.busy || !length(notif.pending) || (!FETCH && !ucl_mod())) return;
 	if (!force && now() - notif.last < n.cooldown && now() >= notif.last) return;
 
@@ -170,6 +174,7 @@ function notify_flush(force) {
 	if (!match(url ?? '', /^https?:\/\/[^ \t\n]+$/)) return;
 
 	notif.busy = true;
+	notif.force = false;
 	notif.last = now();
 	let cut0 = notif.cut, via = null;
 	/* declared first: the function passes itself on (retry with
@@ -216,6 +221,7 @@ function notify_test() {
 	/* notifications off: do not leave a test message queued for later */
 	if (!C.cfg.notify.enabled) return;
 	push(notif.pending, (MSG[C.cfg.notify.lang] ?? MSG.en).test);
+	notif.force = true;
 	notify_flush(true);
 }
 

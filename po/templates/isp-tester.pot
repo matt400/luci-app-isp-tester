@@ -2665,3 +2665,15 @@ msgstr ""
 
 msgid "The last try was interrupted (%s)."
 msgstr ""
+
+msgid "Could not start the maintenance."
+msgstr ""
+
+msgid "DNS server %s: no statistics any more (removed from the DNS settings, or the statistics are off)"
+msgstr ""
+
+msgid "Letters, digits and . _ - only, at most 32, not starting with -"
+msgstr ""
+
+msgid "Notifications are switched off in the saved settings: tick “Send notifications”, Save & Apply, then test."
+msgstr ""

@@ -818,6 +818,19 @@ function sample_dns() {
 		kill_pids('USR1', dns.pids);
 	}
 
+	/* a server not in the dumps any more (taken out of the DNS settings), or
+	 * no dumps at all (switched off, dnsmasq logging every query): its last
+	 * verdict is stale - a "bad" one kept the WAN card yellow until the
+	 * collector restarted */
+	let keep = (dump_on ? 3 * C.cfg.dns.dump : 0) + 120;
+	for (let k in keys(dns.srv)) {
+		let x = dns.srv[k];
+		if (t - (x.ts ?? 0) <= keep) continue;
+		if (dns.srv_bad[k]) C.emit('info', 'wan', k, 'dns_server_ok', { server: k, no_data: true });
+		delete dns.srv[k];
+		delete dns.srv_bad[k];
+	}
+
 	let srv = [];
 	for (let k, x in dns.srv)
 		push(srv, { server: k, sent: x.sent, retried: x.retried, failed: x.failed, lat: x.lat, ts: x.ts, d: x.d, bad: !!dns.srv_bad[k] });

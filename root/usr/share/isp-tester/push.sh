@@ -151,20 +151,29 @@ test_login() {
 	printf '%s\n' "$res"
 }
 
+# take the lock: created only when it does not exist (noclobber), so two
+# sends started at the same moment (the collector's timer and "Send now")
+# cannot both get it; one left by a send that died is taken over
+take_lock() {
+	( set -C; echo $$ > "$LOCK" ) 2>/dev/null && return 0
+	local pid
+	pid=$(cat "$LOCK" 2>/dev/null)
+	case "$pid" in ''|*[!0-9]*) ;; *) [ -d "/proc/$pid" ] && return 1 ;; esac
+	rm -f "$LOCK"
+	( set -C; echo $$ > "$LOCK" ) 2>/dev/null
+}
+
 send() {
 	mkdir -p "$VARDIR"
 	# one at a time; checked first: a busy try must not overwrite the state
-	# of the running one
-	local pid
-	pid=$(cat "$LOCK" 2>/dev/null)
-	case "$pid" in ''|*[!0-9]*) ;; *) [ "$pid" != $$ ] && [ -d "/proc/$pid" ] && fail busy ;; esac
-	SENDING=1
-	load
-	ensure_key "$KEY"
-	echo $$ > "$LOCK"
+	# of the running one (SENDING is not set yet)
+	take_lock || fail busy
 	# global, not local: the EXIT trap runs after this function has returned
 	tmp=$VARDIR/push.$$.tar.gz
 	trap 'rm -f "$LOCK" "$tmp"' EXIT
+	SENDING=1
+	load
+	ensure_key "$KEY"
 	local ts=$(date +%s) name size files= f out rc
 	state "{\"ok\":false,\"state\":\"running\",\"ts\":$ts}"
 	for f in $DATA_FILES; do [ -f "$RUNDIR/$f" ] && files="$files $f"; done

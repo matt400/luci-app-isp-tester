@@ -102,6 +102,13 @@ const GAP_WHY_EN = { reboot: 'router restarted', stopped: 'monitoring was off', 
 const GAP_WHY_PL = { reboot: 'restart routera', stopped: 'monitorowanie wyłączone', crash: 'collector nieoczekiwanie się zatrzymał',
 	hung: 'collector się zawiesił (zrestartowany przez watchdog)', stall: 'collector był zablokowany' };
 
+/* the choices of the "Problem now" button (overview.js MARKS) */
+const MARK_EN = { tv_freeze: 'TV froze', tv_pixel: 'TV picture breaks up', net_slow: 'Internet is slow',
+	net_down: 'Internet does not work', other: 'something else' };
+
+const MARK_PL = { tv_freeze: 'obraz TV zamarzł', tv_pixel: 'obraz TV się rozpada', net_slow: 'Internet działa wolno',
+	net_down: 'Internet nie działa', other: 'coś innego' };
+
 function dur_txt(s) {
 	s = int(s ?? 0);
 	if (s >= 3600) return sprintf('%dh%02dm', s / 3600, (s % 3600) / 60);
@@ -144,7 +151,12 @@ function event_text(e, lang) {
 	case 'igmp_noquery': return sprintf(f, dur_txt(d.silent), dur_txt(d.expected));
 	case 'igmp_noquery_ok': return sprintf(f, dur_txt(d.dur));
 	case 'conntrack_full': return sprintf(f, d.pct);
-	case 'user_mark': return sprintf(f, d.note || '-');
+	/* what was picked ("TV froze"), and the note when there is one: without
+	 * a note the message said only "Problem reported by user: -" */
+	case 'user_mark': {
+		let w = ((lang == 'pl') ? MARK_PL : MARK_EN)[d.what] ?? ((lang == 'pl') ? MARK_PL : MARK_EN).other;
+		return sprintf(f, d.note ? `${w} - ${d.note}` : w);
+	}
 	case 'peer_lost': return sprintf(f, e.src);
 	case 'peer_back': return sprintf(f, e.src, dur_txt(d.dur));
 	case 'trace': return sprintf(f, d.host, d.first_bad
@@ -164,7 +176,10 @@ function event_text(e, lang) {
 	case 'dns_fail': return sprintf(f, d.pct, d.unans, d.fwd, d.win);
 	case 'dns_ok': return sprintf(f, dur_txt(d.dur), d.max_pct);
 	case 'dns_server_bad': return sprintf(f, e.src, d.bad, d.sent, dur_txt(d.win));
-	case 'dns_server_ok': return sprintf(f, e.src);
+	case 'dns_server_ok': return d.no_data
+		? sprintf((lang == 'pl') ? 'Serwer DNS %s: brak statystyk (usunięty z ustawień DNS lub statystyki wyłączone)'
+			: 'DNS server %s: no statistics any more (removed from the DNS settings, or statistics off)', e.src)
+		: sprintf(f, e.src);
 	/* no boot time when /proc/uptime could not be read: localtime(null) is "now" */
 	case 'router_reboot': return sprintf(f, (type(d.boot) == 'int') ? tstamp(d.boot) : '?');
 	case 'collector_restart': return sprintf(f, d.why == 'hung'
@@ -195,4 +210,4 @@ function event_msg(e, lang) {
 	return s;
 }
 
-export { tstamp, MSG, GAP_WHY_EN, GAP_WHY_PL, dur_txt, event_text, event_msg };
+export { tstamp, MSG, GAP_WHY_EN, GAP_WHY_PL, MARK_EN, MARK_PL, dur_txt, event_text, event_msg };

@@ -2668,3 +2668,15 @@ msgstr "bez statystyk serwerów"
 
 msgid "The last try was interrupted (%s)."
 msgstr "Ostatnia próba została przerwana (%s)."
+
+msgid "Could not start the maintenance."
+msgstr "Nie udało się włączyć prac serwisowych."
+
+msgid "DNS server %s: no statistics any more (removed from the DNS settings, or the statistics are off)"
+msgstr "Serwer DNS %s: brak statystyk (usunięty z ustawień DNS lub statystyki wyłączone)"
+
+msgid "Letters, digits and . _ - only, at most 32, not starting with -"
+msgstr "Tylko litery, cyfry oraz . _ -, najwyżej 32 znaki, nie na początku -"
+
+msgid "Notifications are switched off in the saved settings: tick “Send notifications”, Save & Apply, then test."
+msgstr "Powiadomienia są wyłączone w zapisanych ustawieniach: zaznacz „Wysyłaj powiadomienia”, Zapisz i zastosuj, potem testuj."

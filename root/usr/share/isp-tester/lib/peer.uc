@@ -104,6 +104,13 @@ function peer_unpack(data) {
 
 /* an event small enough for one datagram (traceroute hops are cut) */
 function peer_fit(x) {
+	/* the clock-fix field list (_fix, set shortly after boot) is this
+	 * router's bookkeeping: the receiver ignores it, it only took room */
+	if (x.e?._fix) {
+		let c = { ...x.e };
+		delete c._fix;
+		x = { q: x.q, e: c };
+	}
 	if (length(sprintf('%J', x)) <= PEER_MAXPKT - 250) return x;
 	let d = {};
 	for (let k, v in x.e.d) {

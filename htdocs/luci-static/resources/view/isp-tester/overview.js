@@ -441,7 +441,9 @@ function eventText(e) {
 	case 'dns_ok':          return _('DNS answers again after %s (at worst %d%% unanswered)').format(fmtDur(d.dur), d.max_pct);
 	case 'dns_server_bad':  return _('DNS server %s: %d of %d queries retried or failed within %s (%d retried = no answer in time, %d failed = SERVFAIL/REFUSED)').format(e.src, d.bad, d.sent, fmtDur(d.win), d.retried, d.failed) +
 		(d.lat != null ? ' · ' + _('average %d ms').format(d.lat) : '');
-	case 'dns_server_ok':   return _('DNS server %s answers normally again').format(e.src);
+	case 'dns_server_ok':   return d.no_data
+		? _('DNS server %s: no statistics any more (removed from the DNS settings, or the statistics are off)').format(e.src)
+		: _('DNS server %s answers normally again').format(e.src);
 	case 'router_reboot':   return _('ROUTER RESTARTED – up since %s').format(d.boot ? fmtTime(d.boot) : '?') + (d.ram ? ' · ' + _('earlier data was in RAM and is lost') : '');
 	case 'collector_restart': return (d.why === 'hung'
 		? _('Monitor restarted by the watchdog: it hung (last report %s before)')
@@ -917,7 +919,10 @@ function readJson(path) {
 function mergeEvents(a, b) {
 	var seen = {}, out = [];
 	a.concat(b).forEach(function(e) {
-		var k = e.ts + '|' + e.type + '|' + e.src + '|' + (e.host || '');
+		/* the details too: picture errors of two channels in one tick (both
+		 * from source "quality") had the same time, type and source, and the
+		 * second one vanished from the timeline, the charts and the report */
+		var k = e.ts + '|' + e.type + '|' + e.src + '|' + (e.host || '') + '|' + JSON.stringify(e.d || null);
 		if (!seen[k]) { seen[k] = true; out.push(e); }
 	});
 	return out.sort(function(x, y) { return y.ts - x.ts; });
@@ -1217,9 +1222,11 @@ return view.extend({
 		var go = function(min) {
 			ui.hideModal();
 			return callMaint(min, note.value || '').then(function(r) {
-				ui.addNotification(null, E('p', r && r.result && r.running
+				/* a request the router refused is not "not running" */
+				var ok = r && r.result && r.running;
+				ui.addNotification(null, E('p', ok
 					? (min ? _('Maintenance starts within one interval.') : _('Maintenance ends within one interval.'))
-					: _('Monitoring is not running.')), 'info');
+					: (r && r.result) ? _('Monitoring is not running.') : _('Could not start the maintenance.')), ok ? 'info' : 'warning');
 				setTimeout(function() { callStatus().then(function(st) { self.last = [ st, self.last[1] ]; self.redraw(); }); }, 11000);
 			});
 		};
@@ -1242,7 +1249,8 @@ return view.extend({
 				_('not counted as faults, no notifications (for %s so far)').format(fmtDur(rnow() - m.since)) + (m.note ? ' · „' + m.note + '”' : '') ]),
 			E('div', { 'class': 'meta' }, [
 				E('button', { 'class': 'cbi-button', 'click': ui.createHandlerFn(this, function() {
-					return callMaint(Math.max(1, Math.round((m.until - rnow()) / 60)) + 30, m.note || '').then(function() { setTimeout(function() { self.refreshNow(); }, 11000); });
+					/* at most a day (the router refuses more): +30 near the limit did nothing */
+					return callMaint(Math.min(1440, Math.max(1, Math.round((m.until - rnow()) / 60)) + 30), m.note || '').then(function() { setTimeout(function() { self.refreshNow(); }, 11000); });
 				}) }, _('+30 min')), ' ',
 				E('button', { 'class': 'cbi-button cbi-button-negative', 'click': ui.createHandlerFn(this, function() {
 					return callMaint(0, '').then(function() { setTimeout(function() { self.refreshNow(); }, 11000); });
