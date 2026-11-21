@@ -1581,3 +1581,129 @@ msgstr "Klucz"
 
 msgid "The same secret on both routers, at least 8 characters. Messages signed with another key are ignored."
 msgstr "Ten sam sekret na obu routerach, min. 8 znaków. Wiadomości podpisane innym kluczem są ignorowane."
+
+msgid "%d of %d of your reports came with a Wi-Fi drop or weak signal of %s, and nothing on the line – the cause is Wi-Fi."
+msgstr "%d z %d Twoich zgłoszeń zbiegło się z rozłączeniem Wi-Fi lub słabym sygnałem %s, a na łączu nic – przyczyną jest Wi-Fi."
+
+msgid "%d of %d of your reports have nothing measured around them, and the Wi-Fi of the watched devices was fine too – the cause is probably the decoder or the TV (or a device that is not watched)."
+msgstr "%d z %d Twoich zgłoszeń nie ma wokół siebie żadnego pomiaru, a Wi-Fi obserwowanych urządzeń też było w porządku – przyczyną jest pewnie dekoder lub telewizor (albo urządzenie, które nie jest obserwowane)."
+
+msgid "Wi-Fi of %s dropped and reconnected %d× – range, interference or the device's power saving."
+msgstr "Wi-Fi %s rozłączało się i wracało %d× – zasięg, zakłócenia albo oszczędzanie energii w urządzeniu."
+
+msgid "Weak Wi-Fi signal of %s (%d×) – move the access point or the device, or use a cable."
+msgstr "Słaby sygnał Wi-Fi %s (%d×) – przestaw punkt dostępowy lub urządzenie albo użyj kabla."
+
+msgid "Wi-Fi"
+msgstr "Wi-Fi"
+
+msgid "%s: weak Wi-Fi signal (%d dBm)"
+msgstr "%s: słaby sygnał Wi-Fi (%d dBm)"
+
+msgid "Wi-Fi: cannot reach ubus"
+msgstr "Wi-Fi: brak dostępu do ubus"
+
+msgid "Wi-Fi: no access point (hostapd) running on this router"
+msgstr "Wi-Fi: na tym routerze nie działa punkt dostępowy (hostapd)"
+
+msgid "Wi-Fi: %s moved from %s to %s (gap %s)"
+msgstr "Wi-Fi: %s przeszedł z %s na %s (przerwa %s)"
+
+msgid "Wi-Fi: %s DROPPED and reconnected after %s"
+msgstr "Wi-Fi: %s ROZŁĄCZONY, wrócił po %s"
+
+msgid "Wi-Fi: %s disconnected (not back within the reconnect time)"
+msgstr "Wi-Fi: %s rozłączony (nie wrócił w czasie ponownego połączenia)"
+
+msgid "Wi-Fi: %s connected again after %s"
+msgstr "Wi-Fi: %s znów połączony po %s"
+
+msgid "Wi-Fi: %s moved from %s to %s"
+msgstr "Wi-Fi: %s przeszedł z %s na %s"
+
+msgid "Wi-Fi: %s weak signal %d dBm"
+msgstr "Wi-Fi: %s słaby sygnał %d dBm"
+
+msgid "Wi-Fi: %s signal OK again after %s (lowest %d dBm)"
+msgstr "Wi-Fi: %s sygnał znów OK po %s (najniżej %d dBm)"
+
+msgid "signal before %d dBm"
+msgstr "sygnał przed %d dBm"
+
+msgid "weak"
+msgstr "słaby"
+
+msgid "deauthenticated"
+msgstr "deautentykacja"
+
+msgid "disassociated"
+msgstr "dysasocjacja"
+
+msgid "reason %d"
+msgstr "powód %d"
+
+msgid "not connected"
+msgstr "niepołączony"
+
+msgid "Interface"
+msgstr "Interfejs"
+
+msgid "Signal"
+msgstr "Sygnał"
+
+msgid "Link rate received / sent (Mbit/s)"
+msgstr "Szybkość łącza odbiór / wysyłanie (Mbit/s)"
+
+msgid "Rate"
+msgstr "Szybkość"
+
+msgid "For"
+msgstr "Od"
+
+msgid "Add the devices to watch (phone, TV) in Settings → Wi-Fi."
+msgstr "Dodaj urządzenia do obserwowania (telefon, TV) w Ustawienia → Wi-Fi."
+
+msgid "Clients"
+msgstr "Klienci"
+
+msgid "Weak below"
+msgstr "Słaby poniżej"
+
+msgid "Wi-Fi clients"
+msgstr "Klienci Wi-Fi"
+
+msgid "Wi-Fi: %s"
+msgstr "Wi-Fi: %s"
+
+msgid "Wi-Fi drops of watched devices"
+msgstr "Rozłączenia Wi-Fi obserwowanych urządzeń"
+
+msgid "Watches the Wi-Fi clients of this router's access points (hostapd over ubus): when a watched device (phone, TV) drops and comes back, and when its signal gets weak. Then a “Problem now” report with nothing measured on the line has proof: it was Wi-Fi – or, when its Wi-Fi was fine, it was not. On a second router behind this one, set it up there and let it send its events here."
+msgstr "Obserwuje klientów Wi-Fi punktów dostępowych tego routera (hostapd przez ubus): gdy obserwowane urządzenie (telefon, TV) się rozłącza i wraca oraz gdy słabnie jego sygnał. Wtedy zgłoszenie „Problem teraz” bez pomiarów na łączu ma dowód: to było Wi-Fi – albo, gdy Wi-Fi było w porządku, to nie ono. Na drugim routerze za tym skonfiguruj to tam i niech wysyła zdarzenia tutaj."
+
+msgid "Watch Wi-Fi"
+msgstr "Obserwuj Wi-Fi"
+
+msgid "Weak signal below (dBm)"
+msgstr "Słaby sygnał poniżej (dBm)"
+
+msgid "Two checks in a row below this are logged. Around −70 dBm streaming starts to suffer."
+msgstr "Zapisywane są dwa kolejne pomiary poniżej tej wartości. Około −70 dBm streaming zaczyna cierpieć."
+
+msgid "Reconnect within (s)"
+msgstr "Ponowne połączenie w ciągu (s)"
+
+msgid "A device that is back within this time was dropped (a fault). One that stays away longer just left (e.g. the phone left the house) and is only noted."
+msgstr "Urządzenie, które wróci w tym czasie, zostało rozłączone (usterka). Takie, którego nie ma dłużej, po prostu wyszło (np. telefon opuścił dom) i jest tylko odnotowane."
+
+msgid "Wi-Fi devices to watch"
+msgstr "Obserwowane urządzenia Wi-Fi"
+
+msgid "Only these are logged; the others are counted. Devices connected now are offered in the list."
+msgstr "Zapisywane są tylko te; pozostałe są liczone. Lista podpowiada urządzenia połączone teraz."
+
+msgid "MAC address"
+msgstr "Adres MAC"
+
+msgid "e.g. Phone"
+msgstr "np. Telefon"

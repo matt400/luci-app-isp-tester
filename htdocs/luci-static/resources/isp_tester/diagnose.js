@@ -143,6 +143,10 @@ return baseclass.extend({
 		var proxyBad    = by(function(e) { return e.type === 'proxy_down' || e.type === 'proxy_restart' ||
 			(e.type === 'log' && e.d && e.d.kind === 'proxy_log'); });
 		var marks       = byAll(function(e) { return e.type === 'user_mark'; });
+		/* Wi-Fi of the watched devices (phone, TV), on both routers */
+		var wifiDrop    = byAll(function(e) { return e.type === 'wifi_reconnect' && e.lvl !== 'info'; });
+		var wifiWeak    = byAll(function(e) { return e.type === 'wifi_weak'; });
+		var wifiBad     = wifiDrop.concat(wifiWeak);
 		/* the second router: freezes seen only there, times it did not report */
 		var remoteStalls = remote.filter(function(e) { return e.type === 'stream_stall'; });
 		var peerLost    = by(function(e) { return e.type === 'peer_lost'; });
@@ -273,15 +277,24 @@ return baseclass.extend({
 		add(ctx.iptv_direction === 'tx' ? 'info' : 'isp', 1.5, 'ts_errors', tsErr);
 
 		/* ---- the user's own reports: was anything measured at that moment? */
-		var measured = evAll.filter(function(e) { return e.lvl !== 'info' && e.area !== 'user' && e.area !== 'system'; });
-		var seen = [], unseen = [];
+		var measured = evAll.filter(function(e) { return e.lvl !== 'info' && e.area !== 'user' && e.area !== 'system' && e.area !== 'wifi'; });
+		var seen = [], unseen = [], onWifi = [];
+		/* people notice a problem a little after it starts */
+		var around = function(list, m) { return list.some(function(e) { return e.ts >= m.ts - 120 && e.ts <= m.ts + 30; }); };
 		marks.forEach(function(m) {
-			/* people notice a problem a little after it starts */
-			var hit = measured.some(function(e) { return e.ts >= m.ts - 120 && e.ts <= m.ts + 30; });
-			(hit ? seen : unseen).push(m);
+			if (around(measured, m)) seen.push(m);
+			else if (around(wifiBad, m)) onWifi.push(m);
+			else unseen.push(m);
 		});
 		add('info', 0, 'marks_seen', seen, { total: marks.length });
-		add('info', 0, 'marks_unseen', unseen, { total: marks.length });
+		/* nothing on the line, but the watched device's Wi-Fi dropped or was weak: that is the proof */
+		add('home', 1.5, 'marks_wifi', onWifi, { total: marks.length, devs: uniq(wifiBad.filter(function(e) {
+			return onWifi.some(function(m) { return e.ts >= m.ts - 120 && e.ts <= m.ts + 30; }); }), 'src').join(', ') });
+		add('info', 0, ctx.wifi_watched ? 'marks_unseen_wifi_ok' : 'marks_unseen', unseen, { total: marks.length });
+
+		/* ---- Wi-Fi */
+		add('home', 1, 'wifi_drops', wifiDrop, { devs: uniq(wifiDrop, 'src').join(', ') });
+		add('home', 0.5, 'wifi_weak', wifiWeak, { devs: uniq(wifiWeak, 'src').join(', ') });
 
 		/* ---- home network */
 		add('home', 2, 'port_speed', portSpeed, { devs: uniq(portSpeed, 'src').join(', ') });
@@ -380,6 +393,10 @@ return baseclass.extend({
 		case 'router_load':     return _('The router was overloaded %d× (no problems at those moments).').format(f.n);
 		case 'marks_seen':      return _('%d of %d of your reports match a measured problem.').format(f.n, a.total);
 		case 'marks_unseen':    return _('%d of %d of your reports have nothing measured around them – the problem is not visible on this router: check the IPTV device setting, or the cause is the decoder, the TV or Wi-Fi.').format(f.n, a.total);
+		case 'marks_wifi':      return _('%d of %d of your reports came with a Wi-Fi drop or weak signal of %s, and nothing on the line – the cause is Wi-Fi.').format(f.n, a.total, a.devs);
+		case 'marks_unseen_wifi_ok': return _('%d of %d of your reports have nothing measured around them, and the Wi-Fi of the watched devices was fine too – the cause is probably the decoder or the TV (or a device that is not watched).').format(f.n, a.total);
+		case 'wifi_drops':      return _('Wi-Fi of %s dropped and reconnected %d× – range, interference or the device\'s power saving.').format(a.devs, f.n);
+		case 'wifi_weak':       return _('Weak Wi-Fi signal of %s (%d×) – move the access point or the device, or use a cable.').format(a.devs, f.n);
 		case 'stall_router':    return _('%d of %d IPTV freezes: the router stopped sending to the decoder while everything else was fine – IGMP snooping/querier on the router.').format(f.n, a.total);
 		case 'stall_upstream':  return _('%d of %d IPTV freezes: multicast stopped arriving from the ISP while Internet and ports were fine – ISP IPTV/multicast side (less often an IGMP issue on the router).').format(f.n, a.total);
 		case 'no_querier':      return _('IGMP snooping is on but the querier is off on %s – streams can time out on the switch.').format(a.bridge);

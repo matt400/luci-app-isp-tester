@@ -161,6 +161,8 @@ function default_config() {
 			enabled: false, service: 'ntfy', url: '', token: '', chat_id: '',
 			min_level: 'err', cooldown: 300, lang: 'en'
 		},
+		/* Wi-Fi clients from hostapd (ubus): stations = { mac: label } */
+		wifi: { enabled: true, signal_warn: -75, reconnect_s: 60, stations: {} },
 		/* second router: 'send' its events to the one that 'receive's them */
 		peer: { role: 'off', host: '', port: 51477, key: '' },
 		ports: [],
@@ -191,6 +193,14 @@ function load_config() {
 		let y = cur.get_all('isp_tester', 'system') || {};
 		let n = cur.get_all('isp_tester', 'notify') || {};
 		let pr = cur.get_all('isp_tester', 'peer') || {};
+		let wf = cur.get_all('isp_tester', 'wifi') || {};
+
+		c.wifi.enabled     = bool(wf.enabled, true);
+		c.wifi.signal_warn = num(wf.signal_warn, c.wifi.signal_warn);
+		c.wifi.reconnect_s = num(wf.reconnect_s, c.wifi.reconnect_s);
+		cur.foreach('isp_tester', 'station', (s) => {
+			if (s.mac && bool(s.enabled, true)) c.wifi.stations[lc(trim(s.mac))] = s.label ?? '';
+		});
 
 		c.peer.role = (pr.role == 'send' || pr.role == 'receive') ? pr.role : 'off';
 		c.peer.host = trim(pr.host ?? '');
@@ -319,6 +329,15 @@ function load_config() {
 	c.iptv.igmp_dev = c.iptv.igmp_device || (c.iptv.direction == 'rx' ? c.iptv.device : '');
 	if (c.notify.cooldown < 30) c.notify.cooldown = 30;
 
+	let sta = {};
+	for (let mac, l in (type(c.wifi.stations) == 'object' ? c.wifi.stations : {})) {
+		mac = lc(mac);
+		if (match(mac, /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/)) sta[mac] = substr(trim(replace(`${l ?? ''}`, /[[:cntrl:]]+/g, ' ')), 0, 32);
+	}
+	c.wifi.stations = sta;
+	if (c.wifi.signal_warn > -30 || c.wifi.signal_warn < -100) c.wifi.signal_warn = -75;
+	if (c.wifi.reconnect_s < 5) c.wifi.reconnect_s = 5;
+
 	c.peer.port = int(c.peer.port);
 	if (c.peer.port < 1 || c.peer.port > 65535) c.peer.port = 51477;
 	c.peer.err = null;
@@ -397,7 +416,9 @@ const MSG = {
 		proxy_down: 'Multicast proxy %s is not running', proxy_up: 'Multicast proxy %s running again', proxy_restart: 'Multicast proxy %s restarted',
 		cpu_high: 'Router CPU busy: %d%% (softirq %d%%)', mem_low: 'Router RAM low: %d%% free', conntrack_full: 'Connection table %d%% full',
 		user_mark: 'Problem reported by user: %s', test: 'Test message - notifications work.',
-		peer_lost: 'Router %s does not report any more', peer_back: 'Router %s reports again after %s'
+		peer_lost: 'Router %s does not report any more', peer_back: 'Router %s reports again after %s',
+		wifi_reconnect: 'Wi-Fi: %s dropped and reconnected after %s (%s)', wifi_leave: 'Wi-Fi: %s disconnected (%s)',
+		wifi_join: 'Wi-Fi: %s connected again after %s', wifi_roam: 'Wi-Fi: %s moved %s -> %s', wifi_weak: 'Wi-Fi: %s weak signal %d dBm', wifi_weak_ok: 'Wi-Fi: %s signal OK again after %s'
 	},
 	pl: {
 		link_down: '%s: BRAK ŁĄCZA', link_up: '%s: łącze wróciło po %s', link_flap: '%s: łącze mrugnęło',
@@ -414,7 +435,9 @@ const MSG = {
 		proxy_down: 'Proxy multicast %s nie działa', proxy_up: 'Proxy multicast %s znów działa', proxy_restart: 'Proxy multicast %s zrestartowany',
 		cpu_high: 'Router przeciążony: CPU %d%% (softirq %d%%)', mem_low: 'Mało RAM: wolne %d%%', conntrack_full: 'Tablica połączeń zajęta w %d%%',
 		user_mark: 'Problem zgłoszony ręcznie: %s', test: 'Wiadomość testowa - powiadomienia działają.',
-		peer_lost: 'Router %s przestał się zgłaszać', peer_back: 'Router %s znów się zgłasza po %s'
+		peer_lost: 'Router %s przestał się zgłaszać', peer_back: 'Router %s znów się zgłasza po %s',
+		wifi_reconnect: 'Wi-Fi: %s rozłączył się i wrócił po %s (%s)', wifi_leave: 'Wi-Fi: %s rozłączony (%s)',
+		wifi_join: 'Wi-Fi: %s znów połączony po %s', wifi_roam: 'Wi-Fi: %s przeszedł %s -> %s', wifi_weak: 'Wi-Fi: %s słaby sygnał %d dBm', wifi_weak_ok: 'Wi-Fi: %s sygnał znów OK po %s'
 	}
 };
 
@@ -453,6 +476,12 @@ function event_text(e, lang) {
 	case 'user_mark': return sprintf(f, d.note || '-');
 	case 'peer_lost': return sprintf(f, e.src);
 	case 'peer_back': return sprintf(f, e.src, dur_txt(d.dur));
+	case 'wifi_reconnect': return sprintf(f, e.src, dur_txt(d.away), d.iface ?? '?');
+	case 'wifi_leave': return sprintf(f, e.src, d.iface ?? '?');
+	case 'wifi_join': return sprintf(f, e.src, dur_txt(d.away));
+	case 'wifi_roam': return sprintf(f, e.src, d.from ?? '?', d.iface ?? '?');
+	case 'wifi_weak': return sprintf(f, e.src, d.signal);
+	case 'wifi_weak_ok': return sprintf(f, e.src, dur_txt(d.dur));
 	default: return f;
 	}
 }
@@ -472,7 +501,7 @@ function event_msg(e, lang) {
  * only when the fault itself was sent (same area + source), so e.g. a decoder
  * port coming up or a target recovering from an unsent warning stays quiet */
 const RECOVERY = { wan_up: true, stream_resume: true, stream_lost: true, stream_off: true, link_up: true,
-	wan_if_up: true, proxy_up: true, target_ok: true, dev_present: true, peer_back: true };
+	wan_if_up: true, proxy_up: true, target_ok: true, dev_present: true, peer_back: true, wifi_weak_ok: true };
 
 function urlenc(s) {
 	let out = '';
@@ -2466,10 +2495,13 @@ function peer_start() {
 }
 
 /* sender: short status of this router for the receiver's view */
-function peer_hb(overall, iptv_res, ports) {
+function peer_hb(overall, iptv_res, ports, wifi_res) {
 	let hb = { lvl: overall, up: started };
 	if (iptv_res) hb.iptv = { state: iptv_res.state, kbps: iptv_res.kbps, lvl: iptv_res.level };
 	hb.ports = map(slice(ports, 0, 8), (x) => ({ dev: x.dev, label: substr(x.label ?? '', 0, 24), up: x.up, speed: x.speed, lvl: x.level }));
+	if (wifi_res)
+		hb.wifi = { n: wifi_res.total, sta: map(slice(wifi_res.stations, 0, 6), (x) => ({ label: x.label || x.mac, up: x.connected,
+			iface: x.iface, signal: x.signal, lvl: x.level })) };
 	return hb;
 }
 
@@ -2601,6 +2633,218 @@ function refresh_wan_device() {
 	cfg.wan.gw = valid_host(gw) ? gw : null;
 }
 
+/* ------------------------------------------------------------------ Wi-Fi */
+
+/*
+ * Wi-Fi clients, from hostapd over ubus (hostapd.<iface> get_clients, every
+ * interval) plus its notifications (disassoc / deauth / assoc), so a client
+ * that drops and comes back between two checks is caught too. Only the
+ * stations listed in the settings are logged (phone, TV); the others are
+ * counted. A drop that comes back within reconnect_s is a fault (warn); a
+ * client that stays away just left (info). Signal: hostapd's own value, or
+ * iwinfo's (rpcd-mod-iwinfo) when hostapd gives none.
+ */
+let wifi = { sta: {}, subs: {}, sub: null, err: null, clients: [] };
+
+function wifi_label(mac) {
+	return cfg.wifi.stations[mac] || mac;
+}
+
+/* hostapd objects -> get_clients results (testing: ISP_TESTER_HOSTAPD, a JSON file) */
+function hostapd_read() {
+	let f = getenv('ISP_TESTER_HOSTAPD');
+	if (f) {
+		let j;
+		try { j = json(fs.readfile(f) || 'null'); } catch (e) { j = null; }
+		return (type(j) == 'object') ? j : null;
+	}
+	if (getenv('ISP_TESTER_CONFIG')) return null;
+	try {
+		ubus_conn ??= require('ubus').connect();
+		let out = {};
+		for (let o in (ubus_conn?.list('hostapd.*') ?? [])) {
+			let r = ubus_conn.call(o, 'get_clients');
+			if (type(r) == 'object') out[o] = r;
+		}
+		return out;
+	}
+	catch (e) {
+		ubus_conn = null;
+		return null;
+	}
+}
+
+/* signal from iwinfo for an interface (only when hostapd has none) */
+function iwinfo_signals(ifn) {
+	let out = {};
+	if (getenv('ISP_TESTER_CONFIG') || !ubus_conn) return out;
+	try {
+		let r = ubus_conn.call('iwinfo', 'assoclist', { device: ifn });
+		for (let x in (r?.results ?? []))
+			if (x?.mac) out[lc(x.mac)] = x.signal;
+	}
+	catch (e) {}
+	return out;
+}
+
+/* a watched station left or was dropped (notification or poll) */
+function wifi_gone(st, t, why) {
+	if (st.left_at == null) {
+		st.left_at = t;
+		st.left_why = why;
+		st.left_signal = st.signal;
+		st.left_iface = st.iface;
+		st.left_weak = st.weak;
+	}
+}
+
+/* hostapd notifications: catch a drop that is back before the next check */
+function wifi_notify(ev) {
+	let mac = lc(`${ev?.data?.address ?? ''}`);
+	if (cfg.wifi.stations[mac] == null) return;
+	let st = wifi.sta[mac];
+	if (!st) return;
+	if (ev.type == 'disassoc' || ev.type == 'deauth') {
+		wifi_gone(st, now(), ev.type);
+		if (ev.data.reason != null) st.left_reason = ev.data.reason;
+	}
+	else if (ev.type == 'assoc' && st.left_at != null) {
+		st.back_at = now();
+	}
+}
+
+function wifi_subscribe(objs) {
+	if (getenv('ISP_TESTER_CONFIG') || !ubus_conn || !length(cfg.wifi.stations)) return;
+	try {
+		wifi.sub ??= ubus_conn.subscriber((ev) => {
+			try { wifi_notify(ev); } catch (e) {}
+		}, (id) => {
+			/* hostapd restarted (wifi reload): subscribe again on the next check */
+			wifi.subs = {};
+		});
+		for (let o in objs)
+			if (!wifi.subs[o] && wifi.sub?.subscribe(o)) wifi.subs[o] = true;
+	}
+	catch (e) {
+		wifi.sub = null;
+	}
+}
+
+function wifi_poll() {
+	if (!cfg.wifi.enabled) return null;
+	let objs = hostapd_read(), t = now();
+	if (objs == null) {
+		wifi.err = 'no_ubus';
+		return length(cfg.wifi.stations)
+			? { level: 'unknown', reasons: [ { c: 'wifi_no_ubus' } ], err: wifi.err, stations: [], ifaces: [], signal_warn: cfg.wifi.signal_warn }
+			: null;
+	}
+	wifi.err = length(objs) ? null : 'no_hostapd';
+	/* a router without an access point and nothing to watch: no card */
+	if (wifi.err && !length(cfg.wifi.stations)) return null;
+
+	let seen = {}, ifaces = [], total = 0, clients = [];
+	for (let o, r in objs) {
+		let ifn = replace(o, /^hostapd\./, ''), n = 0;
+		let cl = (type(r?.clients) == 'object') ? r.clients : {};
+		let sig = null;
+		for (let mac, c in cl) {
+			mac = lc(mac);
+			if (type(c) != 'object' || c.assoc === false) continue;
+			n++;
+			let s = c.signal;
+			if (s == null && cfg.wifi.stations[mac] != null) {
+				sig ??= iwinfo_signals(ifn);
+				s = sig[mac];
+			}
+			seen[mac] = { iface: ifn, signal: (type(s) == 'int' && s < 0) ? s : null,
+				rx: c.rate?.rx, tx: c.rate?.tx, freq: r.freq };
+			if (length(clients) < 64) push(clients, { mac, iface: ifn, signal: seen[mac].signal });
+		}
+		total += n;
+		push(ifaces, { iface: ifn, freq: r.freq, n });
+	}
+	wifi.clients = clients;
+	wifi_subscribe(keys(objs));
+
+	let level = 'ok', reasons = [], list = [];
+	for (let mac, label in cfg.wifi.stations) {
+		let src = label || mac;
+		let st = wifi.sta[mac] ??= { connected: null, since: t, weak: false, weak_n: 0, ok_n: 0 };
+		let cur = seen[mac];
+
+		if (cur) {
+			let back = st.left_at != null;
+			if (st.connected === false || back) {
+				let away = (st.back_at ?? t) - (st.left_at ?? t);
+				if (st.left_at != null && !st.left_logged) {
+					/* back within the limit: a drop the user notices; on another
+					 * band/AP of this router it was steered over (info) */
+					let roam = st.left_iface && st.left_iface != cur.iface;
+					emit(roam ? 'info' : 'warn', 'wifi', src, 'wifi_reconnect', { mac, iface: cur.iface, from: st.left_iface,
+						away: max(1, away), signal: st.left_signal, weak: st.left_weak, why: st.left_why, reason: st.left_reason, roam }, st.left_at);
+				}
+				else if (st.left_logged)
+					emit('info', 'wifi', src, 'wifi_join', { mac, iface: cur.iface, away: t - st.left_at, signal: cur.signal });
+				st.since = st.back_at ?? t;
+			}
+			else if (st.connected == null) st.since = t;
+			else if (st.iface && st.iface != cur.iface)
+				/* moved to another band / interface without a gap seen */
+				emit('info', 'wifi', src, 'wifi_roam', { mac, from: st.iface, iface: cur.iface, signal: cur.signal });
+			st.connected = true;
+			st.iface = cur.iface;
+			st.signal = cur.signal;
+			st.rx = cur.rx;
+			st.tx = cur.tx;
+			st.left_at = st.back_at = st.left_reason = st.left_why = null;
+			st.left_logged = false;
+
+			/* weak signal: two checks in a row, back with 5 dB hysteresis */
+			if (cur.signal != null) {
+				if (cur.signal < cfg.wifi.signal_warn) { st.weak_n++; st.ok_n = 0; }
+				else if (cur.signal >= cfg.wifi.signal_warn + 5) { st.ok_n++; st.weak_n = 0; }
+				if (!st.weak && st.weak_n >= 2) {
+					st.weak = true;
+					st.weak_since = t;
+					st.weak_min = cur.signal;
+					emit('warn', 'wifi', src, 'wifi_weak', { mac, iface: cur.iface, signal: cur.signal });
+				}
+				else if (st.weak && st.ok_n >= 2) {
+					st.weak = false;
+					emit('info', 'wifi', src, 'wifi_weak_ok', { mac, iface: cur.iface, signal: cur.signal, min: st.weak_min, dur: t - st.weak_since });
+				}
+				if (st.weak && cur.signal < st.weak_min) st.weak_min = cur.signal;
+			}
+		}
+		else {
+			if (st.connected === true) wifi_gone(st, t, 'gone');
+			/* away longer than the limit: it left (phone out of the house) */
+			if (st.left_at != null && !st.left_logged && t - st.left_at > cfg.wifi.reconnect_s) {
+				emit('info', 'wifi', src, 'wifi_leave', { mac, iface: st.left_iface, signal: st.left_signal, weak: st.left_weak,
+					why: st.left_why, reason: st.left_reason }, st.left_at);
+				st.left_logged = true;
+			}
+			if (st.connected !== false) st.since = st.left_at ?? t;
+			st.connected = false;
+			st.weak = false;
+			st.weak_n = st.ok_n = 0;
+		}
+
+		let sl = 'ok';
+		if (st.weak) { sl = 'warn'; push(reasons, { c: 'wifi_weak_now', name: src, signal: st.signal }); }
+		else if (recent_level('wifi', src) != 'ok') { sl = 'warn'; push(reasons, { c: 'recent_events', dev: src }); }
+		level = worst(level, sl);
+		push(list, { mac, label, connected: st.connected, iface: st.iface, signal: st.signal, rx: st.rx, tx: st.tx,
+			since: st.since, weak: st.weak, level: st.connected ? sl : 'unknown' });
+	}
+	/* no access point running: nothing to judge (a note, not a warning) */
+	if (wifi.err) { level = 'unknown'; push(reasons, { c: 'wifi_' + wifi.err }); }
+
+	return { level, reasons, err: wifi.err, total, ifaces, stations: list, signal_warn: cfg.wifi.signal_warn,
+		subscribed: length(keys(wifi.subs)) > 0 };
+}
+
 function handle_clear_request() {
 	let flag = `${VARDIR}/clear`;
 	if (!fs.stat(flag)) return;
@@ -2691,6 +2935,9 @@ function tick() {
 	let iptv_res = sample_iptv(iptv_dev ? res[iptv_dev] : null);
 	tsm_poll();
 
+	/* ---- Wi-Fi */
+	let wifi_res = wifi_poll();
+
 	/* ---- ports */
 	let ports = [];
 	let ports_level = 'ok';
@@ -2712,11 +2959,12 @@ function tick() {
 	if (wan) overall = worst(overall, wan.level);
 	if (iptv_res) overall = worst(overall, iptv_res.level);
 	overall = worst(overall, ports_level);
+	if (wifi_res && wifi_res.level != 'unknown') overall = worst(overall, wifi_res.level);
 	/* this router's own state, before the second router's is added */
 	let own = overall;
 
 	/* ---- second router */
-	let peers = peer_tick(cfg.peer.role == 'send' ? peer_hb(own, iptv_res, ports) : null);
+	let peers = peer_tick(cfg.peer.role == 'send' ? peer_hb(own, iptv_res, ports, wifi_res) : null);
 	if (peers && length(peers.list)) overall = worst(overall, peers.level);
 
 	/* ---- history (skip the baseline tick without deltas) */
@@ -2783,6 +3031,8 @@ function tick() {
 		wan,
 		iptv: iptv_res,
 		ports: { level: ports_level, list: ports },
+		wifi: wifi_res,
+		wifi_clients: cfg.wifi.enabled ? wifi.clients : null,
 		own,
 		peer: peer_out(),
 		peers: peers ? peers : null,

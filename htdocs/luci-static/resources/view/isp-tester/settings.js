@@ -12,6 +12,12 @@ var callTestNotify = rpc.declare({
 	expect: { '': {} }
 });
 
+var callStatus = rpc.declare({
+	object: 'luci.isp_tester',
+	method: 'status',
+	expect: { '': {} }
+});
+
 var callChannels = rpc.declare({
 	object: 'luci.isp_tester',
 	method: 'channels',
@@ -190,11 +196,16 @@ var UPD_CSS = E('style', {}, '.ispt-update-ok{color:#2e9d4f;font-weight:bold}.is
 
 return view.extend({
 	load: function() {
-		return callChannels().catch(function() { return {}; });
+		return Promise.all([
+			callChannels().catch(function() { return {}; }),
+			callStatus().catch(function() { return {}; })
+		]);
 	},
 
-	render: function(learned) {
+	render: function(data) {
 		var m, s, o;
+		var learned = data[0];
+		var state = (data[1] && data[1].state) || {};
 
 		m = new form.Map('isp_tester', _('ISP Tester – Settings'),
 			_('Changes are applied immediately after “Save & Apply”; the collector restarts, keeping the timeline (charts start over).'));
@@ -425,6 +436,45 @@ return view.extend({
 			_('When the table is full, new connections fail. 0 disables.'));
 		o.datatype = 'range(0,100)';
 		o.placeholder = '90';
+
+		/* ---- Wi-Fi */
+		s = m.section(form.NamedSection, 'wifi', 'wifi', _('Wi-Fi'),
+			_('Watches the Wi-Fi clients of this router\'s access points (hostapd over ubus): when a watched device (phone, TV) drops and comes back, and when its signal gets weak. Then a “Problem now” report with nothing measured on the line has proof: it was Wi-Fi – or, when its Wi-Fi was fine, it was not. On a second router behind this one, set it up there and let it send its events here.'));
+
+		o = s.option(form.Flag, 'enabled', _('Watch Wi-Fi'));
+		o.default = '1';
+		o.rmempty = false;
+
+		o = s.option(form.Value, 'signal_warn', _('Weak signal below (dBm)'),
+			_('Two checks in a row below this are logged. Around −70 dBm streaming starts to suffer.'));
+		o.datatype = 'range(-100,-30)';
+		o.placeholder = '-75';
+
+		o = s.option(form.Value, 'reconnect_s', _('Reconnect within (s)'),
+			_('A device that is back within this time was dropped (a fault). One that stays away longer just left (e.g. the phone left the house) and is only noted.'));
+		o.datatype = 'range(5,3600)';
+		o.placeholder = '60';
+
+		s = m.section(form.GridSection, 'station', _('Wi-Fi devices to watch'),
+			_('Only these are logged; the others are counted. Devices connected now are offered in the list.'));
+		s.addremove = true;
+		s.anonymous = true;
+		s.sortable = true;
+
+		o = s.option(form.Flag, 'enabled', _('Enabled'));
+		o.default = '1';
+		o.editable = true;
+		o.rmempty = false;
+
+		o = s.option(form.Value, 'mac', _('MAC address'));
+		o.datatype = 'macaddr';
+		o.rmempty = false;
+		(state.wifi_clients || []).forEach(function(c) {
+			o.value(c.mac, '%s (%s%s)'.format(c.mac, c.iface, c.signal != null ? ', %d dBm'.format(c.signal) : ''));
+		});
+
+		o = s.option(form.Value, 'label', _('Name'));
+		o.placeholder = _('e.g. Phone');
 
 		/* ---- second router */
 		s = m.section(form.NamedSection, 'peer', 'peer', _('Second router'),

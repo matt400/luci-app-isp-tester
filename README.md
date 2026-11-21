@@ -40,6 +40,7 @@ Target: **OpenWrt 24.10 and 25.12** (ucode + rpcd + LuCI JS). No compiled code, 
 | **Ports** | `/sys/class/net/<dev>` counters and link state | link down/up, link flapping between samples, speed change (e.g. 1 Gbit → 100 Mbit), RX/TX/CRC errors, drops |
 | **Router** | `/proc`: CPU per core (incl. softirq), RAM, connection tracking table. Only read to explain problems; for graphs use *Status → Realtime Graphs* or luci-app-statistics | router overloaded, low RAM, connection table full |
 | **You** | **⚑ Problem now** button | your report with the time of the click and an optional note |
+| **Wi-Fi** | hostapd over ubus (`get_clients` every interval + its disassoc/deauth/assoc notifications), signal from hostapd or iwinfo | a watched device (phone, TV) *dropped and reconnected* after N s (fault) or *left* (info), *moved to another band*, *weak signal* (two checks below the limit, default −75 dBm) |
 | **Second router** (optional) | Events of a router behind this one (access point with a decoder, phone, TV), sent over UDP | everything that router logs, on the same timeline marked with its name; *router stopped reporting* / *reports again* |
 
 Optionally it shows whether **IGMP snooping** and the **querier** are active on a bridge, and which group goes to which bridge port (needs `ip-bridge`).
@@ -111,6 +112,19 @@ Each finding is weighted (repeated occurrences count up to 5×). The verdict is 
 Everything is kept in RAM in `/tmp/isp-tester/`, so flash is never written. The data survives a collector restart (e.g. after saving settings) but is lost on reboot, so download the CSVs before restarting the router.
 
 To keep it across reboots, mount a USB stick (*System → Mount Points*) and set **Settings → General → Keep data on** to it (e.g. `/mnt/sda1`). `/tmp/isp-tester` then becomes a link to `<folder>/isp-tester`. If the stick is not mounted at start, the data stays in RAM. Do not point it at the internal flash. The current state (`state.json`) always stays in RAM in `/var/run/isp-tester/`.
+
+## Wi-Fi
+
+*Settings → Wi-Fi*: add the devices to watch (the list offers the ones connected now). Only those are logged; the others are counted per interface.
+
+- **Dropped and reconnected** within *Reconnect within* (default 60 s) is a fault (yellow). A drop shorter than one interval is caught too, through hostapd's notifications.
+- **Left** – away longer than that (the phone left the house) – is only noted.
+- **Moved** to another band or access point of this router: noted, not a fault.
+- **Weak signal**: two checks in a row below *Weak signal below*, back after two checks 5 dB above it; the event keeps the lowest value.
+
+Why it matters: when you click **⚑ Problem now** and nothing was measured on the line, the analysis now says either *your report came with a Wi-Fi drop / weak signal of the phone – the cause is Wi-Fi*, or *the Wi-Fi of the watched devices was fine too – look at the decoder or the TV*. Devices behind a second router: set up Wi-Fi there and let it send its events here (next section).
+
+Needs hostapd with ubus (the OpenWrt default) and, for the signal on drivers where hostapd gives none, `rpcd-mod-iwinfo` (installed with LuCI). Without an access point on the router the card says so.
 
 ## Two routers, one timeline
 

@@ -1579,3 +1579,129 @@ msgstr ""
 
 msgid "The same secret on both routers, at least 8 characters. Messages signed with another key are ignored."
 msgstr ""
+
+msgid "%d of %d of your reports came with a Wi-Fi drop or weak signal of %s, and nothing on the line – the cause is Wi-Fi."
+msgstr ""
+
+msgid "%d of %d of your reports have nothing measured around them, and the Wi-Fi of the watched devices was fine too – the cause is probably the decoder or the TV (or a device that is not watched)."
+msgstr ""
+
+msgid "Wi-Fi of %s dropped and reconnected %d× – range, interference or the device's power saving."
+msgstr ""
+
+msgid "Weak Wi-Fi signal of %s (%d×) – move the access point or the device, or use a cable."
+msgstr ""
+
+msgid "Wi-Fi"
+msgstr ""
+
+msgid "%s: weak Wi-Fi signal (%d dBm)"
+msgstr ""
+
+msgid "Wi-Fi: cannot reach ubus"
+msgstr ""
+
+msgid "Wi-Fi: no access point (hostapd) running on this router"
+msgstr ""
+
+msgid "Wi-Fi: %s moved from %s to %s (gap %s)"
+msgstr ""
+
+msgid "Wi-Fi: %s DROPPED and reconnected after %s"
+msgstr ""
+
+msgid "Wi-Fi: %s disconnected (not back within the reconnect time)"
+msgstr ""
+
+msgid "Wi-Fi: %s connected again after %s"
+msgstr ""
+
+msgid "Wi-Fi: %s moved from %s to %s"
+msgstr ""
+
+msgid "Wi-Fi: %s weak signal %d dBm"
+msgstr ""
+
+msgid "Wi-Fi: %s signal OK again after %s (lowest %d dBm)"
+msgstr ""
+
+msgid "signal before %d dBm"
+msgstr ""
+
+msgid "weak"
+msgstr ""
+
+msgid "deauthenticated"
+msgstr ""
+
+msgid "disassociated"
+msgstr ""
+
+msgid "reason %d"
+msgstr ""
+
+msgid "not connected"
+msgstr ""
+
+msgid "Interface"
+msgstr ""
+
+msgid "Signal"
+msgstr ""
+
+msgid "Link rate received / sent (Mbit/s)"
+msgstr ""
+
+msgid "Rate"
+msgstr ""
+
+msgid "For"
+msgstr ""
+
+msgid "Add the devices to watch (phone, TV) in Settings → Wi-Fi."
+msgstr ""
+
+msgid "Clients"
+msgstr ""
+
+msgid "Weak below"
+msgstr ""
+
+msgid "Wi-Fi clients"
+msgstr ""
+
+msgid "Wi-Fi: %s"
+msgstr ""
+
+msgid "Wi-Fi drops of watched devices"
+msgstr ""
+
+msgid "Watches the Wi-Fi clients of this router's access points (hostapd over ubus): when a watched device (phone, TV) drops and comes back, and when its signal gets weak. Then a “Problem now” report with nothing measured on the line has proof: it was Wi-Fi – or, when its Wi-Fi was fine, it was not. On a second router behind this one, set it up there and let it send its events here."
+msgstr ""
+
+msgid "Watch Wi-Fi"
+msgstr ""
+
+msgid "Weak signal below (dBm)"
+msgstr ""
+
+msgid "Two checks in a row below this are logged. Around −70 dBm streaming starts to suffer."
+msgstr ""
+
+msgid "Reconnect within (s)"
+msgstr ""
+
+msgid "A device that is back within this time was dropped (a fault). One that stays away longer just left (e.g. the phone left the house) and is only noted."
+msgstr ""
+
+msgid "Wi-Fi devices to watch"
+msgstr ""
+
+msgid "Only these are logged; the others are counted. Devices connected now are offered in the list."
+msgstr ""
+
+msgid "MAC address"
+msgstr ""
+
+msgid "e.g. Phone"
+msgstr ""

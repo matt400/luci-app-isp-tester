@@ -96,6 +96,19 @@ config system 'system'
 	# connection tracking table fill (%), 0 = off
 	option conntrack_warn '90'
 
+# Wi-Fi clients of this router's access points (hostapd over ubus)
+config wifi 'wifi'
+	option enabled '1'
+	# two checks in a row below this signal (dBm) are logged
+	option signal_warn '-75'
+	# back within this many seconds = dropped (fault); longer = it left
+	option reconnect_s '60'
+
+# a Wi-Fi device to watch (only these are logged)
+#config station
+#	option mac 'aa:bb:cc:dd:ee:ff'
+#	option label 'Phone'
+
 # two routers, one timeline: a second router (e.g. an access point with a
 # decoder behind it) sends its events to the main router over UDP, signed
 # with the shared key (HMAC-SHA256)
