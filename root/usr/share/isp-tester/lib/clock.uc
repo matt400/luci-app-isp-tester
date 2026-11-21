@@ -11,11 +11,13 @@ let C = null;
 
 function clock_init(ctx) { C = ctx; }
 
-let clk = { on: false, off: null, steps: 0, last: null, hold: [], run_hist: 0, run_min: 0, m0: 0 };
+let clk = { on: false, off: null, steps: 0, last: null, run_hist: 0, run_min: 0, m0: 0 };
 let ntp = { state: 'unknown', client: null, checked: 0, sync_ts: null, stratum: null, offset: null, poll: null, action: null };
 
-function clk_fields(typ) {
-	if (typ == 'data_gap') return [ 'd.to' ];
+function clk_fields(typ, d) {
+	/* a gap found while running (a late tick) lies wholly in this run; one
+	 * found at start begins in an earlier run, whose times are its own */
+	if (typ == 'data_gap') return (d?.why == 'stall') ? [ 'ts', 'd.from', 'd.to' ] : [ 'd.to' ];
 	if (typ == 'router_reboot') return [ 'ts', 'd.boot' ];
 	return [ 'ts' ];
 }
@@ -26,6 +28,16 @@ function clk_fields(typ) {
 function clk_shift_hist(h, n, by) {
 	let len = length(h.t);
 	for (let i = max(0, len - n); i < len; i++) h.t[i] += by;
+}
+
+/* back into time order after some events were moved (stable: events of the
+ * same second keep their order; the list is nearly sorted, so this is quick) */
+function ev_resort(a) {
+	for (let i = 1; i < length(a); i++) {
+		let e = a[i], j = i;
+		while (j > 0 && a[j - 1].ts > e.ts) { a[j] = a[j - 1]; j--; }
+		a[j] = e;
+	}
 }
 
 /* the clock was stepped by `by` seconds: move what this run logged before */
@@ -42,6 +54,7 @@ function clk_fix(by) {
 		delete e._fix;
 		n++;
 	}
+	if (n) ev_resort(C.events());
 	clk_shift_hist(C.history(), clk.run_hist, by);
 	clk_shift_hist(C.history_min(), clk.run_min, by);
 	C.agg_shift(by);
@@ -53,7 +66,6 @@ function clk_fix(by) {
 /* stop marking: what was held back is final now */
 function clk_release() {
 	for (let e in C.events()) delete e._fix;
-	clk.hold = [];
 	clk.on = false;
 	C.save_events();
 	write_atomic(`${RUNDIR}/history.json`, sprintf('%J', C.history_min()));

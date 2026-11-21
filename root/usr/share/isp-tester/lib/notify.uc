@@ -50,7 +50,7 @@ function notify_queue(e) {
 function notify_flush(force) {
 	let n = C.cfg.notify;
 	if (!n.enabled || notif.busy || !length(notif.pending) || !FETCH) return;
-	if (!force && now() - notif.last < n.cooldown) return;
+	if (!force && now() - notif.last < n.cooldown && now() >= notif.last) return;
 
 	let count = length(notif.pending);
 	let text = `ISP Tester (${C.hostname})\n` + join('\n', notif.pending);
