@@ -947,7 +947,11 @@ function tick() {
 			level = worst(level, lv == 'fail' ? 'warn' : lv);
 		}
 		if (n_active > 0 && n_fail == n_active) level = 'fail';
-		if (wanst.down != null) push(reasons, { c: 'wan_down', since: wanst.down });
+		/* only while there is ping data: with collectd stopped (or its values
+		 * older than 5 min) an outage in progress cannot end, and the card
+		 * showed "Internet unreachable" for good; it is ended (wan_up) by
+		 * the first values again, so no second outage is logged */
+		if (wanst.down != null && n_active > 0) push(reasons, { c: 'wan_down', since: wanst.down });
 		if (wansess.up === false) {
 			level = 'fail';
 			push(reasons, { c: 'wan_if_down', iface: cfg.wan.interface, since: wansess.since });

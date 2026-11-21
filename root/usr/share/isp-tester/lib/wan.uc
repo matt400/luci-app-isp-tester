@@ -317,7 +317,7 @@ function sample_sfp() {
 		if (base != null && r.rx <= base - C.cfg.wan.sfp_drop_db) { low = true; why = 'drop'; }
 		else if (C.cfg.wan.sfp_rx_min != null && r.rx < C.cfg.wan.sfp_rx_min) { low = true; why = 'min'; }
 		else for (let fl in r.flags) if (match(fl, /rx power low/i)) { low = true; why = 'module'; }
-		let recovered = !low && (base == null || r.rx > base - C.cfg.wan.sfp_drop_db / 2);
+		let recovered = !low && (base == null || r.rx > base - C.cfg.wan.sfp_drop_db / 2.0);
 
 		if (low) sfp.drop_n++; else sfp.drop_n = 0;
 		if (sfp.drop && (sfp.drop_min == null || r.rx < sfp.drop_min)) sfp.drop_min = r.rx;
@@ -630,7 +630,8 @@ function v6_out() {
 		prefixes: v6s.prefixes, addr: v6s.addr, route: v6s.route, pd_seen: v6s.pd_seen, route_seen: v6s.route_seen,
 		pd_lost: v6s.pd_lost, route_lost: v6s.nr_logged ? v6s.route_lost : null, down: wanst.v6_down,
 		targets: c6.all, targets_ok: c6.all - c6.failed, v4_targets: c4.all, reasons: [] };
-	if (wanst.v6_down != null) push(o.reasons, { c: 'v6_down', since: wanst.v6_down });
+	/* (as wan_down in the collector: only while IPv6 targets have values) */
+	if (wanst.v6_down != null && c6.all) push(o.reasons, { c: 'v6_down', since: wanst.v6_down });
 	if (v6s.found && v6s.up === false && v6s.pd_seen) push(o.reasons, { c: 'v6_if_down', iface: v6s.iface, since: v6s.since });
 	if (v6s.pd_lost != null) push(o.reasons, { c: 'v6_pd_lost', since: v6s.pd_lost });
 	if (v6s.nr_logged) push(o.reasons, { c: 'v6_no_route', since: v6s.route_lost });
@@ -742,7 +743,9 @@ function sample_dns() {
 
 	let s = { fwd: 0, local: 0, stale: 0, unans: 0, n: length(dns.win) };
 	for (let x in dns.win) { s.fwd += x.fwd; s.local += x.local; s.stale += x.stale; s.unans += x.unans ?? 0; }
-	let pct = (s.fwd > 0) ? round(s.unans * 100 / s.fwd, 0) : 0;
+	/* 100.0: two ints are divided as integers in ucode, 9.9 % would be 9 and
+	 * stay below a warning at 10 % */
+	let pct = (s.fwd > 0) ? round(s.unans * 100.0 / s.fwd, 0) : 0;
 	dns.last = { ...s, pct, q: s.fwd + s.local };
 
 	if (dns.has_unans && s.n) {
@@ -773,7 +776,10 @@ function sample_dns() {
 	let srv = [];
 	for (let k, x in dns.srv)
 		push(srv, { server: k, sent: x.sent, retried: x.retried, failed: x.failed, lat: x.lat, ts: x.ts, d: x.d, bad: !!dns.srv_bad[k] });
-	return { err: dns.err, unans: dns.has_unans, bad: dns.bad, since: dns.since, last: dns.last, servers: srv,
+	/* without statistics for a minute (dnsmasq's ubus object gone) a DNS
+	 * failure in progress cannot end: not shown as going on for good; it is
+	 * ended (dns_ok) by the first statistics again */
+	return { err: dns.err, unans: dns.has_unans, bad: dns.bad && s.n > 0, since: dns.since, last: dns.last, servers: srv,
 		dump: (C.cfg.logread && LOGREAD) ? C.cfg.dns.dump : 0, warn_pct: C.cfg.dns.warn_pct };
 }
 
