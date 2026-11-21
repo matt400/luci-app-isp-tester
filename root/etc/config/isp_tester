@@ -189,15 +189,13 @@ config notify 'notify'
 #	option group '239.1.1.1'
 #	option name 'TVP 1 HD'
 
-config port
-	option device 'lan1'
-	option label 'Switch'
-	option expect_up '1'
-
-config port
-	option device 'lan2'
-	option label 'Access point'
-	option expect_up '1'
+# ports to watch (Settings -> Ports). None by default: the names differ from
+# router to router (lan1, eth0, ...), and a port that does not exist would be
+# shown as a fault at once. expect_up 0 = may be unplugged (link down = info)
+#config port
+#	option device 'lan1'
+#	option label 'Switch'
+#	option expect_up '1'
 
 # DNS of the router, from dnsmasq: ubus metrics every interval and, every
 # 'dump' seconds (0 = off), its per-server statistics (SIGUSR1 -> system log)

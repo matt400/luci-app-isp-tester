@@ -118,9 +118,11 @@ function parse_log_line(line) {
 	let m = match(line, /^[A-Z][a-z][a-z] ([A-Z][a-z][a-z]) +([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([0-9]+) ([a-z0-9]+)\.([a-z]+) ([^ :]+): (.*)$/);
 	if (!m || !MONTHS[m[1]]) return null;
 	let prog = replace(m[9], /\[[0-9]+\]$/, '');
+	/* the pid tells instances of one program apart (several dnsmasq) */
+	let pm = match(m[9], /\[([0-9]+)\]$/);
 	let ts = timelocal({ year: +m[6], mon: MONTHS[m[1]], mday: +m[2], hour: +m[3], min: +m[4], sec: +m[5] });
 	/* kernel lines start with the uptime stamp: "[12345.678901] " */
-	return { ts, prio: m[8], prog, msg: replace(m[10], /^\[ *[0-9.]+\] /, '') };
+	return { ts, prio: m[8], prog, pid: pm ? int(pm[1]) : null, msg: replace(m[10], /^\[ *[0-9.]+\] /, '') };
 }
 
 function uniq_list(a) {

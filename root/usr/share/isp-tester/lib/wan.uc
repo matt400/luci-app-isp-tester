@@ -660,7 +660,7 @@ function v6_out() {
  */
 const DNS_WIN = 60;
 let dns = { ok: null, err: null, prev: null, win: [], bad: false, since: null, max_pct: 0, last: null,
-	srv: {}, srv_prev: {}, srv_bad: {}, dump_ts: 0, dump_got: null, pids: [] };
+	srv: {}, raw: {}, raw_prev: {}, srv_bad: {}, dump_ts: 0, dump_got: null, pids: [] };
 
 function dnsmasq_metrics() {
 	let f = getenv('ISP_TESTER_DNSMASQ');
@@ -690,37 +690,72 @@ function dnsmasq_metrics() {
 	}
 }
 
-/* the dump in the log, one line per upstream server (read_log) */
+/* the dump in the log, one line per upstream server (read_log). Kept per
+ * dnsmasq instance (pid + server): with several instances (a second one for
+ * a guest network, an IPTV VLAN...) the lines of the same server overwrote
+ * each other, and the next dump's difference mixed the counters of two
+ * instances - a false "dnsmasq restarted" or a false bad server */
 function dns_log_line(l) {
 	let m = match(l.msg, /^server ([0-9A-Fa-f.:]+)#([0-9]+): queries sent ([0-9]+), retried ([0-9]+), failed ([0-9]+)(, nxdomain replies ([0-9]+))?(, avg\. latency ([0-9]+)ms)?/);
 	let old = m ? null : match(l.msg, /^server ([0-9A-Fa-f.:]+)#([0-9]+): queries sent ([0-9]+), retried or failed ([0-9]+)/);
 	if (!m && !old) return false;
 	let k = (m ?? old)[1];
-	dns.srv[k] = m
-		? { sent: +m[3], retried: +m[4], failed: +m[5], nx: m[7] != null ? +m[7] : null, lat: m[9] != null ? +m[9] : null, ts: l.ts }
-		: { sent: +old[3], retried: +old[4], failed: 0, nx: null, lat: null, ts: l.ts };
+	dns.raw[`${l.pid ?? 0}|${k}`] = m
+		? { server: k, sent: +m[3], retried: +m[4], failed: +m[5], nx: m[7] != null ? +m[7] : null, lat: m[9] != null ? +m[9] : null, ts: l.ts }
+		: { server: k, sent: +old[3], retried: +old[4], failed: 0, nx: null, lat: null, ts: l.ts };
 	dns.dump_got = now();
 	return true;
 }
 
-/* after a dump: what each server did since the previous one */
+/* after a dump: what each server did since the previous one, summed over
+ * the dnsmasq instances that use it */
 function dns_judge_servers() {
 	if (dns.dump_got == null) return;
 	dns.dump_got = null;
-	for (let k, s in dns.srv) {
-		let p = dns.srv_prev[k];
-		dns.srv_prev[k] = s;
-		if (!p || s.sent < p.sent) continue;          /* first dump, or dnsmasq restarted */
-		let sent = s.sent - p.sent, bad = max(0, s.retried - p.retried) + max(0, s.failed - p.failed);
-		s.d = { sent, bad, retried: max(0, s.retried - p.retried), failed: max(0, s.failed - p.failed), win: s.ts - p.ts };
-		let worse = sent >= 10 && bad * 100 >= sent * C.cfg.dns.warn_pct;
+	let cur = dns.raw, by = {};
+	dns.raw = {};
+	for (let key, s in cur) {
+		let a = by[s.server] ??= { sent: 0, retried: 0, failed: 0, nx: null, lat: null, ts: s.ts, d: null, lw: 0, ls: 0 };
+		a.sent += s.sent;
+		a.retried += s.retried;
+		a.failed += s.failed;
+		if (s.nx != null) a.nx = (a.nx ?? 0) + s.nx;
+		/* the latency of the instances, weighted by their queries */
+		if (s.lat != null) { a.ls += s.lat * max(1, s.sent); a.lw += max(1, s.sent); }
+		if (s.ts > a.ts) a.ts = s.ts;
+		let p = dns.raw_prev[key];
+		if (!p || s.sent < p.sent) continue;          /* first dump of this instance, or it restarted */
+		let r = max(0, s.retried - p.retried), f = max(0, s.failed - p.failed);
+		let d = a.d ??= { sent: 0, bad: 0, retried: 0, failed: 0, win: 0 };
+		d.sent += s.sent - p.sent;
+		d.retried += r;
+		d.failed += f;
+		d.bad += r + f;
+		d.win = max(d.win, s.ts - p.ts);
+	}
+	/* kept per instance (a dump read over two ticks is judged in two
+	 * parts); an instance that is gone (restarted under another pid) is
+	 * forgotten */
+	for (let key, s in cur) dns.raw_prev[key] = s;
+	if (length(dns.pids))
+		for (let key in keys(dns.raw_prev)) {
+			let pid = int(split(key, '|')[0]);
+			if (pid && index(dns.pids, pid) < 0) delete dns.raw_prev[key];
+		}
+	for (let k, a in by) {
+		a.lat = a.lw ? round(a.ls / (a.lw * 1.0), 0) : null;
+		delete a.lw;
+		delete a.ls;
+		dns.srv[k] = a;
+		if (!a.d) continue;
+		let worse = a.d.sent >= 10 && a.d.bad * 100 >= a.d.sent * C.cfg.dns.warn_pct;
 		if (worse && !dns.srv_bad[k]) {
 			dns.srv_bad[k] = true;
-			C.emit('warn', 'wan', k, 'dns_server_bad', { server: k, ...s.d, lat: s.lat });
+			C.emit('warn', 'wan', k, 'dns_server_bad', { server: k, ...a.d, lat: a.lat });
 		}
-		else if (!worse && dns.srv_bad[k] && sent >= 5) {
+		else if (!worse && dns.srv_bad[k] && a.d.sent >= 5) {
 			delete dns.srv_bad[k];
-			C.emit('info', 'wan', k, 'dns_server_ok', { server: k, ...s.d, lat: s.lat });
+			C.emit('info', 'wan', k, 'dns_server_ok', { server: k, ...a.d, lat: a.lat });
 		}
 	}
 }

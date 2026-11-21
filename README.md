@@ -268,7 +268,7 @@ How it works: UDP (default port 51477), one JSON message per datagram, signed wi
 
 ## Notifications
 
-**Settings → Notifications** sends a push message when something breaks and when it is fixed: [ntfy](https://ntfy.sh) (topic URL), a Telegram bot (token + chat id) or any webhook (JSON POST `{"text": …}`). Events are batched (default at most one message per 5 min). Messages that cannot be sent during an outage are sent when the Internet is back. Messages are in English or Polish. It uses `uclient-fetch` (part of OpenWrt) with HTTPS support.
+**Settings → Notifications** sends a push message when something breaks and when it is fixed: [ntfy](https://ntfy.sh) (topic URL), a Telegram bot (token + chat id) or any webhook (JSON POST `{"text": …}`). Events are batched (default at most one message per 5 min). Messages that cannot be sent during an outage are sent when the Internet is back. Messages are in English or Polish. It uses `uclient-fetch` (part of OpenWrt) with HTTPS support. The address holds the secret (the bot token, the ntfy topic), and a command line can be read by every process on the router: with `ucode-mod-uclient` installed (`opkg install ucode-mod-uclient`, where the release has it) the message is sent from inside the collector instead, so the address appears in no command line; without it, or if the module refuses, `uclient-fetch` is used as before (the message itself goes in a file, not in the command line).
 
 | File | Content |
 |------|---------|
