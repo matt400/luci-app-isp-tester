@@ -482,6 +482,44 @@ function igmpNote(ig) {
 	}
 }
 
+/* hours of the day { from: 0..23, to: 1..24 }, "to" not included; from >= to
+ * goes over midnight (22–2). null = the whole day */
+function inHours(ts, hr) {
+	if (!hr) return true;
+	var h = new Date(ts * 1000).getHours();
+	return hr.from < hr.to ? (h >= hr.from && h < hr.to) : (h >= hr.from || h < hr.to);
+}
+
+/* seconds of [a, b] within the hours (local time, day by day) */
+function clipLen(a, b, hr) {
+	if (!(b > a)) return 0;
+	if (!hr) return b - a;
+	var total = 0, d0 = new Date(a * 1000);
+	var ranges = hr.from < hr.to ? [ [ hr.from, hr.to ] ] : [ [ 0, hr.to ], [ hr.from, 24 ] ];
+	for (var d = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate()); d.getTime() / 1000 < b; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1))
+		ranges.forEach(function(r) {
+			var s = new Date(d.getFullYear(), d.getMonth(), d.getDate(), r[0]).getTime() / 1000;
+			var e = new Date(d.getFullYear(), d.getMonth(), d.getDate(), r[1]).getTime() / 1000;
+			total += Math.max(0, Math.min(b, e) - Math.max(a, s));
+		});
+	return total;
+}
+
+function hoursText(hr) {
+	return hr ? _('%02d:00–%02d:59 every day').format(hr.from, (hr.to + 23) % 24) : _('the whole day');
+}
+
+/* "2026-11-21" of a local day, for <input type="date"> */
+function dayStr(ts) {
+	return fmtTime(ts).substr(0, 10);
+}
+
+/* local midnight of "2026-11-21" */
+function dayTs(s) {
+	var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || '');
+	return m ? new Date(+m[1], +m[2] - 1, +m[3]).getTime() / 1000 : null;
+}
+
 /* problems per hour of day, to spot e.g. evening congestion */
 function hourHistogram(events, from, to) {
 	var h = [];
@@ -908,9 +946,11 @@ return view.extend({
 		]);
 	},
 
-	analyze: function(st, w) {
+	analyze: function(st, w, hr) {
 		var br = st.iptv && st.iptv.bridge;
 		return diagnose.analyze(this.events(), w.from, w.to, {
+			/* only these hours of every day (report), null = all */
+			inHours: hr ? function(ts) { return inHours(ts, hr); } : null,
 			wan_device: st.wan && st.wan.device,
 			iptv_direction: st.iptv && st.iptv.direction,
 			bridge: br,
@@ -1470,44 +1510,142 @@ return view.extend({
 	},
 
 	/* ---- printable report for the ISP */
-	openReport: function() {
-		var self = this, w = this.win();
+	/* which days and hours the report (or the timeline CSV) covers */
+	reportDialog: function() {
+		var self = this, w = this.win(), a = this.archInfo(), nowTs = this.now();
+		var oldest = a ? nowTs - a.days * 86400 : nowTs - 86400;
+		var mode = 'window';
+		var dFrom = E('input', { 'type': 'date', 'class': 'cbi-input-text', 'value': dayStr(Math.max(oldest, nowTs - 6 * 86400)),
+			'min': dayStr(oldest), 'max': dayStr(nowTs) });
+		var dTo = E('input', { 'type': 'date', 'class': 'cbi-input-text', 'value': dayStr(nowTs), 'min': dayStr(oldest), 'max': dayStr(nowTs) });
+		var hsel = function(v, max) {
+			var s = E('select', { 'class': 'cbi-input-select' });
+			for (var i = (max === 24 ? 1 : 0); i <= max; i++) s.appendChild(E('option', { 'value': i, 'selected': i === v ? '' : null }, '%02d:00'.format(i % 24)));
+			return s;
+		};
+		var hFrom = hsel(18, 23), hTo = hsel(24, 24);
+		var allDay = E('input', { 'type': 'checkbox', 'checked': '' });
+		var setHours = function(f, t) { if (f == null) { allDay.checked = true; } else { allDay.checked = false; hFrom.value = f; hTo.value = t; } sync(); };
+		var radio = function(v, label) {
+			return E('label', { 'style': 'display:block;margin:.3em 0' }, [ E('input', { 'type': 'radio', 'name': 'ispt-rp', 'value': v, 'checked': v === mode ? '' : null,
+				'change': function() { mode = v; sync(); } }), ' ', label ]);
+		};
+		var days = E('div', { 'style': 'margin:.2em 0 .4em 1.6em;display:flex;gap:.5em;align-items:center;flex-wrap:wrap' }, [ _('from'), dFrom, _('to'), dTo ]);
+		var hours = E('div', { 'style': 'display:flex;gap:.5em;align-items:center;flex-wrap:wrap' }, [ _('from'), hFrom, _('to'), hTo ]);
+		var sync = function() {
+			days.style.opacity = mode === 'days' ? 1 : .45;
+			dFrom.disabled = dTo.disabled = mode !== 'days';
+			hours.style.opacity = allDay.checked ? .45 : 1;
+			hFrom.disabled = hTo.disabled = allDay.checked;
+		};
+		allDay.addEventListener('change', sync);
+
+		var pick = function() {
+			var pw = w;
+			if (mode === 'days') {
+				var f = dayTs(dFrom.value), t = dayTs(dTo.value);
+				if (f == null || t == null) return null;
+				if (t < f) { var x = f; f = t; t = x; }
+				var e = new Date((t + 43200) * 1000);
+				pw = { from: f, to: Math.min(nowTs, new Date(e.getFullYear(), e.getMonth(), e.getDate() + 1).getTime() / 1000 - 1), live: false };
+			}
+			var hr = allDay.checked ? null : { from: +hFrom.value, to: +hTo.value };
+			if (hr && hr.from === hr.to % 24) hr = null;
+			return { w: pw, hr: hr };
+		};
+
+		var btn = function(cls, label, fn) {
+			return E('button', { 'class': 'cbi-button ' + cls, 'click': function() { var p = pick(); if (!p) return; ui.hideModal(); fn(p); } }, label);
+		};
+
+		ui.showModal(_('Report for the ISP'), [
+			E('p', {}, _('Choose the period and, if the problem shows only at certain times (e.g. in the evening when you watch TV), the hours of the day. Everything – the summary, the assessment, the event list and the measurement coverage – then counts only those hours.')),
+			E('h4', {}, _('Days')),
+			radio('window', _('The period shown in the charts: %s').format(fmtTime(w.from).substr(0, 16) + ' – ' + fmtTime(w.to).substr(0, 16))),
+			radio('days', _('Chosen days')), days,
+			E('div', { 'class': 'ispt-muted', 'style': 'font-size:.85em' }, a
+				? _('The archive on USB goes back %d days.').format(a.days)
+				: _('The data is in RAM: only the last 24 h (and the timeline kept in RAM) are available. Keep the data on USB for a longer archive.')),
+			E('h4', {}, _('Hours of the day')),
+			E('label', { 'style': 'display:block;margin:.3em 0' }, [ allDay, ' ', _('The whole day') ]),
+			hours,
+			E('div', { 'style': 'margin:.4em 0;display:flex;gap:.4em;flex-wrap:wrap' }, [
+				E('button', { 'class': 'cbi-button', 'click': function() { setHours(18, 24); } }, _('Evening 18–24')),
+				E('button', { 'class': 'cbi-button', 'click': function() { setHours(18, 23); } }, _('18–23')),
+				E('button', { 'class': 'cbi-button', 'click': function() { setHours(6, 18); } }, _('Daytime 6–18')),
+				E('button', { 'class': 'cbi-button', 'click': function() { setHours(null); } }, _('Whole day'))
+			]),
+			E('div', { 'class': 'right', 'style': 'margin-top:1em' }, [
+				E('button', { 'class': 'cbi-button', 'click': ui.hideModal }, _('Cancel')), ' ',
+				btn('cbi-button-action', _('Download timeline (CSV)'), function(p) { self.exportRange(p.w, p.hr); }), ' ',
+				btn('cbi-button-positive', _('Open report'), function(p) { self.openReport(p.w, p.hr); })
+			])
+		]);
+		sync();
+	},
+
+	openReport: function(w, hr) {
+		var self = this;
+		w = w || this.win();
 		if (!(this.last && this.last[0] && this.last[0].state)) return Promise.resolve();
 		/* the window first: a popup opened after waiting for the archive would be blocked */
 		var win = window.open('', '_blank');
 		if (win) win.document.write('<p style="font:14px sans-serif">' + esc(_('Preparing the report…')) + '</p>');
-		return this.ensureArchive(w).then(function() { self.writeReport(w, win); });
+		return this.ensureArchive(w).then(function() { self.writeReport(w, win, hr); });
 	},
 
-	writeReport: function(w, win) {
+	/* the timeline of any period and hours, from what is loaded and the archive */
+	exportRange: function(w, hr) {
+		var self = this;
+		return this.ensureArchive(w).then(function() {
+			var list = self.events().filter(function(e) { return e.ts >= w.from && e.ts <= w.to && inHours(e.ts, hr); }).reverse();
+			var lines = [ 'time,level,router,area,source,event,message' ];
+			list.forEach(function(e) {
+				lines.push([ fmtTime(e.ts), e.lvl, e.host || '', e.area, e.src, e.type, eventText(e) ].map(csvCell).join(','));
+			});
+			download('isp-tester-events-' + dayStr(w.from) + '_' + dayStr(w.to) + (hr ? '_%02d-%02d'.format(hr.from, hr.to) : '') + '.csv', lines.join('\n') + '\n');
+		});
+	},
+
+	writeReport: function(w, win, hr) {
 		var res = this.last && this.last[0], st = res && res.state;
-		var r = this.analyze(st, w);
-		var evs = this.events().filter(function(e) { return e.ts >= w.from && e.ts <= w.to; }).sort(function(a, b) { return a.ts - b.ts; });
+		var r = this.analyze(st, w, hr);
+		var inWin = this.events().filter(function(e) { return e.ts >= w.from && e.ts <= w.to; }).sort(function(a, b) { return a.ts - b.ts; });
+		/* events of the chosen hours; start/end pairs below use all of them */
+		var evs = inWin.filter(function(e) { return inHours(e.ts, hr); });
+		var ownAll = inWin.filter(function(e) { return !e.host; });
 		var own = evs.filter(function(e) { return !e.host; });
 
 		/* a freeze while a decoder restarted (on either router) is not the ISP's */
-		var decR = evs.filter(function(e) { return e.type === 'decoder_restart'; });
+		var decR = inWin.filter(function(e) { return e.type === 'decoder_restart'; });
 		var byDecoder = function(s) {
 			return decR.some(function(r) { return s.ts >= r.ts - 15 && s.ts <= r.ts + ((r.d && r.d.dur) || 0) + 10; });
 		};
 
-		/* outage / freeze durations from start/end pairs (this router's measurements) */
+		/* outage / freeze durations from start/end pairs (this router's
+		 * measurements); with hours chosen: those that overlap them, the total
+		 * counting only the time within them */
 		var sum = function(startType, endTypes) {
 			var n = 0, total = 0, longest = 0;
-			own.forEach(function(e, i) {
+			ownAll.forEach(function(e, i) {
 				if (e.type !== startType) return;
 				if (startType === 'stream_stall' && byDecoder(e)) return;
-				for (var j = i + 1; j < own.length; j++)
-					if (endTypes.indexOf(own[j].type) >= 0 || own[j].type === 'data_gap' || own[j].type === 'monitor_start') {
+				var d = null;
+				for (var j = i + 1; j < ownAll.length; j++)
+					if (endTypes.indexOf(ownAll[j].type) >= 0 || ownAll[j].type === 'data_gap' || ownAll[j].type === 'monitor_start') {
 						/* a channel change is not a freeze */
-						if (own[j].d && own[j].d.igmp === 'zap') return;
+						if (ownAll[j].d && ownAll[j].d.igmp === 'zap') return;
 						/* not measured any more: it lasted at least until then */
-						var cut = own[j].type === 'data_gap' || own[j].type === 'monitor_start';
-						var d = (!cut && own[j].d && own[j].d.dur) || (own[j].ts - e.ts);
-						total += d;
-						if (d > longest) longest = d;
+						var cut = ownAll[j].type === 'data_gap' || ownAll[j].type === 'monitor_start';
+						d = (!cut && ownAll[j].d && ownAll[j].d.dur) || (ownAll[j].ts - e.ts);
 						break;
 					}
+				/* still going at the end of the period */
+				if (d == null) d = Math.max(0, w.to - e.ts);
+				var inside = clipLen(e.ts, e.ts + Math.max(d, 1), hr);
+				if (hr && !inside) return;
+				total += hr ? inside : d;
+				if (d > longest) longest = d;
 				n++;
 			});
 			return { n: n, total: total, longest: longest };
@@ -1525,8 +1663,9 @@ return view.extend({
 		if (firstTs > w.from + 60 && firstTs < w.to)
 			gaps.unshift({ from: w.from, to: firstTs, why: 'before' });
 		var unmeasured = 0;
-		gaps.forEach(function(g) { unmeasured += Math.max(0, Math.min(g.to, w.to) - Math.max(g.from, w.from)); });
-		var coverage = Math.max(0, 100 - unmeasured * 100 / Math.max(1, w.to - w.from));
+		gaps = gaps.filter(function(g) { return clipLen(Math.max(g.from, w.from), Math.min(g.to, w.to), hr) > 0; });
+		gaps.forEach(function(g) { unmeasured += clipLen(Math.max(g.from, w.from), Math.min(g.to, w.to), hr); });
+		var coverage = Math.max(0, 100 - unmeasured * 100 / Math.max(1, clipLen(w.from, w.to, hr)));
 
 		var x = function(v) { return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
 		var row = function(k, v) { return '<tr><th>' + x(k) + '</th><td>' + x(v) + '</td></tr>'; };
@@ -1542,6 +1681,7 @@ return view.extend({
 			'<button onclick="window.print()" style="float:right">' + x(_('Print / save as PDF')) + '</button>' +
 			'<h1>' + x(_('Connection fault report')) + '</h1>' +
 			'<p class="muted">' + x(_('Period: %s – %s · generated %s by luci-app-isp-tester').format(fmtTime(w.from), fmtTime(w.to), fmtTime(Date.now() / 1000))) + '</p>' +
+			(hr ? '<p><b>' + x(_('Only the hours %s are counted in this report.').format(hoursText(hr))) + '</b></p>' : '') +
 			'<h2>' + x(_('Measurement coverage')) + '</h2><table>' +
 			row(_('Measured'), _('%s%% of the period').format(coverage.toFixed(coverage >= 99.95 ? 0 : 1)) +
 				(gaps.length ? ' · ' + _('not measured: %s in %d periods (listed below)').format(fmtDur(unmeasured), gaps.length) : ' · ' + _('without interruption'))) +
@@ -1685,7 +1825,7 @@ return view.extend({
 			E('button', { 'class': 'cbi-button cbi-button-action', 'click': ui.createHandlerFn(this, 'exportSamples') }, _('Download measurements (CSV)')),
 			E('button', { 'class': 'cbi-button cbi-button-action', 'click': ui.createHandlerFn(this, 'exportEvents') }, _('Download timeline (CSV)')),
 			E('button', { 'class': 'cbi-button cbi-button-action', 'title': _('Summary of the selected period for your ISP; print it or save it as PDF.'),
-				'click': function() { self.openReport(); } }, _('Report for the ISP')),
+				'click': function() { self.reportDialog(); } }, _('Report for the ISP')),
 			E('button', { 'class': 'cbi-button cbi-button-negative', 'click': function() { self.confirmClear(); } }, _('Clear logs')),
 			(this.last && this.last[0] && this.last[0].enabled)
 				? E('button', { 'class': 'cbi-button', 'style': 'margin-left:auto', 'click': ui.createHandlerFn(this, 'toggleEnabled', false) }, _('Turn monitoring off'))

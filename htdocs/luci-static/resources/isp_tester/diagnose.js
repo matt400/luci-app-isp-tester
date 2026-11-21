@@ -103,7 +103,8 @@ return baseclass.extend({
 	 */
 	analyze: function(events, from, to, ctx) {
 		ctx = ctx || {};
-		var evAll = events.filter(function(e) { return e.ts >= from && e.ts <= to; });
+		/* ctx.inHours: only these hours of every day count (report) */
+		var evAll = events.filter(function(e) { return e.ts >= from && e.ts <= to && (!ctx.inHours || ctx.inHours(e.ts)); });
 		/*
 		 * Events of the second router (e.host) are evidence for the home side
 		 * only (its ports, Wi-Fi, decoders, your reports there); Internet and
