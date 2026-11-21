@@ -106,6 +106,8 @@ var PUSH_ERR = {
 	keygen: _('The key could not be made.'),
 	no_pubkey: _('The public key could not be read.'),
 	login: _('Login failed. Add the public key to ~/.ssh/authorized_keys of that user on the other device.'),
+	timeout: _('No answer from the other device – check the address, the port and that its SSH server is running.'),
+	rpc: _('The router did not answer the request.'),
 	send: _('Sending failed.'),
 	busy: _('A transfer is running already.'),
 	no_data: _('There is no data to send yet.'),
@@ -121,18 +123,45 @@ function pushStatusText(st) {
 	var l = st && st.last;
 	if (!l) return _('Nothing sent yet.');
 	if (l.state === 'running') return _('Sending…');
-	var when = new Date((l.done || l.ts) * 1000).toLocaleString();
+	var when = new Date((l.done || l.ts) * 1000).toLocaleString(LOCALE);
 	if (l.ok)
 		return _('Last sent: %s – %s (%d kB) to %s.').format(when, l.name, Math.round((l.size || 0) / 1024), l.host || '?');
 	return _('Last try failed (%s): %s').format(when, pushError({ error: l.err, out: l.out }));
 }
 
+/* the language set in LuCI (System → Language), for dates and numbers */
+var LOCALE = (function() {
+	var l = (document.documentElement.getAttribute('lang') || '').replace(/_/g, '-');
+	if (!l || l === 'auto') return undefined;
+	try { Intl.DateTimeFormat.supportedLocalesOf([ l ]); return l; } catch (e) { return undefined; }
+})();
+
+/* ask push_status every 2 s until done() says so or the time is up */
+function waitPush(done, secs) {
+	var until = Date.now() + secs * 1000;
+	return new Promise(function(resolve) {
+		var step = function() {
+			callPushStatus().then(function(st) {
+				if (done(st) || Date.now() > until) resolve(st);
+				else window.setTimeout(step, 2000);
+			}, function() {
+				if (Date.now() > until) resolve(null);
+				else window.setTimeout(step, 2000);
+			});
+		};
+		window.setTimeout(step, 1500);
+	});
+}
+
 /* public key, test and "send now"; they use the saved settings */
 function renderPush() {
 	var status = E('div', { 'style': 'margin:.4em 0' }, _('Loading…'));
+	/* the result of "Test the login" stays here, not only in a notification */
+	var test = E('div', { 'style': 'margin:.4em 0;font-weight:bold' });
 	var key = E('textarea', { 'readonly': 'readonly', 'rows': 3, 'style': 'width:100%;font-family:monospace;display:none' });
 	var refresh = function() {
-		return callPushStatus().then(function(st) { status.textContent = pushStatusText(st); });
+		return callPushStatus().then(function(st) { status.textContent = pushStatusText(st); },
+			function() { status.textContent = _('No answer from the router.'); });
 	};
 	var note = function(text, cls) { ui.addNotification(null, E('p', text), cls); };
 
@@ -147,21 +176,37 @@ function renderPush() {
 					return callPushPubkey().then(function(r) {
 						if (r && r.result) { key.value = r.pubkey; key.style.display = ''; key.select(); }
 						else note(pushError(r), 'danger');
-					});
+					}, function(e) { note(pushError({ error: 'rpc', out: e && e.message }), 'danger'); });
 				}) }, _('Show the public key')),
 				E('button', { 'class': 'cbi-button cbi-button-action', 'click': ui.createHandlerFn(this, function() {
+					test.textContent = _('Logging in to the other device…');
+					test.style.color = '';
 					return callPushTest().then(function(r) {
-						if (r && r.result) note(_('Login works.'), 'info');
-						else note(pushError(r), 'danger');
+						if (!r || !r.result) { test.textContent = ''; note(pushError(r), 'danger'); return; }
+						var t0 = r.ts || 0;
+						return waitPush(function(st) {
+							return st && st.test && st.test.ts >= t0 && st.test.state !== 'running';
+						}, 40).then(function(st) {
+							var res = st && st.test && st.test.ts >= t0 && st.test.state !== 'running' ? st.test : { result: false, error: 'timeout' };
+							test.textContent = res.result ? _('Login works.') : pushError(res);
+							test.style.color = res.result ? '#2e9d4f' : '#d64541';
+							note(test.textContent, res.result ? 'info' : 'danger');
+						});
+					}, function(e) {
+						test.textContent = '';
+						note(pushError({ error: 'rpc', out: e && e.message }), 'danger');
 					});
 				}) }, _('Test the login')),
 				E('button', { 'class': 'cbi-button cbi-button-apply', 'click': ui.createHandlerFn(this, function() {
 					return callPushNow().then(function() {
 						status.textContent = _('Sending…');
-						window.setTimeout(refresh, 5000);
-					});
+						return waitPush(function(st) { return st && st.last && st.last.state !== 'running'; }, 300).then(function(st) {
+							if (st) status.textContent = pushStatusText(st);
+						});
+					}, function(e) { note(pushError({ error: 'rpc', out: e && e.message }), 'danger'); });
 				}) }, _('Send now'))
 			]),
+			test,
 			key,
 			status
 		])
@@ -718,9 +763,10 @@ return view.extend({
 		o.placeholder = '300';
 
 		o = s.option(form.ListValue, 'lang', _('Message language'));
+		o.value('auto', _('As in LuCI (System → Language)'));
 		o.value('en', 'English');
 		o.value('pl', 'Polski');
-		o.default = 'en';
+		o.default = 'auto';
 
 		o = s.option(form.Button, '_test', _('Test'));
 		o.inputtitle = _('Send test message');

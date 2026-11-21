@@ -4,7 +4,9 @@
 #
 #   push.sh send     -> one .tar.gz (timeline, history, CSV) streamed to
 #                       HOST:DIR/isp-tester-<router>-<date>-<time>.tar.gz
-#   push.sh test     -> only checks that the login works (key, host, user)
+#   push.sh test     -> only checks that the login works (key, host, user);
+#                       the result also goes to $VARDIR/push_test.json, so the
+#                       web UI can start it in the background and wait for it
 #   push.sh pubkey   -> public key to add to authorized_keys on the other
 #                       device (the key pair is made when missing)
 #
@@ -18,6 +20,7 @@ VARDIR=${ISP_TESTER_VARDIR:-/var/run/isp-tester}
 DBCLIENT=${ISP_TESTER_DBCLIENT:-dbclient}
 DBKEY=${ISP_TESTER_DBKEY:-dropbearkey}
 STATE=$VARDIR/push.json
+TSTATE=$VARDIR/push_test.json
 LOCK=$VARDIR/push.lock
 DATA_FILES="events.json history.json channels.json wanpeak.json samples.csv samples.prev.csv"
 DEF_KEY=/etc/dropbear/isp_tester_push_key
@@ -28,6 +31,7 @@ fail() {
 	# no address set, no dbclient - was started again every interval), and
 	# the settings page shows why
 	[ -n "$SENDING" ] && state "{\"ok\":false,\"ts\":$(date +%s),\"err\":\"$1\"}"
+	[ -n "$TESTING" ] && tstate "{\"result\":false,\"ts\":$TS0,\"error\":\"$1\"}"
 	printf '{"result":false,"error":"%s"}\n' "$1"
 	exit 0
 }
@@ -75,12 +79,32 @@ pubkey() {
 }
 
 # dbclient: -y = trust a new host key on the first login (a changed one is
-# refused), keepalive and idle limits so a dead link does not hang the script
+# refused), keepalive and idle limits so a dead link does not hang the script.
+# stdin of the remote command is a file or /dev/null, never a terminal: with
+# no terminal dbclient cannot ask for a password and gives up at once when the
+# key is not accepted, instead of waiting for an answer nobody can give.
 ssh_run() {
-	# $1 = remote command; stdin goes to it
-	local t=
-	command -v timeout >/dev/null 2>&1 && t="timeout ${SSH_TMO:-300}"
-	$t "$DBCLIENT" -y -T -K 15 -I 60 -i "$KEY" -p "$PORT" -l "$USER" "$HOST" "$1" 2>&1
+	# $1 = remote command, $2 = file for its stdin (default /dev/null)
+	local tmo=${SSH_TMO:-300} in=${2:-/dev/null} pid rc
+	# DROPBEAR_PASSWORD would be sent as the password: never use one
+	unset DROPBEAR_PASSWORD
+	if command -v timeout >/dev/null 2>&1; then
+		timeout "$tmo" "$DBCLIENT" -y -T -K 15 -I 60 -i "$KEY" -p "$PORT" -l "$USER" "$HOST" "$1" < "$in" 2>&1
+		return $?
+	fi
+	# no 'timeout' in busybox: a watchdog kills dbclient after $tmo s
+	"$DBCLIENT" -y -T -K 15 -I 60 -i "$KEY" -p "$PORT" -l "$USER" "$HOST" "$1" < "$in" > "$VARDIR/ssh.$$.out" 2>&1 &
+	pid=$!
+	( sleep "$tmo"; kill "$pid" 2>/dev/null ) &
+	wait "$pid"; rc=$?
+	kill $! 2>/dev/null
+	cat "$VARDIR/ssh.$$.out" 2>/dev/null; rm -f "$VARDIR/ssh.$$.out"
+	return $rc
+}
+
+# last lines of dbclient's output, only safe characters (it goes into JSON)
+clean() {
+	printf '%s' "$1" | tail -n "${2:-3}" | tr '\n' ' ' | tr -cd 'A-Za-z0-9 ._:,/@()<>=-' | cut -c1-200
 }
 
 state() {
@@ -88,17 +112,34 @@ state() {
 	printf '%s\n' "$1" > "$STATE.$$" && mv "$STATE.$$" "$STATE"
 }
 
+tstate() {
+	mkdir -p "$VARDIR"
+	printf '%s\n' "$1" > "$TSTATE.$$" && mv "$TSTATE.$$" "$TSTATE"
+}
+
 test_login() {
+	TESTING=1
+	TS0=$(date +%s)
+	tstate "{\"state\":\"running\",\"ts\":$TS0}"
 	load
 	ensure_key "$KEY"
-	local out
-	# called from the web UI (rpcd waits for it): do not hang for minutes
-	SSH_TMO=20
-	out=$(ssh_run "echo isp-tester-ok" < /dev/null)
+	local out rc res
+	# the web UI waits for the result: give up after 25 s
+	SSH_TMO=25
+	out=$(ssh_run "echo isp-tester-ok")
+	rc=$?
 	case "$out" in
-		*isp-tester-ok*) printf '{"result":true}\n' ;;
-		*) printf '{"result":false,"error":"login","out":"%s"}\n' "$(printf '%s' "$out" | tail -n 3 | tr -cd 'A-Za-z0-9 ._:,/@()-' | cut -c1-200)" ;;
+		*isp-tester-ok*) res="{\"result\":true,\"ts\":$TS0}" ;;
+		*)
+			# 124/143 = stopped by the time limit: no answer from the device
+			case $rc in 124|143) res="{\"result\":false,\"ts\":$TS0,\"error\":\"timeout\"}" ;;
+			*) res="{\"result\":false,\"ts\":$TS0,\"error\":\"login\",\"out\":\"$(clean "$out")\"}" ;;
+			esac
+			logger -t isp-tester "push: login test to $USER@$HOST:$PORT failed: $(clean "$out")"
+			;;
 	esac
+	tstate "$res"
+	printf '%s\n' "$res"
 }
 
 send() {
@@ -125,10 +166,10 @@ send() {
 	( cd "$RUNDIR" && tar -czf "$tmp" $files ) 2>/dev/null || fail tar
 	size=$(wc -c < "$tmp")
 	# only the exit status counts: dbclient also prints notes (new host key)
-	out=$(ssh_run "mkdir -p $DIR && cat > $DIR/$name.part && mv $DIR/$name.part $DIR/$name" < "$tmp")
+	out=$(ssh_run "mkdir -p $DIR && cat > $DIR/$name.part && mv $DIR/$name.part $DIR/$name" "$tmp")
 	rc=$?
 	if [ $rc -ne 0 ]; then
-		out=$(printf '%s' "$out" | tail -n 2 | tr -cd 'A-Za-z0-9 ._:,/@()-' | cut -c1-160)
+		out=$(clean "$out" 2)
 		logger -t isp-tester "push to $USER@$HOST failed: $out"
 		state "{\"ok\":false,\"ts\":$ts,\"err\":\"send\",\"out\":\"$out\"}"
 		printf '{"result":false,"error":"send","out":"%s"}\n' "$out"

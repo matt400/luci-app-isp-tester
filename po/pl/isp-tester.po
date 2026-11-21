@@ -2602,3 +2602,75 @@ msgstr "dzień"
 
 msgid "The address is not valid."
 msgstr "Adres jest nieprawidłowy."
+
+msgid "%s kB"
+msgstr "%s kB"
+
+msgid "%s queries/min"
+msgstr "%s zapytań/min"
+
+msgid "As in LuCI (System → Language)"
+msgstr "Jak w LuCI (System → Język)"
+
+msgid "Bitrate"
+msgstr "Przepływność"
+
+msgid "Counters since the router started."
+msgstr "Liczniki od uruchomienia routera."
+
+msgid "Drop"
+msgstr "Odrz."
+
+msgid "Dropped"
+msgstr "Odrzucone"
+
+msgid "Err"
+msgstr "Bł."
+
+msgid "Errors"
+msgstr "Błędy"
+
+msgid "Line"
+msgstr "Linia"
+
+msgid "Links up"
+msgstr "Łącza aktywne"
+
+msgid "Logging in to the other device…"
+msgstr "Logowanie na drugie urządzenie…"
+
+msgid "More details"
+msgstr "Więcej szczegółów"
+
+msgid "No answer from the other device – check the address, the port and that its SSH server is running."
+msgstr "Brak odpowiedzi drugiego urządzenia – sprawdź adres, port i czy działa na nim serwer SSH."
+
+msgid "No answer from the router."
+msgstr "Brak odpowiedzi routera."
+
+msgid "STOPPED"
+msgstr "STOP"
+
+msgid "Stream"
+msgstr "Strumień"
+
+msgid "The highest loss of all targets"
+msgstr "Największa utrata spośród wszystkich celów"
+
+msgid "The router did not answer the request."
+msgstr "Router nie odpowiedział na żądanie."
+
+msgid "Total dropped packets since boot"
+msgstr "Wszystkie odrzucone pakiety od startu"
+
+msgid "Total errors since boot"
+msgstr "Wszystkie błędy od startu"
+
+msgid "Usual"
+msgstr "Zwykle"
+
+msgid "Where it is measured"
+msgstr "Gdzie mierzone"
+
+msgid "running"
+msgstr "działa"

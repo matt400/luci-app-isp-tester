@@ -142,7 +142,9 @@ return {
 				let c = cursor();
 				return {
 					enabled: c.get('isp_tester', 'push', 'enabled') == '1',
-					last: read_json('push.json', null, VARDIR)
+					last: read_json('push.json', null, VARDIR),
+					/* result of the last login test (push_test) */
+					test: read_json('push_test.json', null, VARDIR)
 				};
 			}
 		},
@@ -154,10 +156,16 @@ return {
 			}
 		},
 
-		/* only try to log in with the saved settings */
+		/* only try to log in with the saved settings; in the background (a
+		 * login can take longer than the web UI waits for an answer), the
+		 * result shows in push_status.test */
 		push_test: {
 			call: function() {
-				return push_run('test');
+				mkdir(VARDIR);
+				let ts = time();
+				writefile(`${VARDIR}/push_test.json`, sprintf('%J', { state: 'running', ts }));
+				system(`/bin/sh ${PUSH_SH} test >/dev/null 2>&1 &`);
+				return { result: true, ts };
 			}
 		},
 

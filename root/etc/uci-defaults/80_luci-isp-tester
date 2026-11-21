@@ -16,6 +16,12 @@ uci -q get isp_tester.notify >/dev/null || {
 	uci -q set isp_tester.notify=notify
 	uci -q set isp_tester.notify.enabled=0
 }
+# notifications follow the LuCI language now: the old default 'en' (set by
+# the shipped config, rarely on purpose) becomes 'auto', once
+uci -q get isp_tester.notify.lang_auto >/dev/null || {
+	[ "$(uci -q get isp_tester.notify.lang)" = en ] && uci -q set isp_tester.notify.lang=auto
+	uci -q set isp_tester.notify.lang_auto=1
+}
 # removed features: Wi-Fi clients, link hogs, SoC temperature, USB archive
 uci -q delete isp_tester.wifi
 while uci -q get 'isp_tester.@station[0]' >/dev/null; do uci -q delete 'isp_tester.@station[0]' || break; done
