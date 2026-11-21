@@ -16,7 +16,7 @@
 		},
 		"write": {
 			"ubus": {
-				"luci.isp_tester": [ "clear", "set_enabled", "mark", "test_notify", "update_apply", "channels_forget" ]
+				"luci.isp_tester": [ "clear", "set_enabled", "mark", "test_notify", "update_apply", "channels_forget", "maint" ]
 			},
 			"uci": [ "isp_tester" ]
 		}

@@ -499,7 +499,8 @@ const MSG = {
 		dns_server_bad: 'DNS server %s: %d of %d queries retried or failed in %s', dns_server_ok: 'DNS server %s OK again',
 		router_reboot: 'Router restarted (up since %s)', data_gap: 'No measurements from %s to %s (%s): %s',
 		ntp_sync: 'Clock synchronized (NTP stratum %s)', ntp_unsync: 'Clock NOT synchronized - times in the log may be wrong',
-		ntp_off: 'No NTP client running - times in the log may be wrong', clock_step: 'Clock set by %ss'
+		ntp_off: 'No NTP client running - times in the log may be wrong', clock_step: 'Clock set by %ss',
+		maint_start: 'Maintenance until %s: not counted, no notifications (%s)', maint_end: 'Maintenance over after %s'
 	},
 	pl: {
 		link_down: '%s: BRAK ŁĄCZA', link_up: '%s: łącze wróciło po %s', link_flap: '%s: łącze mrugnęło',
@@ -531,7 +532,8 @@ const MSG = {
 		dns_server_bad: 'Serwer DNS %s: %d z %d zapytań ponowionych lub nieudanych w %s', dns_server_ok: 'Serwer DNS %s znów OK',
 		router_reboot: 'Router uruchomiony ponownie (działa od %s)', data_gap: 'Brak pomiarów od %s do %s (%s): %s',
 		ntp_sync: 'Zegar zsynchronizowany (NTP stratum %s)', ntp_unsync: 'Zegar NIE jest zsynchronizowany - czasy w logu mogą być błędne',
-		ntp_off: 'Brak klienta NTP - czasy w logu mogą być błędne', clock_step: 'Zegar przestawiony o %ss'
+		ntp_off: 'Brak klienta NTP - czasy w logu mogą być błędne', clock_step: 'Zegar przestawiony o %ss',
+		maint_start: 'Prace serwisowe do %s: bez liczenia i powiadomień (%s)', maint_end: 'Prace serwisowe zakończone po %s'
 	}
 };
 
@@ -602,6 +604,8 @@ function event_text(e, lang) {
 	case 'router_reboot': return sprintf(f, tstamp(d.boot));
 	case 'ntp_sync': return sprintf(f, d.stratum ?? '?');
 	case 'clock_step': return sprintf(f, (d.by > 0 ? '+' : '') + d.by);
+	case 'maint_start': return sprintf(f, substr(tstamp(d.until), 11, 5), d.note || '-');
+	case 'maint_end': return sprintf(f, dur_txt(d.dur));
 	case 'data_gap': return sprintf(f, d.from ? tstamp(d.from) : '?', tstamp(d.to), dur_txt(d.len),
 		(lang == 'pl' ? GAP_WHY_PL : GAP_WHY_EN)[d.why] ?? d.why);
 	default: return f;
@@ -641,6 +645,8 @@ function urlenc(s) {
 function notify_queue(e) {
 	let n = cfg.notify;
 	if (!n.enabled) return;
+	/* during maintenance (the user works on the network): nothing */
+	if (e.m) return;
 	let key = `${e.host ?? ''}|${e.area}|${e.src}`;
 	let want;
 	if (RECOVERY[e.type]) {
@@ -846,8 +852,22 @@ function clk_fields(typ) {
 	return [ 'ts' ];
 }
 
+/*
+ * Maintenance ("I am working on the network for 30 min"): events logged
+ * meanwhile are kept but flagged (m: 1) - left out of the analysis, the
+ * report's counts, the cards' "problems in the last minutes" and the
+ * notifications, so re-plugging cables is not an outage. Kept in VARDIR, so
+ * a collector restart (saving settings) does not end it.
+ */
+let maint = { until: null, since: null, note: '' };
+
+function maint_on() {
+	return maint.until != null && now() < maint.until;
+}
+
 /* store one event (own or received from the second router) */
 function store_event(e) {
+	if (maint_on() && e.type != 'maint_start' && e.type != 'maint_end') e.m = 1;
 	if (e._fix) push(clk.hold, e);
 	else arch_append('ev', e.ts, e);
 	push(events, e);
@@ -928,7 +948,7 @@ function recent_level(area, src) {
 	let lvl = 'ok', cutoff = now() - cfg.warn_window;
 	for (let i = length(events) - 1; i >= 0; i--) {
 		let e = events[i];
-		if (e.host) continue;
+		if (e.host || e.m) continue;
 		if (e.ts < cutoff) break;
 		if (e.area != area || (src != null && e.src != src)) continue;
 		if (e.lvl == 'warn' || e.lvl == 'err') lvl = 'warn';
@@ -940,7 +960,7 @@ function count_events(since) {
 	let n = { warn: 0, err: 0 };
 	for (let i = length(events) - 1; i >= 0; i--) {
 		let e = events[i];
-		if (e.host) continue;
+		if (e.host || e.m) continue;
 		if (e.ts < since) break;
 		if (e.lvl == 'warn') n.warn++;
 		else if (e.lvl == 'err') n.err++;
@@ -977,7 +997,7 @@ function hist_add(h, t, vals, max) {
 
 /* 1-minute aggregates for the long (24 h) history */
 const AGG_MODE = { rtt: 'avg', rttmax: 'max', loss: 'max', jit: 'max',
-	'iptv:kbps': 'avg', 'iptv:min': 'min', 'iptv:cc': 'sum', err: 'sum', drop: 'sum', lvl: 'max' };
+	'iptv:kbps': 'avg', 'iptv:min': 'min', 'iptv:cc': 'sum', err: 'sum', drop: 'sum', lvl: 'max', maint: 'max' };
 
 let agg = null;
 let agg10 = null;     /* 10-minute aggregates for the archive */
@@ -2396,6 +2416,48 @@ function handle_marks() {
 	}
 }
 
+function maint_save() {
+	write_atomic(`${VARDIR}/maint.json`, sprintf('%J', maint));
+}
+
+/* request from the web UI: start, extend or end the maintenance */
+function handle_maint() {
+	let t = now();
+	if (maint.until != null && t >= maint.until) {
+		emit('info', 'system', 'user', 'maint_end', { dur: maint.until - maint.since, note: maint.note });
+		maint = { until: null, since: null, note: '' };
+		maint_save();
+	}
+	let f = `${VARDIR}/maint.pending`;
+	if (!fs.stat(f)) return;
+	let r;
+	try { r = json(fs.readfile(f) || 'null'); } catch (e) { r = null; }
+	fs.unlink(f);
+	if (type(r) != 'object') return;
+	let min = int(+r.minutes || 0), note = substr(replace(`${r.note ?? ''}`, /[[:cntrl:]]+/g, ' '), 0, 120);
+	if (min <= 0) {
+		if (maint.until != null)
+			emit('info', 'system', 'user', 'maint_end', { dur: t - maint.since, note: maint.note, early: true });
+		maint = { until: null, since: null, note: '' };
+	}
+	else if (maint.until != null) {
+		maint.until = t + min * 60;
+		if (note) maint.note = note;
+		emit('info', 'system', 'user', 'maint_start', { until: maint.until, note: maint.note, min, extend: true });
+	}
+	else {
+		maint = { until: t + min * 60, since: t, note };
+		emit('info', 'system', 'user', 'maint_start', { until: maint.until, note, min });
+	}
+	maint_save();
+}
+
+function maint_load() {
+	let j;
+	try { j = json(fs.readfile(`${VARDIR}/maint.json`) || 'null'); } catch (e) { j = null; }
+	if (type(j?.until) == 'int' && type(j?.since) == 'int') maint = { until: j.until, since: j.since, note: `${j.note ?? ''}` };
+}
+
 function handle_notify_test() {
 	let f = `${VARDIR}/notify_test`;
 	if (!fs.stat(f)) return;
@@ -3457,6 +3519,8 @@ function peer_event(x, host, off) {
 	let d = (type(x.d) == 'object' && length(sprintf('%J', x.d)) <= PEER_MAXPKT) ? x.d : {};
 	let e = { ts: int(+x.ts || now()) + off, lvl, area, src: substr(`${x.src ?? ''}`, 0, 64), type: typ, d, host };
 	if (off) e.skew = off;
+	/* logged during maintenance on the second router */
+	if (x.m) e.m = 1;
 	return e;
 }
 
@@ -3563,6 +3627,7 @@ function peer_start() {
 /* sender: short status of this router for the receiver's view */
 function peer_hb(overall, iptv_res, ports, wifi_res) {
 	let hb = { lvl: overall, up: started };
+	if (maint_on()) hb.maint = maint.until;
 	if (iptv_res) hb.iptv = { state: iptv_res.state, kbps: iptv_res.kbps, lvl: iptv_res.level,
 		dec: map(slice(iptv_res.decoders ?? [], 0, 4), (x) => ({ label: x.label || x.mac, port: x.port, up: x.present })) };
 	hb.ports = map(slice(ports, 0, 8), (x) => ({ dev: x.dev, label: substr(x.label ?? '', 0, 24), up: x.up, speed: x.speed, lvl: x.level }));
@@ -3968,6 +4033,7 @@ function tick() {
 	arch_check();
 	handle_clear_request();
 	handle_marks();
+	handle_maint();
 	handle_notify_test();
 	handle_chn_forget();
 	refresh_wan_device();
@@ -4106,6 +4172,7 @@ function tick() {
 	let t = now();
 	if (dt > 0) {
 		let hv = { lvl: LEVEL[overall] };
+		if (maint_on()) hv.maint = 1;
 		if (wan?.rx_kbps != null) {
 			hv['wan:rx'] = wan.rx_kbps;
 			hv['wan:tx'] = wan.tx_kbps;
@@ -4181,6 +4248,7 @@ function tick() {
 		csv_rows,
 		data: { dir: RUNDIR, link: (fs.lstat(RUNDIR)?.type == 'link') ? fs.readlink(RUNDIR) : null, archive: arch.info },
 		ntp: ntp_out(),
+		maint: maint.until != null ? { until: maint.until, since: maint.since, note: maint.note, active: maint_on() } : null,
 		notify: cfg.notify.enabled ? { service: cfg.notify.service, pending: length(notif.pending),
 			last_ok: notif.last_ok, last_fail: notif.last_fail, last_err: notif.last_err, fetch: FETCH != null } : null
 	};
@@ -4213,6 +4281,7 @@ let load_hist = (name, max) => {
 	}
 	return h;
 };
+maint_load();
 history = load_hist('state.json', cfg.history);
 chn_load();
 history_min = load_hist('history.json', cfg.long_history);

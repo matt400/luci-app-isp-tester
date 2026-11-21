@@ -304,6 +304,20 @@ return {
 			}
 		},
 
+		/* "working on the network": exclude the next minutes from the analysis
+		 * and from notifications (0 = end now); on the collector's next tick */
+		maint: {
+			args: { minutes: 0, note: '' },
+			call: function(req) {
+				let min = int(+(req.args.minutes ?? 0));
+				if (!(min >= 0 && min <= 1440)) return { result: false, error: 'bad_minutes' };
+				let note = substr(`${req.args.note ?? ''}`, 0, 120);
+				mkdir(VARDIR);
+				writefile(`${VARDIR}/maint.pending`, sprintf('%J', { ts: time(), minutes: min, note }));
+				return { result: true, running: service_running() };
+			}
+		},
+
 		/* IPTV channel names learned from the streams */
 		channels: {
 			call: function() {
