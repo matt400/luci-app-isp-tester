@@ -175,10 +175,6 @@ return baseclass.extend({
 		var proxyBad    = by(function(e) { return e.type === 'proxy_down' || e.type === 'proxy_restart' ||
 			(e.type === 'log' && e.d && e.d.kind === 'proxy_log'); });
 		var marks       = byAll(function(e) { return e.type === 'user_mark'; });
-		/* Wi-Fi of the watched devices (phone, TV), on both routers */
-		var wifiDrop    = byAll(function(e) { return e.type === 'wifi_reconnect' && e.lvl !== 'info'; });
-		var wifiWeak    = byAll(function(e) { return e.type === 'wifi_weak'; });
-		var wifiBad     = wifiDrop.concat(wifiWeak);
 		/* traceroute/mtr snapshots that found where the loss starts */
 		var traces      = by(function(e) { return e.type === 'trace' && e.d && e.d.first_bad; });
 		/* the second router: freezes seen only there, times it did not report */
@@ -279,23 +275,12 @@ return baseclass.extend({
 		add('isp', 1.5, 'dns_fail', dnsFail);
 		add('isp', 1, 'dns_server', dnsSrv, { servers: uniq(dnsSrv, 'src').join(', ') });
 
-		/* who filled the link (nlbwmon / conntrack): the host that was the heaviest most often */
-		var hogEv = by(function(e) { return e.type === 'link_hogs' && e.d && e.d.hosts && e.d.hosts.length; });
-		var hogTop = null, hogN = {}, hogShare = {};
-		hogEv.forEach(function(e) {
-			var h = e.d.hosts[0], k = h.name || h.id;
-			hogN[k] = (hogN[k] || 0) + 1;
-			hogShare[k] = Math.max(hogShare[k] || 0, h.share || 0);
-		});
-		Object.keys(hogN).forEach(function(k) { if (hogTop == null || hogN[k] > hogN[hogTop]) hogTop = k; });
-		add('info', 0, 'link_hogs', hogEv, { host: hogTop, n: hogTop ? hogN[hogTop] : 0, share: hogTop ? Math.round(hogShare[hogTop]) : 0 });
-
 		/* lags only with the link full: own traffic fills a buffer; SQM at home fixes it */
 		if (bloats.length) {
 			var maxAdd = 0, dirs = {};
 			bloats.forEach(function(e) { maxAdd = Math.max(maxAdd, e.d.add || 0); dirs[e.d.dir || 'down'] = true; });
 			add('home', 1, 'bufferbloat', bloats, { add: maxAdd, dir: Object.keys(dirs).join('+'),
-				lags: by(bloatLag).length, who: hogTop });
+				lags: by(bloatLag).length });
 		}
 
 		/* PPPoE/DHCP session dropped while the cable link stayed up */
@@ -310,20 +295,7 @@ return baseclass.extend({
 		/* ---- router overloaded at the time of the problems */
 		var problemsAll = anyWan.concat(allStalls, by(function(e) { return e.area === 'ports' && e.lvl !== 'info'; }))
 			.filter(function(e) { return e.type !== 'log'; });
-		/* overheated / throttled: a hot SoC slows the CPU down, so packets are lost */
-		var hotPer = periods(sorted, [ 'temp_high', 'throttle' ], to);
-		var hotEv  = by(function(e) { return e.type === 'temp_high' || e.type === 'throttle'; });
-		var maxTemp = 0, throttled = false;
-		hotEv.forEach(function(e) {
-			if (e.d && e.d.temp > maxTemp) maxTemp = e.d.temp;
-			if (e.type === 'throttle') throttled = true;
-		});
-		var duringHot = problemsAll.filter(function(e) { return inPeriods(hotPer, e.ts, 20); });
-		var duringBusy = problemsAll.filter(function(e) { return inPeriods(busy, e.ts, 20) && duringHot.indexOf(e) < 0; });
-		if (duringHot.length)
-			add('home', 2.5, 'router_hot', duringHot, { temp: maxTemp, throttled: throttled, events: hotEv.length });
-		else
-			add('info', 0, 'router_temp', hotEv, { temp: maxTemp, throttled: throttled });
+		var duringBusy = problemsAll.filter(function(e) { return inPeriods(busy, e.ts, 20); });
 		if (duringBusy.length)
 			add('home', 2, 'router_busy', duringBusy);
 		else
@@ -418,24 +390,16 @@ return baseclass.extend({
 		add(ctx.iptv_direction === 'tx' ? 'info' : 'isp', 1.5, 'ts_errors', tsErr);
 
 		/* ---- the user's own reports: was anything measured at that moment? */
-		var measured = evAll.filter(function(e) { return e.lvl !== 'info' && e.area !== 'user' && e.area !== 'system' && e.area !== 'wifi'; });
-		var seen = [], unseen = [], onWifi = [];
+		var measured = evAll.filter(function(e) { return e.lvl !== 'info' && e.area !== 'user' && e.area !== 'system'; });
+		var seen = [], unseen = [];
 		/* people notice a problem a little after it starts */
 		var around = function(list, m) { return list.some(function(e) { return e.ts >= m.ts - 120 && e.ts <= m.ts + 30; }); };
 		marks.forEach(function(m) {
 			if (around(measured, m)) seen.push(m);
-			else if (around(wifiBad, m)) onWifi.push(m);
 			else unseen.push(m);
 		});
 		add('info', 0, 'marks_seen', seen, { total: marks.length });
-		/* nothing on the line, but the watched device's Wi-Fi dropped or was weak: that is the proof */
-		add('home', 1.5, 'marks_wifi', onWifi, { total: marks.length, devs: uniq(wifiBad.filter(function(e) {
-			return onWifi.some(function(m) { return e.ts >= m.ts - 120 && e.ts <= m.ts + 30; }); }), 'src').join(', ') });
-		add('info', 0, ctx.wifi_watched ? 'marks_unseen_wifi_ok' : 'marks_unseen', unseen, { total: marks.length });
-
-		/* ---- Wi-Fi */
-		add('home', 1, 'wifi_drops', wifiDrop, { devs: uniq(wifiDrop, 'src').join(', ') });
-		add('home', 0.5, 'wifi_weak', wifiWeak, { devs: uniq(wifiWeak, 'src').join(', ') });
+		add('info', 0, 'marks_unseen', unseen, { total: marks.length });
 
 		/* ---- home network */
 		add('home', 2, 'port_speed', portSpeed, { devs: uniq(portSpeed, 'src').join(', ') });
@@ -551,24 +515,16 @@ return baseclass.extend({
 		case 'log_proxy':       return _('The multicast proxy logged errors (%d×) – check its configuration (upstream / downstream interfaces).').format(f.n);
 		case 'log_nic':         return _('Network driver / switch chip hung (%d×, kernel "transmit timed out") – router hardware or driver.').format(f.n);
 		case 'router_busy':     return _('%d problems happened while the router was overloaded (CPU / RAM / connection table) – the router itself may be dropping packets.').format(f.n);
-		case 'link_hogs':       return _('The link was full %d× – %s was the heaviest user in %d of them (up to %d%% of the traffic then). That traffic is your own, not an ISP fault.').format(f.n, a.host, a.n, a.share);
 		case 'sfp_los':         return _('No light came from the line (SFP RX at the noise floor, %d×) – the fibre is broken or unplugged, a connector is dirty or loose, or the ISP\'s equipment is down. Hard evidence of a fault in the line, not in the router: clean and re-seat the connector first, then show this to the ISP.').format(f.n);
 		case 'sfp_drop':        return _('The received optical power fell %d× (by up to %s dB, down to %s dBm) – a fault in the line: fibre bent or damaged, a dirty or loose connector, a splitter or the ISP\'s side. Hard evidence, no ping can show it.').format(f.n, a.fall, a.rx != null ? a.rx : '?');
 		case 'sfp_with_wan':    return _('%d Internet problems happened while the optical signal was weak or gone – they have the same cause, in the line.').format(f.n);
 		case 'sfp_alarm':       return _('The SFP module raised an alarm (%d×: %s) – overheating, laser current or voltage; the module may be failing.').format(f.n, a.flags);
 		case 'sfp_gone':        return _('The SFP module stopped answering %d× – taken out, or it hung (power, a faulty module).').format(f.n);
-		case 'router_hot':      return (a.throttled
-			? _('%d problems happened while the router was overheated and its CPU slowed down (up to %s °C) – the router itself loses packets; check ventilation, the heatsink, the case.')
-			: _('%d problems happened while the router was overheated (up to %s °C) – the router itself may lose packets; check ventilation, the heatsink, the case.')).format(f.n, a.temp);
-		case 'router_temp':     return (a.throttled
-			? _('The router overheated and throttled its CPU (up to %s °C, %d×) – no problems at those moments.')
-			: _('The router was overheated (up to %s °C, %d×) – no problems at those moments.')).format(a.temp, f.n);
 		case 'router_load':     return _('The router was overloaded %d× (no problems at those moments).').format(f.n);
 		case 'marks_seen':      return _('%d of %d of your reports match a measured problem.').format(f.n, a.total);
 		case 'marks_unseen':    return _('%d of %d of your reports have nothing measured around them – the problem is not visible on this router: check the IPTV device setting, or the cause is the decoder, the TV or Wi-Fi.').format(f.n, a.total);
 		case 'bufferbloat':     return _('Bufferbloat %d×: the ping went up by as much as %d ms only while the link was full (%s) – your own traffic fills a buffer in the modem or at the ISP. Not an outage and not the ISP\'s fault: SQM (luci-app-sqm, cake) set a bit below the line speed fixes it.').format(f.n, a.add,
 			a.dir === 'up' ? _('upload') : a.dir === 'down' ? _('download') : _('download and upload')) +
-			(a.who ? ' ' + _('Heaviest at those times: %s.').format(a.who) : '') +
 			(a.lags ? ' ' + _('%d high-ping warnings at those times are not counted against the ISP.').format(a.lags) : '');
 		case 'stall_decoder':   return _('%d of %d IPTV freezes happened while a decoder (%s) restarted – the decoder, not a lost stream; not counted against the ISP.').format(f.n, a.total, a.devs);
 		case 'decoder_restarts': return _('Decoder %s restarted %d× – power supply, firmware update or overheating (or someone switched it off and on).').format(a.devs, f.n);
@@ -576,10 +532,6 @@ return baseclass.extend({
 		case 'dhcp_bad':        return _('Decoder %s: lease refused or not renewed in time (%d×) – the operator\'s DHCP server.').format(a.devs, f.n);
 		case 'trace_hop':       return _('Path snapshots (%d): the loss started at hop %d (%s) and carried on to the destination (%d× there) – inside the ISP\'s network or beyond; the hops before it were fine. Show this to the ISP.').format(f.n, a.hop, a.ip, a.same);
 		case 'trace_first_hop': return _('Path snapshots (%d): the loss started already at the first hop (%s) – the access line or the ISP\'s first router.').format(f.n, a.ip);
-		case 'marks_wifi':      return _('%d of %d of your reports came with a Wi-Fi drop or weak signal of %s, and nothing on the line – the cause is Wi-Fi.').format(f.n, a.total, a.devs);
-		case 'marks_unseen_wifi_ok': return _('%d of %d of your reports have nothing measured around them, and the Wi-Fi of the watched devices was fine too – the cause is probably the decoder or the TV (or a device that is not watched).').format(f.n, a.total);
-		case 'wifi_drops':      return _('Wi-Fi of %s dropped and reconnected %d× – range, interference or the device\'s power saving.').format(a.devs, f.n);
-		case 'wifi_weak':       return _('Weak Wi-Fi signal of %s (%d×) – move the access point or the device, or use a cable.').format(a.devs, f.n);
 		case 'stall_router':    return _('%d of %d IPTV freezes: the router stopped sending to the decoder while everything else was fine – IGMP snooping/querier on the router.').format(f.n, a.total);
 		case 'stall_upstream':  return _('%d of %d IPTV freezes: multicast stopped arriving from the ISP while Internet and ports were fine – ISP IPTV/multicast side (less often an IGMP issue on the router).').format(f.n, a.total);
 		case 'no_querier':      return _('IGMP snooping is on but the querier is off on %s – streams can time out on the switch.').format(a.bridge);

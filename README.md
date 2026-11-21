@@ -42,14 +42,11 @@ Target: **OpenWrt 24.10 and 25.12** (ucode + rpcd + LuCI JS). No compiled code, 
 | **Channel names** | Read from the stream itself (DVB SDT/PAT tables) by the same helper, or names set by hand | the channel being watched is named on the status page, in timeline events, the measurements CSV and notifications |
 | **Ports** | `/sys/class/net/<dev>` counters and link state | link down/up, link flapping between samples, speed change (e.g. 1 Gbit → 100 Mbit), RX/TX/CRC errors, drops |
 | **Router** | `/proc`: CPU per core (incl. softirq), RAM, connection tracking table. Only read to explain problems; for graphs use *Status → Realtime Graphs* or luci-app-statistics | router overloaded, low RAM, connection table full |
-| **SoC temperature** | `/sys/class/thermal` zones (+ their passive trip points), cooling devices (cpufreq = throttling, a fan is only noted), the CPU's frequency limit | *router overheated* (two checks above the limit) / *normal again*, *CPU slowed down by heat* (MHz instead of MHz) / *full speed again* |
 | **You** | **⚑ Problem now** button | your report with the time of the click and an optional note |
 | **Gaps** | the collector's own sign of life (`alive.json`, once a minute) + the kernel's boot id and `/proc/uptime` | **router restarted** (up since …), **not measured from X to Y** (router restarted, monitoring off, collector stopped or blocked) – listed in the report |
 | **Decoders** (bridged IPTV VLAN) | bridge MAC table (`bridge -s fdb`: which MAC behind which port, seconds since its last frame) + link of that port | *decoder restarted* (away N s; port link down / vanished from the MAC table / silent while the stream stopped), *switched off*, *back* – freezes during a restart are not counted against the ISP |
 | **Path snapshot** | one `mtr -r` (when installed) or busybox `traceroute` when a loss starts or the WAN is down, at most every 10 min | *loss starts at hop N (IP) and carries on to the destination* – the hops fold out on the timeline and are in the report |
 | **Bufferbloat** | collectd's ping matched with the WAN traffic of the same interval (device counters); line speed = highest 30 s rate seen or set | *bufferbloat: ping +N ms with the link X % full* / *over*; WAN traffic chart with the periods marked; card: ping idle vs. full link |
-| **Who fills the link** | while the WAN is full for a while (the limit of the bufferbloat detection): the traffic per host of that stretch, from **nlbwmon** (`nlbw -c csv -g mac`) when it is installed and running, else the connection tracking table (`/proc/net/nf_conntrack`, only when its byte accounting is on) | *link full (download 95 %) for 40 s – heaviest: laptop 88 %, tv 11 %* (info); the last list on the Internet card and in the report |
-| **Wi-Fi** | hostapd over ubus (`get_clients` every interval + its disassoc/deauth/assoc notifications), signal from hostapd or iwinfo | a watched device (phone, TV) *dropped and reconnected* after N s (fault) or *left* (info), *moved to another band*, *weak signal* (two checks below the limit, default −75 dBm) |
 | **Second router** (optional) | Events of a router behind this one (access point with a decoder, phone, TV), sent over UDP | everything that router logs, on the same timeline marked with its name; *router stopped reporting* / *reports again* |
 
 Optionally it shows whether **IGMP snooping** and the **querier** are active on a bridge, and which group goes to which bridge port (needs `ip-bridge`).
@@ -77,7 +74,7 @@ Gateway vs. far-target loss helps pinpoint the cause. Loss to the gateway points
 - A timeline of the selected period, filterable by area or "only problems". Click an event to zoom the charts to that moment.
 - **When do problems happen**: problems per hour of the day. An evening peak points at an overloaded ISP network.
 - **⚑ Problem now**: click it when the TV freezes or the Internet is slow. The mark goes on the timeline, and the analysis tells you whether the router measured anything at that moment. If not, the cause is probably the decoder, the TV, Wi-Fi, or the IPTV device is set wrong.
-- **Report for the ISP**: a printable summary (measurement coverage, outages, freezes with total/longest duration, session drops, verdict, problems by hour, event log). Print it or save it as PDF and attach it to your complaint. The button asks for the period – the one shown in the charts or **chosen days** (from the archive on USB) – and the **hours of the day**, e.g. only *18–23* when the problem shows while you watch TV (presets: evening, 18–23, daytime; over midnight works too, e.g. 22–2). With hours chosen, everything counts only those hours: the summary, the assessment, the event list, the problems by hour and the coverage; an outage that started before 18:00 counts with its part after 18:00. The same dialog downloads the **timeline CSV of those days and hours**.
+- **Report for the ISP**: a printable summary (measurement coverage, outages, freezes with total/longest duration, session drops, verdict, problems by hour, event log). Print it or save it as PDF and attach it to your complaint. The button asks for the period – the one shown in the charts or **chosen days** (within the last 24 h that the router keeps) – and the **hours of the day**, e.g. only *18–23* when the problem shows while you watch TV (presets: evening, 18–23, daytime; over midnight works too, e.g. 22–2). With hours chosen, everything counts only those hours: the summary, the assessment, the event list, the problems by hour and the coverage; an outage that started before 18:00 counts with its part after 18:00. The same dialog downloads the **timeline CSV of those days and hours**.
 - **🔧 Working on the network**: before you re-plug cables, restart the switch or change settings, choose 15 / 30 / 60 / 120 min (with an optional note). Everything is still logged, but flagged: it is left out of the analysis, the report's counts and event list, the banner's error counts and the cards' "problems in the last minutes", and no notifications are sent – so your own work is not taken for an outage. A blue strip shows the time left (*+30 min*, *End now*); the state strip marks the period blue; the timeline shows those entries greyed with *maintenance*; the report lists the maintenance windows as excluded. It survives a collector restart (saving settings). Events the second router logs during its own maintenance arrive flagged too.
 - Export buttons: measurements CSV (one row per interval) and timeline CSV.
 
@@ -114,7 +111,6 @@ The panel looks at what happened **at the same time** (within 30 s) in the selec
 | IPv6 down while IPv4 works, IPv6 prefix lost / changed, no router advertisement | ISP IPv6 |
 | DNS failing while ping works | DNS server (ISP's, if you set it) |
 | Problems while the router CPU / RAM / connection table was overloaded | router |
-| Problems while the router was overheated or its CPU throttled | router (ventilation, heatsink) |
 | Link full while you (a host at home) download or upload | your own traffic: named in the bufferbloat finding, no weight |
 | Your "Problem now" reports with / without anything measured around them | context (no weight) |
 | LAN link drops, CRC errors, renegotiation to 100 Mbit/s | cabling / devices at home |
@@ -150,10 +146,6 @@ Lease renewals and address changes from the operator. In a bridged IPTV VLAN (de
 
 Logged: *address X from the operator (lease 1 h)* the first time, *asked for an address from scratch* (an OFFER before the ACK: restarted or lost its lease), **address CHANGED X → Y**, **the operator REFUSED its lease (DHCPNAK)**, *renewed N after it had run out*, *lease ran out without a renewal* (decoder still there). Renewals are counted, not logged. The IPTV card shows *DHCP TV: 10.236.0.50 · lease 1 h · renewed 12 min ago · 7 renewals*; the analysis puts address changes and refused / expired leases on the operator's DHCP. *Settings → Decoders → DHCP of the decoders* turns it off.
 
-### Backup and restore
-
-*Settings → Backup and restore*: **Download settings + data** makes one `.tar.gz` with `/etc/config/isp_tester` and the data – timeline, history, measurements CSV, channel names, the archive on USB – plus a small manifest (router name, time); **Download settings only** without the data. **Restore from a file…** uploads such an archive, checks it (only regular files with the names the backup writes – no links, no paths outside, a manifest of this package, a settings file that is a UCI file) and shows what it holds; then choose *settings*, *data* or both. Monitoring stops for a moment while the files are replaced; the previous settings are kept as `/etc/config/isp_tester.before-restore`. Moving between two routers (e.g. M477 → M477S): a backup from another router is marked – its settings name that router's ports, interfaces and role towards the second router, so check them or restore the data only.
-
 ### The tester's own load
 
 Proof that the measurement does not load the router (and is not what breaks IPTV): under the banner's times a small line shows *Tester itself: CPU 0.3 % · RAM 4.1 MB* – the share of the router's **whole** CPU (all cores) used by the collector (including the commands it runs: logread, bridge, rrdtool) and by tsmon, from `/proc/<pid>/stat` and `status`. Hover it for now / average / maximum of each. The report says the same in one row (*Load of the tester itself*), and the 1-min history keeps its maximum.
@@ -165,20 +157,23 @@ After a reboot the router starts with the time of its newest file until NTP sets
 - **What the NTP client reports**: `/etc/hotplug.d/ntp/90-isp-tester` notes every hotplug *ntp* event of busybox `ntpd` (stratum, step, unsync, periodic) or chrony. Logged: *clock synchronized (stratum N)*, *clock not synchronized any more*, *no NTP client running*.
 - **The clock itself**: when wall time minus monotonic time jumps by more than 2 s, *Clock set by +N s* is logged.
 
-Entries logged shortly after a boot while the clock was not confirmed are marked; when NTP sets the clock they are **moved by the step** (with the chart points of that time) and only then written to the archive – the timeline says *N earlier entries of this boot moved to the right time*. Confirmed without a step, they were right; after an hour without either they stay as they are. A yellow strip under the banner warns while the clock is not synchronized, and the report names the clock state and any steps in the period.
+Entries logged shortly after a boot while the clock was not confirmed are marked; when NTP sets the clock they are **moved by the step** (with the chart points of that time) and only then final – the timeline says *N earlier entries of this boot moved to the right time*. Confirmed without a step, they were right; after an hour without either they stay as they are. A yellow strip under the banner warns while the clock is not synchronized, and the report names the clock state and any steps in the period.
 
 On install the package restarts `sysntpd` once (busybox ntpd reports to hotplug only when its state changes), so the current state is known at once.
 
-### Archive: 7 / 30 days, weekly report
+## Sending the data to another device
 
-With the data on USB, **Settings → General → Archive on USB** (default 30 days) also keeps, per UTC day, in `/tmp/isp-tester/archive/`:
+The router keeps only the last 24 hours (and in RAM, nothing across a reboot). For a longer history the data can be sent to another device in your network – a PC, a NAS, a Raspberry Pi – over SSH, with dropbear's own client (`dbclient`, part of every OpenWrt image; no extra package).
 
-| File | Content |
-|---|---|
-| `ev-YYYYMMDD.jsonl` | every event of that day (also those of the second router), one JSON object per line |
-| `h-YYYYMMDD.jsonl` | the chart data as 10-minute summaries (average / max / min as on the 24 h charts) |
+*Settings → Send data to another device*:
 
-The files are only appended to – one line per event and one per 10 minutes, never rewritten – which is easy on the stick; days older than the limit are deleted once an hour. The overview then offers **7 d** and **30 d**, and ◀ ▶ go back beyond 24 h: the page reads the day files it needs. The charts use the 10-minute summaries there, the timeline and the analysis use the archived events, and **Report for the ISP** covers the selected period – choose *7 d* for a weekly report. *Download timeline (CSV)* exports the selected period. In RAM the archive stays off (30 days would not fit); *Clear logs* deletes it too.
+1. Set the **address**, **user**, **port** and the **folder** on that device (a relative path is in the user's home), choose how often to send (hour, 6 hours, day, week), turn on *Send regularly* and **Save & Apply**.
+2. **Show the public key** (the key pair is made on first use, in `/etc/dropbear/isp_tester_push_key`, which survives a firmware upgrade) and add it to `~/.ssh/authorized_keys` of that user on the other device.
+3. **Test the login**, then **Send now**. The first login trusts the other device's host key; a changed key is refused afterwards.
+
+Each transfer is one `isp-tester-<router>-<date>-<time>.tar.gz` with the timeline, the history, the CSV measurements, the channel names and the highest WAN rate. It is written under a temporary name and renamed at the end, so a cut connection never leaves a broken file. A failed try is repeated after 30 minutes; the last result is shown in the settings and the failure is also in the system log (`logread | grep isp-tester`). The script is `/usr/share/isp-tester/push.sh` (`send`, `test`, `pubkey`; settings in `uci show isp_tester.push`).
+
+The report for the ISP and the CSV export on the overview cover what the router has (24 h); for a longer period unpack the files from the other device.
 
 ## Decoder restarts
 
@@ -223,17 +218,6 @@ How to read it: a loss that **starts at a hop and carries on to the destination*
 
 The report for the ISP lists every snapshot with its hop table. At most one per *At most every* (default 10 min), one at a time, stopped after 60 s.
 
-## SoC temperature and throttling
-
-A router that overheats slows its CPU down and starts to lose packets – a fault that looks like the ISP's. Nothing is measured here, only read: the temperature of every zone in `/sys/class/thermal/thermal_zone*/temp`, the cooling devices (`cooling_device*`: a *cpufreq* one above state 0 means the kernel is throttling; a fan is only shown) and the CPU's frequency limit (`scaling_max_freq` against `cpuinfo_max_freq`).
-
-- **Overheated**: a zone is at or above its limit for two checks in a row (ends 5 °C below it). The limit is 5 °C under the zone's *passive* trip point – where the kernel itself starts to throttle – or 85 °C when the zone has none; set your own in *Settings → Router load → Overheated from*, `-1` switches it off.
-- **Throttled**: a cpufreq cooling device above state 0, or the CPU's frequency limit lowered while a zone is within 10 °C of its limit (a limit you set by hand is not heat). Logged with the frequency it fell to.
-- The banner shows *Router: 62 °C · 1200 MHz* (yellow when overheated or throttled; hover for every zone, the fan, the highest value since start and how long it was hot). The *Router temperature* chart marks throttling in red.
-- The analysis counts problems that happened while the router was overheated or throttled for the home side, with the highest temperature; if nothing broke at those times it stays a note.
-
-Routers without a thermal sensor (some MIPS SoCs) show nothing.
-
 ## Bufferbloat: lags only when the link is full?
 
 No speed test of its own: every collectd ping value (one average per collectd interval) is matched with the WAN traffic of the same interval, read from the WAN device's counters every tick. The line's speed is the highest 30-second rate ever seen (slowly forgotten, kept in `wanpeak.json`), or the speed of your plan when set (*Settings → Internet*).
@@ -258,18 +242,6 @@ The analysis counts a fall of the light, and Internet problems that happen durin
 
 > Written from the `ethtool -m` output format (`Laser output power`, `Receiver signal average optical power`, `Module temperature`, the `… alarm` / `… warning` flags); not tried on a real module yet. Check on the router: `ethtool -m <port>`.
 
-### Who filled the link
-
-When the link stays full for a while (the same limit and line speed as the bufferbloat detection, so it needs *Detect bufferbloat* on), the hosts that used it are listed – the answer to *who clogged the link*. It only reads what the router already counts and starts, switches on and writes nothing:
-
-- **nlbwmon** (`nlbw -c csv -g mac`) when it is installed and running (package `nlbwmon`, or `luci-app-nlbwmon`). Its counters refresh every 30 s by default, so the link must stay full for 40 s.
-- else the **connection tracking table** (`/proc/net/nf_conntrack`) – only when `net.netfilter.nf_conntrack_acct` is already 1 (the tester does not change it). The link must stay full for 15 s. Flows between two LAN hosts are left out.
-- Without either the Internet card says what is missing.
-
-Two reads per episode (when the link gets full, and when it has been for long enough); the difference is the traffic of that stretch. The result is an info event on the timeline (*link full (download 95 %) for 40 s – heaviest: laptop 88 %, …*), the *Who fills the link* row of the Internet card, a table in the report, and the heaviest host is named in the bufferbloat finding. Names: your own labels (Wi-Fi devices, decoders), then the host name of the DHCP lease (`/tmp/dhcp.leases`), else the address. At most one list per *At most every* (10 min). With nlbwmon the window can start up to 30 s before the link got full, so the shares are approximate.
-
-> The `nlbw -c csv` output was written from its documentation; the columns are found from the header (`mac`, `rx_bytes`, `tx_bytes`) when there is one. Check once on the router: `nlbw -c csv -g mac`.
-
 ### IGMP queries from the ISP
 
 The operator's router keeps the IPTV memberships alive with an IGMP *general query* (about every 125 s) that the decoders answer. When the queries stop, the memberships expire after about two intervals (≈ 260 s) and the stream freezes – repeatedly, so it looks random. The *IGMP timers* row only shows this router's **bridge settings**; it says nothing about what the operator sends. This is measured separately.
@@ -277,19 +249,6 @@ The operator's router keeps the IPTV memberships alive with an IGMP *general que
 `isp-tester-tsmon -Q` notes the general queries (IGMPv1/v2/v3) on the port facing the ISP (needs *Measure incoming traffic*; on a decoder's port nothing is seen). The *ISP IGMP queries* row of the IPTV card shows *last query 41 s ago · every ~125 s · 10.1.0.1 (IGMPv2)*. When more than two intervals (plus the response time) pass without one, a warning event *No IGMP query from the operator for 4 min* is logged (dated from when the memberships began to expire), and *queries from the operator again after …* when they return. The interval is the median of the gaps seen (else the query's own interval, else 125 s). Freezes inside such a silence are named in the analysis as an ISP-side fault; if no query is seen at all for more than 5 min while freezes happen, the analysis says so (check that the capture port faces the ISP). It warns about a *stop* only after queries were seen before. Without *Identify channel names* / *Picture quality* the helper runs queries-only (`-I`) and does not look at the streams.
 
 *Settings → IPTV → Watch the operator's IGMP queries* (`iptv.igmp_query`). Needs the `isp-tester-tsmon` package; rebuild it for `-Q`/`-I`.
-
-## Wi-Fi
-
-*Settings → Wi-Fi*: add the devices to watch (the list offers the ones connected now). Only those are logged; the others are counted per interface.
-
-- **Dropped and reconnected** within *Reconnect within* (default 60 s) is a fault (yellow). A drop shorter than one interval is caught too, through hostapd's notifications.
-- **Left** – away longer than that (the phone left the house) – is only noted.
-- **Moved** to another band or access point of this router: noted, not a fault.
-- **Weak signal**: two checks in a row below *Weak signal below*, back after two checks 5 dB above it; the event keeps the lowest value.
-
-Why it matters: when you click **⚑ Problem now** and nothing was measured on the line, the analysis now says either *your report came with a Wi-Fi drop / weak signal of the phone – the cause is Wi-Fi*, or *the Wi-Fi of the watched devices was fine too – look at the decoder or the TV*. Devices behind a second router: set up Wi-Fi there and let it send its events here (next section).
-
-Needs hostapd with ubus (the OpenWrt default) and, for the signal on drivers where hostapd gives none, `rpcd-mod-iwinfo` (installed with LuCI). Without an access point on the router the card says so.
 
 ## Two routers, one timeline
 
@@ -318,7 +277,6 @@ How it works: UDP (default port 51477), one JSON message per datagram, signed wi
 | `events.json` | timeline (ring buffer, default 1000 entries) |
 | `samples.csv` | one row per interval (ring buffer, default 8640 rows = 24 h at 10 s) |
 | `samples.prev.csv` | previous CSV after the column layout changed (config change) |
-| `archive/ev-*.jsonl`, `archive/h-*.jsonl` | with data on USB: events and 10-minute summaries per day (see *Archive*) |
 | `wanpeak.json` | highest WAN rate seen (line speed for the bufferbloat check) |
 | `/var/run/isp-tester/peers.json` | receiver: last event number stored per second router (always RAM) |
 | `/tmp/isp-tester/alive.json` | last sign of life of the collector and the boot id (once a minute) |
@@ -405,10 +363,6 @@ apk add --allow-untrusted /tmp/isp-tester-pl.apk
 ```
 
 `--allow-untrusted` is needed because the package is not signed with an OpenWrt key.
-
-### Updating
-
-Settings → **Updates** → *Check for updates*. The newest GitHub release is looked up, and a button installs it (`opkg` or `apk` is detected automatically), together with `isp-tester-tsmon` for the router's architecture when the release has it. The packages are downloaded from the release and verified against its `SHA256SUMS` before installing. Needs internet access from the router and `ca-bundle`.
 
 ### Build it yourself
 

@@ -7,106 +7,6 @@
 'require dom';
 'require fs';
 
-var callBackup = rpc.declare({
-	object: 'luci.isp_tester',
-	method: 'backup',
-	params: [ 'data' ],
-	expect: { '': {} }
-});
-
-var callBackupCheck = rpc.declare({
-	object: 'luci.isp_tester',
-	method: 'backup_check',
-	expect: { '': {} }
-});
-
-var callRestore = rpc.declare({
-	object: 'luci.isp_tester',
-	method: 'restore',
-	params: [ 'config', 'data' ],
-	expect: { '': {} }
-});
-
-var BK_ERR = {
-	no_file: _('No file was uploaded.'),
-	too_big: _('The file is too big (over 64 MB).'),
-	not_targz: _('This is not a .tar.gz archive.'),
-	empty: _('The archive is empty.'),
-	bad_entry: _('The archive contains links or special files – refused.'),
-	bad_name: _('The archive contains files that are not from ISP Tester – refused.'),
-	extract: _('The archive cannot be unpacked.'),
-	no_manifest: _('This is not an ISP Tester backup.'),
-	bad_config: _('The settings in the archive are not a valid settings file.'),
-	nothing: _('Nothing was chosen to restore.'),
-	no_config: _('The settings file cannot be read.')
-};
-
-function bkError(r) {
-	return (r && BK_ERR[r.error]) || _('Failed: %s').format((r && (r.error || r.out)) || '?');
-}
-
-/* settings (and data) as one .tar.gz, e.g. to move to another router */
-function backupSection() {
-	var download = function(data) {
-		return callBackup(data).then(function(r) {
-			if (!r || !r.result) throw new Error(bkError(r));
-			return fs.read_direct(r.path, 'blob').then(function(blob) {
-				var a = E('a', { 'href': URL.createObjectURL(blob), 'download': r.name, 'style': 'display:none' });
-				document.body.appendChild(a);
-				a.click();
-				setTimeout(function() { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-			});
-		}).catch(function(e) { ui.addNotification(null, E('p', e.message), 'danger'); });
-	};
-
-	var restore = function() {
-		return ui.uploadFile('/tmp/isp-tester-restore.tar.gz').then(function() {
-			return callBackupCheck();
-		}).then(function(r) {
-			if (!r || !r.result) throw new Error(bkError(r));
-			var m = r.manifest || {};
-			/* the manifest comes from the uploaded file: only a host name */
-			m.host = String(m.host || '').replace(/[^A-Za-z0-9._-]/g, '');
-			m.created = +m.created || 0;
-			var cConf = E('input', { 'type': 'checkbox', 'checked': r.config ? '' : null, 'disabled': r.config ? null : '' });
-			var cData = E('input', { 'type': 'checkbox', 'checked': r.data_files ? '' : null, 'disabled': r.data_files ? null : '' });
-			var other = m.host && r.this_host && m.host !== r.this_host;
-			ui.showModal(_('Restore from a backup'), [
-				E('p', {}, _('Backup of %s from %s: %s.').format(m.host || '?', new Date(m.created * 1000).toLocaleString(),
-					r.data_files ? _('settings and data (%d files, %d of them archive days, %d kB)').format(+r.data_files, +r.archive_files, +r.kb) : _('settings only'))),
-				other ? E('p', { 'class': 'alert-message warning' }, _('It comes from another router (%s). Its settings name that router\'s ports, interfaces and the role towards the second router – check them after restoring, or restore the data only.').format(m.host)) : '',
-				E('label', { 'style': 'display:block;margin:.3em 0' }, [ cConf, ' ', _('Settings (replace the current ones; the old file is kept as /etc/config/isp_tester.before-restore)') ]),
-				E('label', { 'style': 'display:block;margin:.3em 0' }, [ cData, ' ', _('Data: timeline, history, archive, channel names (replace the current ones)') ]),
-				E('p', { 'class': 'ispt-muted' }, _('Monitoring stops for a moment while the files are replaced.')),
-				E('div', { 'class': 'right' }, [
-					E('button', { 'class': 'cbi-button', 'click': ui.hideModal }, _('Cancel')), ' ',
-					E('button', { 'class': 'cbi-button cbi-button-negative', 'click': ui.createHandlerFn(this, function() {
-						return callRestore(cConf.checked, cData.checked).then(function(x) {
-							ui.hideModal();
-							if (!x || !x.result) throw new Error(bkError(x));
-							ui.addNotification(null, E('p', _('Restored: %s. The page reloads.').format(
-								[ x.config ? _('settings') : null, x.data ? _('data') : null ].filter(Boolean).join(', '))), 'info');
-							setTimeout(function() { location.reload(); }, 2500);
-						}).catch(function(e) { ui.addNotification(null, E('p', e.message), 'danger'); });
-					}) }, _('Restore'))
-				])
-			]);
-		}).catch(function(e) {
-			if (e && e.message) ui.addNotification(null, E('p', e.message), 'danger');
-		});
-	};
-
-	return E('div', { 'class': 'cbi-section' }, [
-		E('h3', {}, _('Backup and restore')),
-		E('div', { 'class': 'cbi-section-descr' }, _('One .tar.gz with the settings of the tester and, if you want, its data (timeline, history, the archive on USB, channel names) – to keep it, or to move the monitoring to another router (e.g. from M477 to M477S). Restoring checks the archive first: only files this page writes are accepted.')),
-		E('div', { 'style': 'display:flex;gap:.5em;flex-wrap:wrap' }, [
-			E('button', { 'class': 'cbi-button cbi-button-action', 'click': ui.createHandlerFn(this, download, true) }, _('Download settings + data')),
-			E('button', { 'class': 'cbi-button', 'click': ui.createHandlerFn(this, download, false) }, _('Download settings only')),
-			E('button', { 'class': 'cbi-button cbi-button-apply', 'click': ui.createHandlerFn(this, restore) }, _('Restore from a file…'))
-		])
-	]);
-}
-
 var callTestNotify = rpc.declare({
 	object: 'luci.isp_tester',
 	method: 'test_notify',
@@ -170,130 +70,103 @@ function renderLearned(db) {
 	return box;
 }
 
-var callUpdateCheck = rpc.declare({
+var callPushStatus = rpc.declare({
 	object: 'luci.isp_tester',
-	method: 'update_check',
+	method: 'push_status',
 	expect: { '': {} }
 });
 
-var callUpdateStatus = rpc.declare({
+var callPushPubkey = rpc.declare({
 	object: 'luci.isp_tester',
-	method: 'update_status',
+	method: 'push_pubkey',
 	expect: { '': {} }
 });
 
-var callUpdateApply = rpc.declare({
+var callPushTest = rpc.declare({
 	object: 'luci.isp_tester',
-	method: 'update_apply',
-	params: [ 'tag' ],
+	method: 'push_test',
 	expect: { '': {} }
 });
 
-function updateError(code) {
-	switch (code) {
-	case 'no_pkg_manager': return _('No package manager (opkg / apk) found.');
-	case 'fetch_failed':   return _('Cannot reach GitHub. Check the internet connection (the ca-bundle package is needed for HTTPS).');
-	case 'bad_response':   return _('Unexpected answer from GitHub.');
-	case 'busy':           return _('An update is already running.');
-	case 'download':       return _('Download failed.');
-	case 'checksum':       return _('Checksum mismatch – the update was not installed.');
-	case 'install':        return _('Installation failed (see opkg / apk output on the router).');
-	default:               return code || _('Unknown error');
-	}
+var callPushNow = rpc.declare({
+	object: 'luci.isp_tester',
+	method: 'push_now',
+	expect: { '': {} }
+});
+
+var PUSH_ERR = {
+	no_target: _('Set the address and the user first, then Save & Apply.'),
+	bad_host: _('The address is not valid.'),
+	bad_user: _('The user name is not valid.'),
+	bad_port: _('The port is not valid.'),
+	bad_dir: _('The folder is not valid (letters, digits and . _ / ~ - only, no “..”).'),
+	bad_key: _('The key path is not valid.'),
+	no_dbclient: _('dbclient (package dropbear) is not installed.'),
+	no_dropbearkey: _('dropbearkey (package dropbear) is not installed.'),
+	keygen: _('The key could not be made.'),
+	no_pubkey: _('The public key could not be read.'),
+	login: _('Login failed. Add the public key to ~/.ssh/authorized_keys of that user on the other device.'),
+	send: _('Sending failed.'),
+	busy: _('A transfer is running already.'),
+	no_data: _('There is no data to send yet.'),
+	tar: _('The files could not be packed.')
+};
+
+function pushError(r) {
+	var t = (r && PUSH_ERR[r.error]) || _('Failed: %s').format((r && (r.error || r.out)) || '?');
+	return (r && r.out && r.error !== 'script') ? t + ' (' + r.out + ')' : t;
 }
 
-function renderUpdates() {
-	var box = E('div', { 'class': 'cbi-section-descr' });
-	var info = E('div', { 'style': 'margin:.4em 0' }, _('Press the button to look for a newer release on GitHub.'));
-	var btn = E('button', { 'class': 'cbi-button cbi-button-action' }, _('Check for updates'));
-	var tag = null;
-
-	function note(text, cls) {
-		dom.content(info, [ E('span', { 'class': cls || '' }, text) ]);
-	}
-
-	function poll(n) {
-		return callUpdateStatus().then(function(st) {
-			if (st.state == 'done') {
-				note(_('Updated to %s. Reloading…').format(st.msg), 'ispt-update-ok');
-				window.setTimeout(function() { window.location.reload(true); }, 4000);
-			}
-			else if (st.state == 'error') {
-				note(updateError(st.msg), 'ispt-update-err');
-				btn.disabled = false;
-			}
-			else if (n > 90) {
-				note(_('The update takes unusually long. Reload the page later.'), 'ispt-update-err');
-				btn.disabled = false;
-			}
-			else {
-				window.setTimeout(function() { poll(n + 1); }, 2000);
-			}
-		}).catch(function() {
-			/* rpcd restarts while the package is installed */
-			window.setTimeout(function() { poll(n + 1); }, 2000);
-		});
-	}
-
-	function apply() {
-		btn.disabled = true;
-		note(_('Downloading and installing %s…').format(tag));
-		return callUpdateApply(tag).then(function(r) {
-			if (!r.result) {
-				note(updateError(r.error), 'ispt-update-err');
-				btn.disabled = false;
-				return;
-			}
-			poll(0);
-		});
-	}
-
-	function check() {
-		btn.disabled = true;
-		note(_('Checking…'));
-		return callUpdateCheck().then(function(r) {
-			btn.disabled = false;
-			if (r.error) {
-				note(updateError(r.error), 'ispt-update-err');
-				return;
-			}
-			if (!r.available) {
-				note(_('You have the newest version (%s).').format(r.current || r.latest));
-				return;
-			}
-			if (!r.has_asset) {
-				note(_('Release %s has no package for this router.').format(r.latest), 'ispt-update-err');
-				return;
-			}
-			tag = r.tag;
-			dom.content(info, [
-				E('div', {}, _('New version %s is available (installed: %s).').format(r.latest, r.current || '?')),
-				r.notes ? E('pre', { 'style': 'white-space:pre-wrap;max-height:12em;overflow:auto;margin:.4em 0' }, r.notes) : '',
-				E('a', { 'href': r.url, 'target': '_blank', 'rel': 'noreferrer' }, _('Release page'))
-			]);
-			btn.textContent = _('Install %s').format(r.latest);
-			btn.className = 'cbi-button cbi-button-positive';
-			btn.onclick = ui.createHandlerFn(null, apply);
-		});
-	}
-
-	btn.onclick = ui.createHandlerFn(null, check);
-
-	/* pick up an update that is already running (e.g. page reloaded) */
-	callUpdateStatus().then(function(st) {
-		if (st.state == 'running' && Date.now() / 1000 - st.ts < 300) {
-			btn.disabled = true;
-			note(_('An update is running…'));
-			poll(0);
-		}
-	});
-
-	box.appendChild(info);
-	box.appendChild(btn);
-	return box;
+function pushStatusText(st) {
+	var l = st && st.last;
+	if (!l) return _('Nothing sent yet.');
+	if (l.state === 'running') return _('Sending…');
+	var when = new Date((l.done || l.ts) * 1000).toLocaleString();
+	if (l.ok)
+		return _('Last sent: %s – %s (%d kB) to %s.').format(when, l.name, Math.round((l.size || 0) / 1024), l.host || '?');
+	return _('Last try failed (%s): %s').format(when, pushError({ error: l.err, out: l.out }));
 }
 
-var UPD_CSS = E('style', {}, '.ispt-update-ok{color:#2e9d4f;font-weight:bold}.ispt-update-err{color:#d64541;font-weight:bold}');
+/* public key, test and "send now"; they use the saved settings */
+function renderPush() {
+	var status = E('div', { 'style': 'margin:.4em 0' }, _('Loading…'));
+	var key = E('textarea', { 'readonly': 'readonly', 'rows': 3, 'style': 'width:100%;font-family:monospace;display:none' });
+	var refresh = function() {
+		return callPushStatus().then(function(st) { status.textContent = pushStatusText(st); });
+	};
+	var note = function(text, cls) { ui.addNotification(null, E('p', text), cls); };
+
+	refresh();
+
+	return E('div', { 'class': 'cbi-value' }, [
+		E('label', { 'class': 'cbi-value-title' }, _('Key and transfer')),
+		E('div', { 'class': 'cbi-value-field' }, [
+			E('div', { 'class': 'cbi-value-description' }, _('Save & Apply the settings first, then add the public key to <code>~/.ssh/authorized_keys</code> of the user on the other device. The first login also trusts that device\'s host key; a changed one is refused.')),
+			E('div', { 'style': 'display:flex;gap:.5em;flex-wrap:wrap;margin:.4em 0' }, [
+				E('button', { 'class': 'cbi-button', 'click': ui.createHandlerFn(this, function() {
+					return callPushPubkey().then(function(r) {
+						if (r && r.result) { key.value = r.pubkey; key.style.display = ''; key.select(); }
+						else note(pushError(r), 'danger');
+					});
+				}) }, _('Show the public key')),
+				E('button', { 'class': 'cbi-button cbi-button-action', 'click': ui.createHandlerFn(this, function() {
+					return callPushTest().then(function(r) {
+						if (r && r.result) note(_('Login works.'), 'info');
+						else note(pushError(r), 'danger');
+					});
+				}) }, _('Test the login')),
+				E('button', { 'class': 'cbi-button cbi-button-apply', 'click': ui.createHandlerFn(this, function() {
+					return callPushNow().then(function() {
+						status.textContent = _('Sending…');
+						window.setTimeout(refresh, 5000);
+					});
+				}) }, _('Send now'))
+			]),
+			key,
+			status
+		])
+	]);
+}
 
 return view.extend({
 	load: function() {
@@ -310,19 +183,6 @@ return view.extend({
 
 		m = new form.Map('isp_tester', _('ISP Tester – Settings'),
 			_('Changes are applied immediately after “Save & Apply”; the collector restarts, keeping the timeline (charts start over).'));
-
-		/* ---- updates */
-		s = m.section(form.NamedSection, 'general', 'general', _('Updates'),
-			_('Installs the newest release from GitHub (checksum verified).'));
-		o = s.option(form.DummyValue, '_update', _('Plugin update'));
-		o.rawhtml = true;
-		o.cfgvalue = function() { return null; };
-		o.render = function() {
-			return E('div', { 'class': 'cbi-value' }, [
-				E('label', { 'class': 'cbi-value-title' }, _('Plugin update')),
-				E('div', { 'class': 'cbi-value-field' }, renderUpdates())
-			]);
-		};
 
 		/* ---- general */
 		s = m.section(form.NamedSection, 'general', 'general', _('General'));
@@ -363,15 +223,6 @@ return view.extend({
 			_('Optional folder on a USB stick (e.g. <code>/mnt/sda1</code>, mounted via System → Mount Points). <code>/tmp/isp-tester</code> becomes a link to it, so the timeline, history and CSV survive a reboot. Written: every event, the history once a minute, one CSV line per interval. Do not use the internal flash. Empty = RAM.'));
 		o.placeholder = '/mnt/sda1';
 		o.optional = true;
-
-		o = s.option(form.ListValue, 'archive_days', _('Archive on USB'),
-			_('With the data on USB, every event and a 10-minute summary of the charts are also kept per day for this long, so the overview can show 7 or 30 days and the report for the ISP can cover a whole week. Appended once per event and once per 10 minutes, never rewritten. Without a USB folder it stays off (RAM is too small).'));
-		o.value('0', _('Off'));
-		o.value('7', _('7 days'));
-		o.value('30', _('30 days'));
-		o.value('90', _('90 days'));
-		o.default = '30';
-		o.depends({ data_dir: '', '!reverse': true });
 
 		o = s.option(form.Flag, 'logread', _('Read the system log'),
 			_('Turns messages of other services into timeline events: pppd (LCP echo timeouts, authentication, PPPoE discovery), udhcpc (lease lost), igmpproxy/mcproxy errors, kernel (network driver hang, connection table full, out of memory), dnsmasq (query limit).'));
@@ -459,17 +310,6 @@ return view.extend({
 		o.datatype = 'range(30,100)';
 		o.placeholder = '70';
 		o.depends('bloat', '1');
-
-		o = s.option(form.Flag, 'hogs', _('Who fills the link'),
-			_('When the link stays full (the limit above) for a while, list the hosts with the most traffic in that time. Only reads: nlbwmon when it is installed and running, else the connection tracking table when its byte accounting is on.'));
-		o.default = '1';
-		o.rmempty = false;
-		o.depends('bloat', '1');
-
-		o = s.option(form.Value, 'hogs_cooldown', _('At most every (s)'));
-		o.datatype = 'range(60,86400)';
-		o.placeholder = '600';
-		o.depends('hogs', '1');
 
 		o = s.option(form.Flag, 'sfp', _('Optical signal (SFP / ONT)'),
 			_('When the WAN goes through an SFP module or an ONT in an SFP cage, read its RX / TX power and temperature (ethtool -m). A fall of the received power is a hard proof of a fault in the line. Shown only when the module answers; needs the ethtool package.'));
@@ -640,11 +480,6 @@ return view.extend({
 		o.datatype = 'range(0,100)';
 		o.placeholder = '90';
 
-		o = s.option(form.Value, 'temp_warn', _('Overheated from (°C)'),
-			_('SoC temperature from /sys/class/thermal, two intervals in a row; throttling (slower CPU) is logged on its own. Empty = 5 °C below the point where the kernel starts to throttle (85 °C when unknown), -1 disables.'));
-		o.datatype = 'integer';
-		o.placeholder = _('automatic');
-
 		/* ---- DNS */
 		s = m.section(form.NamedSection, 'dns', 'dns', _('DNS'),
 			_('Pages that do not open while ping works are often DNS. No own test: dnsmasq\'s statistics are read – over ubus every interval (queries sent upstream, answered from the cache, unanswered), and per upstream server from the statistics dnsmasq writes to the system log on SIGUSR1 (queries sent, retried = no answer in time, failed = SERVFAIL/REFUSED, average latency).'));
@@ -715,45 +550,6 @@ return view.extend({
 		o = s.option(form.Value, 'label', _('Name'));
 		o.placeholder = _('e.g. Living room');
 
-		/* ---- Wi-Fi */
-		s = m.section(form.NamedSection, 'wifi', 'wifi', _('Wi-Fi'),
-			_('Watches the Wi-Fi clients of this router\'s access points (hostapd over ubus): when a watched device (phone, TV) drops and comes back, and when its signal gets weak. Then a “Problem now” report with nothing measured on the line has proof: it was Wi-Fi – or, when its Wi-Fi was fine, it was not. On a second router behind this one, set it up there and let it send its events here.'));
-
-		o = s.option(form.Flag, 'enabled', _('Watch Wi-Fi'));
-		o.default = '1';
-		o.rmempty = false;
-
-		o = s.option(form.Value, 'signal_warn', _('Weak signal below (dBm)'),
-			_('Two checks in a row below this are logged. Around −70 dBm streaming starts to suffer.'));
-		o.datatype = 'range(-100,-30)';
-		o.placeholder = '-75';
-
-		o = s.option(form.Value, 'reconnect_s', _('Reconnect within (s)'),
-			_('A device that is back within this time was dropped (a fault). One that stays away longer just left (e.g. the phone left the house) and is only noted.'));
-		o.datatype = 'range(5,3600)';
-		o.placeholder = '60';
-
-		s = m.section(form.GridSection, 'station', _('Wi-Fi devices to watch'),
-			_('Only these are logged; the others are counted. Devices connected now are offered in the list.'));
-		s.addremove = true;
-		s.anonymous = true;
-		s.sortable = true;
-
-		o = s.option(form.Flag, 'enabled', _('Enabled'));
-		o.default = '1';
-		o.editable = true;
-		o.rmempty = false;
-
-		o = s.option(form.Value, 'mac', _('MAC address'));
-		o.datatype = 'macaddr';
-		o.rmempty = false;
-		(state.wifi_clients || []).forEach(function(c) {
-			o.value(c.mac, '%s (%s%s)'.format(c.mac, c.iface, c.signal != null ? ', %d dBm'.format(c.signal) : ''));
-		});
-
-		o = s.option(form.Value, 'label', _('Name'));
-		o.placeholder = _('e.g. Phone');
-
 		/* ---- second router */
 		s = m.section(form.NamedSection, 'peer', 'peer', _('Second router'),
 			_('Two routers, one timeline: a router behind this one (e.g. an access point with a decoder, a phone or the TV behind it) sends every event it logs to the main router, which shows them on its timeline marked with the sender\'s name and uses them in the analysis. Install the package on both, choose “Send” on the second one and “Receive” on the main one, with the same key. Over UDP, signed with the key (HMAC-SHA256); events that cannot be delivered are sent again.'));
@@ -782,6 +578,48 @@ return view.extend({
 		o.datatype = 'minlength(8)';
 		o.depends('role', 'send');
 		o.depends('role', 'receive');
+
+		/* ---- data push */
+		s = m.section(form.NamedSection, 'push', 'push', _('Send data to another device'),
+			_('Sends the timeline, history and CSV as one .tar.gz over SSH (dropbear\'s own client, no extra package) to another device in your network, e.g. a PC or a NAS with an SSH server. That device keeps the files, so the long history lives there and not on this router.'));
+
+		o = s.option(form.Flag, 'enabled', _('Send regularly'));
+		o.default = '0';
+		o.rmempty = false;
+
+		o = s.option(form.Value, 'host', _('Address'),
+			_('IP address or name of the other device.'));
+		o.datatype = 'or(ipaddr("nomask"),hostname)';
+		o.placeholder = '192.168.1.10';
+
+		o = s.option(form.Value, 'port', _('SSH port'));
+		o.datatype = 'port';
+		o.placeholder = '22';
+
+		o = s.option(form.Value, 'user', _('User'));
+		o.datatype = 'maxlength(32)';
+
+		o = s.option(form.Value, 'dir', _('Folder on that device'),
+			_('A relative path is in the user\'s home. It is created when missing.'));
+		o.placeholder = 'isp-tester';
+
+		o = s.option(form.ListValue, 'interval_h', _('Send every'),
+			_('A failed try is repeated after 30 minutes.'));
+		o.value('1', _('hour'));
+		o.value('6', _('6 hours'));
+		o.value('24', _('day'));
+		o.value('168', _('week'));
+		o.default = '24';
+
+		o = s.option(form.Value, 'key', _('Private key'),
+			_('Made on first use. Empty = <code>/etc/dropbear/isp_tester_push_key</code> (kept over a firmware upgrade).'));
+		o.placeholder = '/etc/dropbear/isp_tester_push_key';
+		o.optional = true;
+
+		o = s.option(form.DummyValue, '_push');
+		o.rawhtml = true;
+		o.cfgvalue = function() { return null; };
+		o.render = function() { return renderPush(); };
 
 		/* ---- notifications */
 		s = m.section(form.NamedSection, 'notify', 'notify', _('Notifications'),
@@ -887,6 +725,6 @@ return view.extend({
 		o.editable = true;
 		o.rmempty = false;
 
-		return m.render().then(function(n) { n.insertBefore(UPD_CSS, n.firstChild); n.appendChild(backupSection()); return n; });
+		return m.render();
 	}
 });

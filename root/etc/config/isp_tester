@@ -17,10 +17,6 @@ config general 'general'
 	# keep timeline, history and CSV in this folder (e.g. a USB stick, /mnt/sda1)
 	# instead of RAM, so they survive a reboot. Avoid the internal flash.
 	option data_dir ''
-	# with data_dir: keep every event and 10-minute summaries per day for
-	# this many days in <data_dir>/isp-tester/archive (7/30-day view, weekly
-	# report); 0 = off
-	option archive_days '30'
 	# turn messages of other services in the system log (pppd, udhcpc,
 	# igmpproxy, kernel, dnsmasq) into timeline events
 	option logread '1'
@@ -54,12 +50,6 @@ config wan 'wan'
 	option ipv6 '1'
 	option interface6 ''
 	option ra_after '60'
-	# who fills the link: while the link is full (bloat_load) for a while, the
-	# hosts with the most traffic in that time, read from nlbwmon (when
-	# installed and running) or the conntrack table (when its byte accounting
-	# is on); at most one list per hogs_cooldown seconds. Needs bloat '1'
-	option hogs '1'
-	option hogs_cooldown '600'
 	# optical signal of the SFP module / ONT stick the WAN goes through
 	# (ethtool -m, needs the ethtool package): RX/TX power, temperature and the
 	# module's alarms; a fall of the received power by sfp_drop_db below its
@@ -145,28 +135,11 @@ config system 'system'
 	option mem_warn '10'
 	# connection tracking table fill (%), 0 = off
 	option conntrack_warn '90'
-	# SoC temperature (deg C, /sys/class/thermal): empty = 5 deg below the zone's
-	# passive trip point (where the kernel starts to throttle), else 85; -1 = off.
-	# Throttling (cpufreq cooling) is logged whatever the value.
-	#option temp_warn '80'
-
-# Wi-Fi clients of this router's access points (hostapd over ubus)
-config wifi 'wifi'
-	option enabled '1'
-	# two checks in a row below this signal (dBm) are logged
-	option signal_warn '-75'
-	# back within this many seconds = dropped (fault); longer = it left
-	option reconnect_s '60'
 
 # a name for a decoder (MAC address as seen in the bridge MAC table)
 #config decoder
 #	option mac 'aa:bb:cc:dd:ee:01'
 #	option label 'Living room'
-
-# a Wi-Fi device to watch (only these are logged)
-#config station
-#	option mac 'aa:bb:cc:dd:ee:ff'
-#	option label 'Phone'
 
 # two routers, one timeline: a second router (e.g. an access point with a
 # decoder behind it) sends its events to the main router over UDP, signed
@@ -178,6 +151,21 @@ config peer 'peer'
 	option host ''
 	option port '51477'
 	# the same secret on both routers, at least 8 characters
+	option key ''
+
+# the data (timeline, history, CSV) sent to another device over SSH with
+# dropbear's dbclient; the public key to add to authorized_keys there is
+# shown in the settings. The other device keeps the files.
+config push 'push'
+	option enabled '0'
+	option host ''
+	option port '22'
+	option user ''
+	# folder on the other device (relative = in the user's home)
+	option dir 'isp-tester'
+	# send every this many hours
+	option interval_h '24'
+	# private key (made on the first use); empty = /etc/dropbear/isp_tester_push_key
 	option key ''
 
 config notify 'notify'

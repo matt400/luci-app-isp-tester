@@ -1,6 +1,6 @@
+#
 msgid ""
-msgstr ""
-"Content-Type: text/plain; charset=UTF-8\n"
+msgstr "Content-Type: text/plain; charset=UTF-8\n"
 
 msgid "OK"
 msgstr ""
@@ -440,7 +440,6 @@ msgstr ""
 msgid "Waiting for ping results…"
 msgstr ""
 
-
 msgid "Stream running"
 msgstr ""
 
@@ -846,7 +845,6 @@ msgstr ""
 msgid "IPTV device"
 msgstr ""
 
-
 msgid "Measure"
 msgstr ""
 
@@ -858,7 +856,6 @@ msgstr ""
 
 msgid "Bridge for IGMP status"
 msgstr ""
-
 
 msgid "Stream threshold (kbit/s)"
 msgstr ""
@@ -1217,75 +1214,6 @@ msgstr ""
 msgid "VLAN %d on %s"
 msgstr ""
 
-msgid "Updates"
-msgstr ""
-
-msgid "Installs the newest release from GitHub (checksum verified)."
-msgstr ""
-
-msgid "Plugin update"
-msgstr ""
-
-msgid "Press the button to look for a newer release on GitHub."
-msgstr ""
-
-msgid "Check for updates"
-msgstr ""
-
-msgid "No package manager (opkg / apk) found."
-msgstr ""
-
-msgid "Cannot reach GitHub. Check the internet connection (the ca-bundle package is needed for HTTPS)."
-msgstr ""
-
-msgid "Unexpected answer from GitHub."
-msgstr ""
-
-msgid "An update is already running."
-msgstr ""
-
-msgid "Download failed."
-msgstr ""
-
-msgid "Checksum mismatch – the update was not installed."
-msgstr ""
-
-msgid "Installation failed (see opkg / apk output on the router)."
-msgstr ""
-
-msgid "Unknown error"
-msgstr ""
-
-msgid "Updated to %s. Reloading…"
-msgstr ""
-
-msgid "The update takes unusually long. Reload the page later."
-msgstr ""
-
-msgid "Downloading and installing %s…"
-msgstr ""
-
-msgid "Checking…"
-msgstr ""
-
-msgid "You have the newest version (%s)."
-msgstr ""
-
-msgid "Release %s has no package for this router."
-msgstr ""
-
-msgid "New version %s is available (installed: %s)."
-msgstr ""
-
-msgid "Release page"
-msgstr ""
-
-msgid "Install %s"
-msgstr ""
-
-msgid "An update is running…"
-msgstr ""
-
 msgid "IPTV stream ended: decoder switched off (no channel subscribed)"
 msgstr ""
 
@@ -1580,130 +1508,7 @@ msgstr ""
 msgid "The same secret on both routers, at least 8 characters. Messages signed with another key are ignored."
 msgstr ""
 
-msgid "%d of %d of your reports came with a Wi-Fi drop or weak signal of %s, and nothing on the line – the cause is Wi-Fi."
-msgstr ""
-
-msgid "%d of %d of your reports have nothing measured around them, and the Wi-Fi of the watched devices was fine too – the cause is probably the decoder or the TV (or a device that is not watched)."
-msgstr ""
-
-msgid "Wi-Fi of %s dropped and reconnected %d× – range, interference or the device's power saving."
-msgstr ""
-
-msgid "Weak Wi-Fi signal of %s (%d×) – move the access point or the device, or use a cable."
-msgstr ""
-
-msgid "Wi-Fi"
-msgstr ""
-
-msgid "%s: weak Wi-Fi signal (%d dBm)"
-msgstr ""
-
-msgid "Wi-Fi: cannot reach ubus"
-msgstr ""
-
-msgid "Wi-Fi: no access point (hostapd) running on this router"
-msgstr ""
-
-msgid "Wi-Fi: %s moved from %s to %s (gap %s)"
-msgstr ""
-
-msgid "Wi-Fi: %s DROPPED and reconnected after %s"
-msgstr ""
-
-msgid "Wi-Fi: %s disconnected (not back within the reconnect time)"
-msgstr ""
-
-msgid "Wi-Fi: %s connected again after %s"
-msgstr ""
-
-msgid "Wi-Fi: %s moved from %s to %s"
-msgstr ""
-
-msgid "Wi-Fi: %s weak signal %d dBm"
-msgstr ""
-
-msgid "Wi-Fi: %s signal OK again after %s (lowest %d dBm)"
-msgstr ""
-
-msgid "signal before %d dBm"
-msgstr ""
-
-msgid "weak"
-msgstr ""
-
-msgid "deauthenticated"
-msgstr ""
-
-msgid "disassociated"
-msgstr ""
-
-msgid "reason %d"
-msgstr ""
-
-msgid "not connected"
-msgstr ""
-
-msgid "Interface"
-msgstr ""
-
-msgid "Signal"
-msgstr ""
-
-msgid "Link rate received / sent (Mbit/s)"
-msgstr ""
-
-msgid "Rate"
-msgstr ""
-
-msgid "For"
-msgstr ""
-
-msgid "Add the devices to watch (phone, TV) in Settings → Wi-Fi."
-msgstr ""
-
-msgid "Clients"
-msgstr ""
-
-msgid "Weak below"
-msgstr ""
-
-msgid "Wi-Fi clients"
-msgstr ""
-
-msgid "Wi-Fi: %s"
-msgstr ""
-
-msgid "Wi-Fi drops of watched devices"
-msgstr ""
-
-msgid "Watches the Wi-Fi clients of this router's access points (hostapd over ubus): when a watched device (phone, TV) drops and comes back, and when its signal gets weak. Then a “Problem now” report with nothing measured on the line has proof: it was Wi-Fi – or, when its Wi-Fi was fine, it was not. On a second router behind this one, set it up there and let it send its events here."
-msgstr ""
-
-msgid "Watch Wi-Fi"
-msgstr ""
-
-msgid "Weak signal below (dBm)"
-msgstr ""
-
-msgid "Two checks in a row below this are logged. Around −70 dBm streaming starts to suffer."
-msgstr ""
-
-msgid "Reconnect within (s)"
-msgstr ""
-
-msgid "A device that is back within this time was dropped (a fault). One that stays away longer just left (e.g. the phone left the house) and is only noted."
-msgstr ""
-
-msgid "Wi-Fi devices to watch"
-msgstr ""
-
-msgid "Only these are logged; the others are counted. Devices connected now are offered in the list."
-msgstr ""
-
 msgid "MAC address"
-msgstr ""
-
-msgid "e.g. Phone"
 msgstr ""
 
 msgid "Path snapshots (%d): the loss started at hop %d (%s) and carried on to the destination (%d× there) – inside the ISP's network or beyond; the hops before it were fine. Show this to the ISP."
@@ -1847,43 +1652,10 @@ msgstr ""
 msgid "Upload speed (Mbit/s)"
 msgstr ""
 
-msgid "7 d"
-msgstr ""
-
-msgid "30 d"
-msgstr ""
-
-msgid "loading the archive…"
-msgstr ""
-
-msgid "IPTV bitrate (10 min average)"
-msgstr ""
-
-msgid "Interface errors per 10 minutes"
-msgstr ""
-
 msgid "Preparing the report…"
 msgstr ""
 
-msgid "The archive of the last %d days on USB is deleted too."
-msgstr ""
-
-msgid "Archive on USB"
-msgstr ""
-
-msgid "With the data on USB, every event and a 10-minute summary of the charts are also kept per day for this long, so the overview can show 7 or 30 days and the report for the ISP can cover a whole week. Appended once per event and once per 10 minutes, never rewritten. Without a USB folder it stays off (RAM is too small)."
-msgstr ""
-
 msgid "Off"
-msgstr ""
-
-msgid "7 days"
-msgstr ""
-
-msgid "30 days"
-msgstr ""
-
-msgid "90 days"
 msgstr ""
 
 msgid "%d of %d IPTV freezes happened while a decoder (%s) restarted – the decoder, not a lost stream; not counted against the ISP."
@@ -2351,12 +2123,6 @@ msgstr ""
 msgid "Chosen days"
 msgstr ""
 
-msgid "The archive on USB goes back %d days."
-msgstr ""
-
-msgid "The data is in RAM: only the last 24 h (and the timeline kept in RAM) are available. Keep the data on USB for a longer archive."
-msgstr ""
-
 msgid "Hours of the day"
 msgstr ""
 
@@ -2471,91 +2237,7 @@ msgstr ""
 msgid "maintenance"
 msgstr ""
 
-msgid "No file was uploaded."
-msgstr ""
-
-msgid "The file is too big (over 64 MB)."
-msgstr ""
-
-msgid "This is not a .tar.gz archive."
-msgstr ""
-
-msgid "The archive is empty."
-msgstr ""
-
-msgid "The archive contains links or special files – refused."
-msgstr ""
-
-msgid "The archive contains files that are not from ISP Tester – refused."
-msgstr ""
-
-msgid "The archive cannot be unpacked."
-msgstr ""
-
-msgid "This is not an ISP Tester backup."
-msgstr ""
-
-msgid "The settings in the archive are not a valid settings file."
-msgstr ""
-
-msgid "Nothing was chosen to restore."
-msgstr ""
-
-msgid "The settings file cannot be read."
-msgstr ""
-
 msgid "Failed: %s"
-msgstr ""
-
-msgid "Restore from a backup"
-msgstr ""
-
-msgid "Backup of %s from %s: %s."
-msgstr ""
-
-msgid "settings and data (%d files, %d of them archive days, %d kB)"
-msgstr ""
-
-msgid "settings only"
-msgstr ""
-
-msgid "It comes from another router (%s). Its settings name that router's ports, interfaces and the role towards the second router – check them after restoring, or restore the data only."
-msgstr ""
-
-msgid "Settings (replace the current ones; the old file is kept as /etc/config/isp_tester.before-restore)"
-msgstr ""
-
-msgid "Data: timeline, history, archive, channel names (replace the current ones)"
-msgstr ""
-
-msgid "Monitoring stops for a moment while the files are replaced."
-msgstr ""
-
-msgid "Restored: %s. The page reloads."
-msgstr ""
-
-msgid "settings"
-msgstr ""
-
-msgid "data"
-msgstr ""
-
-msgid "Restore"
-msgstr ""
-
-msgid "Backup and restore"
-msgstr ""
-
-msgid "One .tar.gz with the settings of the tester and, if you want, its data (timeline, history, the archive on USB, channel names) – to keep it, or to move the monitoring to another router (e.g. from M477 to M477S). Restoring checks the archive first: only files this page writes are accepted."
-msgstr ""
-
-msgid "Download settings + data"
-msgstr ""
-
-msgid "Download settings only"
-msgstr ""
-
-msgid "Restore from a file…"
 msgstr ""
 
 msgid "Watch IPv6"
@@ -2624,9 +2306,6 @@ msgstr ""
 msgid "No IGMP query from the operator was seen in %d min although IPTV freezes occurred – the ISP side does not keep the memberships alive (check that the capture port faces the ISP)."
 msgstr ""
 
-msgid "The link was full %d× – %s was the heaviest user in %d of them (up to %d%% of the traffic then). That traffic is your own, not an ISP fault."
-msgstr ""
-
 msgid "No light came from the line (SFP RX at the noise floor, %d×) – the fibre is broken or unplugged, a connector is dirty or loose, or the ISP's equipment is down. Hard evidence of a fault in the line, not in the router: clean and re-seat the connector first, then show this to the ISP."
 msgstr ""
 
@@ -2640,21 +2319,6 @@ msgid "The SFP module raised an alarm (%d×: %s) – overheating, laser current 
 msgstr ""
 
 msgid "The SFP module stopped answering %d× – taken out, or it hung (power, a faulty module)."
-msgstr ""
-
-msgid "%d problems happened while the router was overheated and its CPU slowed down (up to %s °C) – the router itself loses packets; check ventilation, the heatsink, the case."
-msgstr ""
-
-msgid "%d problems happened while the router was overheated (up to %s °C) – the router itself may lose packets; check ventilation, the heatsink, the case."
-msgstr ""
-
-msgid "The router overheated and throttled its CPU (up to %s °C, %d×) – no problems at those moments."
-msgstr ""
-
-msgid "The router was overheated (up to %s °C, %d×) – no problems at those moments."
-msgstr ""
-
-msgid "Heaviest at those times: %s."
 msgstr ""
 
 msgid "The operator has stopped sending IGMP queries"
@@ -2673,18 +2337,6 @@ msgid "No IGMP query from the operator for %s (usually every %s)"
 msgstr ""
 
 msgid "IGMP queries from the operator again after %s"
-msgstr ""
-
-msgid "Router OVERHEATED: %s %s °C (limit %s °C)"
-msgstr ""
-
-msgid "Router temperature normal again after %s"
-msgstr ""
-
-msgid "Router CPU SLOWED DOWN by heat: %s MHz instead of %s MHz (%s °C)"
-msgstr ""
-
-msgid "Router CPU at full speed again after %s"
 msgstr ""
 
 msgid "OPTICAL SIGNAL WEAKER: RX %s dBm, usually %s dBm (%s dB less) on %s"
@@ -2714,42 +2366,6 @@ msgstr ""
 msgid "SFP module on %s answers again after %s"
 msgstr ""
 
-msgid "%s GB"
-msgstr ""
-
-msgid "LINK FULL (%s %d%%) for %s – heaviest: %s"
-msgstr ""
-
-msgid "%s in that time, from %s"
-msgstr ""
-
-msgid "the connection table"
-msgstr ""
-
-msgid "%d of %d MHz"
-msgstr ""
-
-msgid "throttled"
-msgstr ""
-
-msgid "Router: %s"
-msgstr ""
-
-msgid "limit"
-msgstr ""
-
-msgid "fan"
-msgstr ""
-
-msgid "cooling"
-msgstr ""
-
-msgid "Highest since start: %s °C (%s)"
-msgstr ""
-
-msgid "Overheated for %s, throttled for %s since start"
-msgstr ""
-
 msgid "no answer from the module on %s (%s)"
 msgstr ""
 
@@ -2769,30 +2385,6 @@ msgid "From the SFP module itself (ethtool -m %s)"
 msgstr ""
 
 msgid "Optical signal"
-msgstr ""
-
-msgid "Traffic of the %s the link was %d%% full (%s), %s in total; read from %s at %s"
-msgstr ""
-
-msgid "could not read the traffic per host (%s)"
-msgstr ""
-
-msgid "nlbwmon is installed but not running"
-msgstr ""
-
-msgid "needs nlbwmon (luci-app-nlbwmon) or the conntrack byte accounting"
-msgstr ""
-
-msgid "ready (%s) – listed when the link has been full for a while"
-msgstr ""
-
-msgid "connection table"
-msgstr ""
-
-msgid "The hosts that used the most traffic while the link was full, the last time it was full for a while"
-msgstr ""
-
-msgid "Who fills the link"
 msgstr ""
 
 msgid "last query %s ago"
@@ -2834,21 +2426,6 @@ msgstr ""
 msgid "Optical power of the SFP module (dBm) – red background = signal weaker / no light"
 msgstr ""
 
-msgid "SoC temperature"
-msgstr ""
-
-msgid "CPU throttled"
-msgstr ""
-
-msgid "Router temperature (°C) – red background = CPU slowed down by heat"
-msgstr ""
-
-msgid "Router overheated / CPU throttled"
-msgstr ""
-
-msgid "highest %s °C since %s"
-msgstr ""
-
 msgid "Optical signal (SFP)"
 msgstr ""
 
@@ -2856,24 +2433,6 @@ msgid "weaker %d×, no light %d×"
 msgstr ""
 
 msgid "now RX %s dBm, usually %s dBm, weakest %s dBm since start"
-msgstr ""
-
-msgid "Who filled the link"
-msgstr ""
-
-msgid "Taken automatically while the link was full for a while: the hosts with the most traffic in that time. Full link with your own traffic is not an ISP fault."
-msgstr ""
-
-msgid "Time"
-msgstr ""
-
-msgid "Direction"
-msgstr ""
-
-msgid "Heaviest"
-msgstr ""
-
-msgid "When the link stays full (the limit above) for a while, list the hosts with the most traffic in that time. Only reads: nlbwmon when it is installed and running, else the connection tracking table when its byte accounting is on."
 msgstr ""
 
 msgid "Optical signal (SFP / ONT)"
@@ -2906,11 +2465,131 @@ msgstr ""
 msgid "Shows how long ago the operator sent its last IGMP general query and warns when they stop: without them the memberships expire after about two intervals and the stream freezes. Works on the port facing the ISP (incoming traffic). Needs the isp-tester-tsmon package."
 msgstr ""
 
-msgid "Overheated from (°C)"
+msgid "The port is not valid."
 msgstr ""
 
-msgid "SoC temperature from /sys/class/thermal, two intervals in a row; throttling (slower CPU) is logged on its own. Empty = 5 °C below the point where the kernel starts to throttle (85 °C when unknown), -1 disables."
+msgid "The user name is not valid."
 msgstr ""
 
-msgid "automatic"
+msgid "Send every"
+msgstr ""
+
+msgid "Loading…"
+msgstr ""
+
+msgid "Login failed. Add the public key to ~/.ssh/authorized_keys of that user on the other device."
+msgstr ""
+
+msgid "The folder is not valid (letters, digits and . _ / ~ - only, no “..”)."
+msgstr ""
+
+msgid "Send regularly"
+msgstr ""
+
+msgid "Sending failed."
+msgstr ""
+
+msgid "User"
+msgstr ""
+
+msgid "Only the last 24 h of measurements and the timeline kept on the router are available here. Older files are on the device the data is sent to (Settings → Send data to another device)."
+msgstr ""
+
+msgid "dropbearkey (package dropbear) is not installed."
+msgstr ""
+
+msgid "IP address or name of the other device."
+msgstr ""
+
+msgid "The public key could not be read."
+msgstr ""
+
+msgid "A failed try is repeated after 30 minutes."
+msgstr ""
+
+msgid "Sending…"
+msgstr ""
+
+msgid "hour"
+msgstr ""
+
+msgid "The key path is not valid."
+msgstr ""
+
+msgid "Sends the timeline, history and CSV as one .tar.gz over SSH (dropbear's own client, no extra package) to another device in your network, e.g. a PC or a NAS with an SSH server. That device keeps the files, so the long history lives there and not on this router."
+msgstr ""
+
+msgid "A transfer is running already."
+msgstr ""
+
+msgid "6 hours"
+msgstr ""
+
+msgid "Save & Apply the settings first, then add the public key to <code>~/.ssh/authorized_keys</code> of the user on the other device. The first login also trusts that device's host key; a changed one is refused."
+msgstr ""
+
+msgid "dbclient (package dropbear) is not installed."
+msgstr ""
+
+msgid "The files could not be packed."
+msgstr ""
+
+msgid "week"
+msgstr ""
+
+msgid "Folder on that device"
+msgstr ""
+
+msgid "Login works."
+msgstr ""
+
+msgid "Made on first use. Empty = <code>/etc/dropbear/isp_tester_push_key</code> (kept over a firmware upgrade)."
+msgstr ""
+
+msgid "Key and transfer"
+msgstr ""
+
+msgid "The key could not be made."
+msgstr ""
+
+msgid "Private key"
+msgstr ""
+
+msgid "Show the public key"
+msgstr ""
+
+msgid "There is no data to send yet."
+msgstr ""
+
+msgid "SSH port"
+msgstr ""
+
+msgid "Last try failed (%s): %s"
+msgstr ""
+
+msgid "Send now"
+msgstr ""
+
+msgid "Nothing sent yet."
+msgstr ""
+
+msgid "Last sent: %s – %s (%d kB) to %s."
+msgstr ""
+
+msgid "Set the address and the user first, then Save & Apply."
+msgstr ""
+
+msgid "Test the login"
+msgstr ""
+
+msgid "Send data to another device"
+msgstr ""
+
+msgid "A relative path is in the user's home. It is created when missing."
+msgstr ""
+
+msgid "day"
+msgstr ""
+
+msgid "The address is not valid."
 msgstr ""

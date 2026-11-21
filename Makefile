@@ -14,7 +14,7 @@ LUCI_DESCRIPTION:=Logs WAN, IPTV and switch-port faults as a timeline \
 	(luci-app-statistics), session state from netifd, plus IGMP state, \
 	interface counters and the system log. IPTV picture quality and \
 	channel names need the isp-tester-tsmon package.
-LUCI_DEPENDS:=+luci-base +rpcd-mod-ucode +ucode +ucode-mod-fs +ucode-mod-uloop +ip-bridge \
+LUCI_DEPENDS:=+luci-base +rpcd-mod-ucode +ucode +ucode-mod-fs +ucode-mod-uloop +ip-bridge +dropbear \
 	+ucode-mod-uci +ucode-mod-ubus +ucode-mod-socket +ucode-mod-digest +ca-bundle
 LUCI_PKGARCH:=all
 
