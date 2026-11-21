@@ -276,8 +276,10 @@ function count_events(since) {
 		let e = events[i];
 		if (e.ts < since) break;
 		/* a recovery (link up, Internet back, stream resumed) ends a problem
-		 * already counted: one outage is one problem, not two */
-		if (e.host || e.m || RECOVERY[e.type]) continue;
+		 * already counted: one outage is one problem, not two. A path
+		 * snapshot (trace) is evidence for the loss it was taken for, not a
+		 * problem of its own (as in the analysis and the per-hour chart) */
+		if (e.host || e.m || RECOVERY[e.type] || e.type == 'trace') continue;
 		if (e.lvl == 'warn') n.warn++;
 		else if (e.lvl == 'err') n.err++;
 	}

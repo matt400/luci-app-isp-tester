@@ -432,9 +432,12 @@ function collectd_ping() {
 	let w = C.cfg.wan;
 	if (w.collectd_socket && fs.stat(w.collectd_socket)) {
 		let r = cd_unixsock(w.collectd_socket);
-		if (!r.error) return { type: 'unixsock', hosts: r.hosts };
+		/* (cleared again: a socket that failed once, e.g. while collectd
+		 * restarted, was shown as failing for good) */
 		source.sock_error = r.error;
+		if (!r.error) return { type: 'unixsock', hosts: r.hosts };
 	}
+	else source.sock_error = null;
 	if (fs.stat(w.rrd_dir)?.type == 'directory') {
 		let r = cd_rrd(w.rrd_dir);
 		return r.error ? { type: null, error: r.error } : { type: 'rrd', hosts: r.hosts };
