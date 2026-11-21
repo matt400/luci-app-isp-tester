@@ -40,6 +40,8 @@ import * as fs from 'fs';
 import * as uloop from 'uloop';
 
 const RUNDIR = getenv('ISP_TESTER_RUNDIR') || '/tmp/isp-tester';
+/* testing with a JSON config: no ubus unless ISP_TESTER_UBUS is set */
+const NO_UBUS = !!getenv('ISP_TESTER_CONFIG') && !getenv('ISP_TESTER_UBUS');
 const VARDIR = getenv('ISP_TESTER_VARDIR') || '/var/run/isp-tester';
 const SYSNET = getenv('ISP_TESTER_SYSNET') || '/sys/class/net';
 const ROUTE = getenv('ISP_TESTER_ROUTE') || '/proc/net/route';
@@ -505,6 +507,7 @@ const MSG = {
 		dns_fail: 'DNS: %d%% of the queries sent upstream unanswered (%d of %d in %ss)', dns_ok: 'DNS OK again after %s (at worst %d%% unanswered)',
 		dns_server_bad: 'DNS server %s: %d of %d queries retried or failed in %s', dns_server_ok: 'DNS server %s OK again',
 		router_reboot: 'Router restarted (up since %s)', data_gap: 'No measurements from %s to %s (%s): %s',
+		collector_restart: 'Monitor restarted after it %s',
 		ntp_sync: 'Clock synchronized (NTP stratum %s)', ntp_unsync: 'Clock NOT synchronized - times in the log may be wrong',
 		ntp_off: 'No NTP client running - times in the log may be wrong', clock_step: 'Clock set by %ss',
 		maint_start: 'Maintenance until %s: not counted, no notifications (%s)', maint_end: 'Maintenance over after %s'
@@ -538,6 +541,7 @@ const MSG = {
 		dns_fail: 'DNS: %d%% zapytań wysłanych dalej bez odpowiedzi (%d z %d w %ss)', dns_ok: 'DNS znów OK po %s (najgorzej %d%% bez odpowiedzi)',
 		dns_server_bad: 'Serwer DNS %s: %d z %d zapytań ponowionych lub nieudanych w %s', dns_server_ok: 'Serwer DNS %s znów OK',
 		router_reboot: 'Router uruchomiony ponownie (działa od %s)', data_gap: 'Brak pomiarów od %s do %s (%s): %s',
+		collector_restart: 'Monitor uruchomiony ponownie, bo %s',
 		ntp_sync: 'Zegar zsynchronizowany (NTP stratum %s)', ntp_unsync: 'Zegar NIE jest zsynchronizowany - czasy w logu mogą być błędne',
 		ntp_off: 'Brak klienta NTP - czasy w logu mogą być błędne', clock_step: 'Zegar przestawiony o %ss',
 		maint_start: 'Prace serwisowe do %s: bez liczenia i powiadomień (%s)', maint_end: 'Prace serwisowe zakończone po %s'
@@ -609,6 +613,9 @@ function event_text(e, lang) {
 	case 'dns_server_bad': return sprintf(f, e.src, d.bad, d.sent, dur_txt(d.win));
 	case 'dns_server_ok': return sprintf(f, e.src);
 	case 'router_reboot': return sprintf(f, tstamp(d.boot));
+	case 'collector_restart': return sprintf(f, d.why == 'hung'
+		? (lang == 'pl' ? 'się zawiesił (watchdog)' : 'hung (watchdog)')
+		: (lang == 'pl' ? 'nieoczekiwanie się zatrzymał' : 'stopped unexpectedly'));
 	case 'ntp_sync': return sprintf(f, d.stratum ?? '?');
 	case 'clock_step': return sprintf(f, (d.by > 0 ? '+' : '') + d.by);
 	case 'maint_start': return sprintf(f, substr(tstamp(d.until), 11, 5), d.note || '-');
@@ -909,6 +916,8 @@ function emit(lvl, area, src, typ, data, ts) {
 const ALIVE = `${RUNDIR}/alive.json`;
 const STOPPED = `${VARDIR}/stopped`;
 const BOOT_ID = trim(fs.readfile(`${PROC}/sys/kernel/random/boot_id`) ?? '') || null;
+/* procd's watchdog timeout (set by the init script) */
+const WATCHDOG = num(getenv('ISP_TESTER_WATCHDOG'), 60);
 let alive_ts = 0;
 
 function uptime_s() {
@@ -942,11 +951,36 @@ function gap_check() {
 		if (last != null)
 			emit('info', 'system', 'collector', 'data_gap', { from: last, to: t, len: t - last, why: 'reboot', boot }, last);
 	}
-	else if (last != null && t - last > cfg.interval * 3 + 30) {
-		let why = (stop != null && stop >= last - 5) ? 'stopped' : 'crash';
-		emit('info', 'system', 'collector', 'data_gap', { from: last, to: t, len: t - last, why }, last);
+	else if (last != null) {
+		/* same boot: stopped cleanly, or ended by itself / by the watchdog */
+		let clean = stop != null && stop >= last - 5;
+		/* the watchdog kills it WATCHDOG s after its last report */
+		let why = clean ? 'stopped' : (st != null && t - st.ts >= WATCHDOG * 0.8) ? 'hung' : 'crash';
+		if (!clean && st != null)
+			emit('warn', 'system', 'collector', 'collector_restart', { why, last: st.ts, after: t - st.ts });
+		if (t - last > cfg.interval * 3 + 30)
+			emit('info', 'system', 'collector', 'data_gap', { from: last, to: t, len: t - last, why }, last);
 	}
 	alive_save(t);
+}
+
+/* procd's instance watchdog: report every tick; when the reports stop
+ * (hung in a command), procd kills the collector and starts it again */
+let wd = { err: null, last: 0, mode: null };
+
+function watchdog_ping() {
+	if (NO_UBUS || !getenv('ISP_TESTER_WATCHDOG')) return;
+	try {
+		ubus_conn ??= require('ubus').connect();
+		let r = ubus_conn?.call('service', 'watchdog', { name: 'isp_tester', instance: 'instance1' });
+		wd.mode = r?.mode;
+		wd.last = now();
+		wd.err = (r == null) ? 'no_answer' : null;
+	}
+	catch (e) {
+		ubus_conn = null;
+		wd.err = 'ubus';
+	}
 }
 
 /* the cards show this router only: events of the second router (e.host)
@@ -2283,7 +2317,7 @@ function dnsmasq_metrics() {
 		try { j = json(fs.readfile(f) || 'null'); } catch (e) { j = null; }
 		return (type(j) == 'object') ? j : null;
 	}
-	if (getenv('ISP_TESTER_CONFIG')) return null;
+	if (NO_UBUS) return null;
 	try {
 		ubus_conn ??= require('ubus').connect();
 		let sum = null;
@@ -3741,7 +3775,7 @@ function iface_status(name, env) {
 	if (f) {
 		try { return json(fs.readfile(f) || 'null'); } catch (e) { return null; }
 	}
-	if (getenv('ISP_TESTER_CONFIG')) return null;
+	if (NO_UBUS) return null;
 	try {
 		ubus_conn ??= require('ubus').connect();
 		return ubus_conn?.call(`network.interface.${name}`, 'status');
@@ -3822,7 +3856,7 @@ function hostapd_read() {
 		try { j = json(fs.readfile(f) || 'null'); } catch (e) { j = null; }
 		return (type(j) == 'object') ? j : null;
 	}
-	if (getenv('ISP_TESTER_CONFIG')) return null;
+	if (NO_UBUS) return null;
 	try {
 		ubus_conn ??= require('ubus').connect();
 		let out = {};
@@ -3841,7 +3875,7 @@ function hostapd_read() {
 /* signal from iwinfo for an interface (only when hostapd has none) */
 function iwinfo_signals(ifn) {
 	let out = {};
-	if (getenv('ISP_TESTER_CONFIG') || !ubus_conn) return out;
+	if (NO_UBUS || !ubus_conn) return out;
 	try {
 		let r = ubus_conn.call('iwinfo', 'assoclist', { device: ifn });
 		for (let x in (r?.results ?? []))
@@ -3878,7 +3912,7 @@ function wifi_notify(ev) {
 }
 
 function wifi_subscribe(objs) {
-	if (getenv('ISP_TESTER_CONFIG') || !ubus_conn || !length(cfg.wifi.stations)) return;
+	if (NO_UBUS || !ubus_conn || !length(cfg.wifi.stations)) return;
 	try {
 		wifi.sub ??= ubus_conn.subscriber((ev) => {
 			try { wifi_notify(ev); } catch (e) {}
@@ -4032,6 +4066,7 @@ function handle_clear_request() {
 }
 
 function tick() {
+	watchdog_ping();
 	clk_check();
 	ntp_poll();
 	if (now() - alive_ts >= 60) alive_save(now());
@@ -4253,6 +4288,7 @@ function tick() {
 		csv_rows,
 		data: { dir: RUNDIR, link: (fs.lstat(RUNDIR)?.type == 'link') ? fs.readlink(RUNDIR) : null, archive: arch.info },
 		ntp: ntp_out(),
+		watchdog: { timeout: WATCHDOG, mode: wd.mode, last: wd.last || null, err: wd.err },
 		maint: maint.until != null ? { until: maint.until, since: maint.since, note: maint.note, active: maint_on() } : null,
 		notify: cfg.notify.enabled ? { service: cfg.notify.service, pending: length(notif.pending),
 			last_ok: notif.last_ok, last_fail: notif.last_fail, last_err: notif.last_err, fetch: FETCH != null } : null

@@ -331,6 +331,9 @@ function eventText(e) {
 		(d.lat != null ? ' · ' + _('average %d ms').format(d.lat) : '');
 	case 'dns_server_ok':   return _('DNS server %s answers normally again').format(e.src);
 	case 'router_reboot':   return _('ROUTER RESTARTED – up since %s').format(fmtTime(d.boot)) + (d.ram ? ' · ' + _('earlier data was in RAM and is lost') : '');
+	case 'collector_restart': return (d.why === 'hung'
+		? _('Monitor restarted by the watchdog: it hung (last report %s before)')
+		: _('Monitor restarted after it stopped unexpectedly (last report %s before)')).format(fmtDur(d.after));
 	case 'data_gap':        return _('NOT MEASURED from %s to %s (%s): %s').format(d.from ? fmtTime(d.from) : '?', fmtTime(d.to), fmtDur(d.len), gapWhy(d.why));
 	case 'ntp_sync':        return _('Clock synchronized by NTP (stratum %s)').format(d.stratum != null ? d.stratum : '?') + (d.after != null && d.after < 3600 ? ' · ' + _('%s after boot').format(fmtDur(d.after)) : '');
 	case 'ntp_unsync':      return _('Clock NOT synchronized any more (NTP lost its servers) – times may drift');
@@ -1036,6 +1039,26 @@ return view.extend({
 			]);
 		}
 
+		/* running, but the state is not updated: hung (procd's watchdog restarts it) */
+		var stale = Date.now() / 1000 - st.ts;
+		var wdt = (st.watchdog && st.watchdog.timeout) || Math.max(60, st.interval * 6);
+		if (stale > Math.max(st.interval * 3, 30)) {
+			return E('div', { 'class': 'ispt-banner ispt-bg-fail' }, [
+				dot('fail', true),
+				E('div', {}, [
+					E('div', { 'class': 'big' }, _('MONITOR IS NOT WORKING')),
+					E('div', { 'class': 'sub' }, (stale < wdt + 30
+						? _('The collector has not reported for %s – it seems to hang. The watchdog restarts it automatically after %s.')
+						: _('The collector has not reported for %s, and the watchdog (%s) did not restart it – see the system log (logread -e isp-tester).')).format(fmtDur(stale), fmtDur(wdt)) +
+						' ' + _('Nothing is measured meanwhile; the gap will be in the report.'))
+				]),
+				E('div', { 'class': 'meta' }, E('button', {
+					'class': 'cbi-button cbi-button-positive',
+					'click': ui.createHandlerFn(this, 'toggleEnabled', true)
+				}, _('Restart')))
+			]);
+		}
+
 		var o = lvl(st.overall);
 		var problems = [];
 		[ [ 'wan', st.wan ], [ 'iptv', st.iptv ], [ 'ports', st.ports ], [ 'wifi', st.wifi ] ].forEach(function(a) {
@@ -1098,6 +1121,17 @@ return view.extend({
 			})),
 			note,
 			E('div', { 'class': 'right', 'style': 'margin-top:.8em' }, E('button', { 'class': 'cbi-button', 'click': ui.hideModal }, _('Cancel')))
+		]);
+	},
+
+	/* the collector keeps restarting: say so, the measurements have holes */
+	renderRestarts: function(st) {
+		var t = Date.now() / 1000;
+		var n = this.events().filter(function(e) { return !e.host && e.type === 'collector_restart' && e.ts > t - 3600; }).length;
+		if (n < 2) return '';
+		return E('div', { 'class': 'ispt-banner ispt-bg-warn', 'style': 'padding:.5em 1em' }, [
+			dot('warn'), E('div', {}, [ E('strong', {}, _('The monitor restarted %d× in the last hour').format(n)), ' – ',
+				_('it crashes or hangs; see the system log (logread -e isp-tester) and report it. Measurements have short gaps.') ])
 		]);
 	},
 
@@ -1770,6 +1804,7 @@ return view.extend({
 			row(_('Measured'), _('%s%% of the period').format(coverage.toFixed(coverage >= 99.95 ? 0 : 1)) +
 				(gaps.length ? ' · ' + _('not measured: %s in %d periods (listed below)').format(fmtDur(unmeasured), gaps.length) : ' · ' + _('without interruption'))) +
 			row(_('Router restarts'), _('%d×').format(allEv.filter(function(e) { return e.type === 'router_reboot' && !e.host && e.ts >= w.from && e.ts <= w.to; }).length)) +
+			row(_('Monitor restarts (crash / watchdog)'), _('%d×').format(allEv.filter(function(e) { return e.type === 'collector_restart' && !e.host && e.ts >= w.from && e.ts <= w.to; }).length)) +
 			(function() {
 				var ms = maintIn(allEv, w.from, w.to, Date.now() / 1000), len = 0;
 				ms.forEach(function(m) { len += clipLen(Math.max(m.from, w.from), Math.min(m.to, w.to), hr); });
@@ -2035,7 +2070,7 @@ return view.extend({
 			this.ensureArchive(w).then(function(loaded) { if (loaded) self.redraw(); });
 
 		var parts = [ this.renderBanner(res) ];
-		if (st) parts.push(this.renderMaint(st), this.renderClock(st));
+		if (st) parts.push(this.renderMaint(st), this.renderClock(st), this.renderRestarts(st));
 
 		if (st) {
 			parts.push(this.renderDiagnosis(st, w));

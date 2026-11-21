@@ -131,6 +131,12 @@ A report with holes in it is easy for the ISP to dismiss, so the holes are named
 
 With the data in RAM nothing survives a reboot, so only *Router restarted* is logged. The state strip above the charts shows such periods hatched grey; outages and freezes that were open when the measurement stopped end there (their length does not include the time nobody measured). The report for the ISP starts with **Measurement coverage**: the share of the period that was measured, the router restarts, and every period without measurements with its reason.
 
+### Watchdog: the monitor watches itself
+
+A monitor that silently stops is worse than none. The init script uses procd's own instance watchdog: the collector reports to procd every interval (`ubus call service watchdog`); when the reports stop for six intervals (at least 60 s) – the collector hangs, e.g. in a command that never returns – procd kills it and starts it again. After a crash procd restarts it after 5 s, without giving up. The next start logs *Monitor restarted by the watchdog: it hung* or *… after it stopped unexpectedly*, and the time without measurements as a gap (above).
+
+On the overview a red **MONITOR IS NOT WORKING** banner appears as soon as the collector has not updated its state for three intervals (with *Restart*), and a yellow strip when it restarted more than once in the last hour. The report counts the monitor restarts.
+
 ### Clock: times are only worth something when it is synchronized
 
 After a reboot the router starts with the time of its newest file until NTP sets the clock, so the first entries of a boot can carry a wrong time – exactly the entries the ISP would look at after an outage. Two sources, nothing measured twice:
