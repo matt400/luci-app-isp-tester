@@ -57,7 +57,7 @@ Gateway vs. far-target loss helps pinpoint the cause. Loss to the gateway points
 
 ## Web interface
 
-**Status → ISP Tester → Overview**
+**Services → ISP Tester → Overview**
 
 - A large status banner: green "Everything works", yellow "Works, but there were problems" (within the last 15 min) or red "Fault right now".
 - **Probable cause** panel for the selected period. It gives a verdict (*ISP*, *router / home network*, *mixed*), an ISP-vs-home ratio, and the findings behind it (see below).
@@ -69,7 +69,7 @@ Gateway vs. far-target loss helps pinpoint the cause. Loss to the gateway points
 - **Report for the ISP**: a printable summary of the selected period (outages, freezes with total/longest duration, session drops, verdict, problems by hour, event log). Print it or save it as PDF and attach it to your complaint.
 - Export buttons: measurements CSV (one row per interval) and timeline CSV.
 
-**Status → ISP Tester → Settings** holds all thresholds, the IPTV VLAN (or device) and the list of ports. The ping hosts are set in collectd (luci-app-statistics).
+**Services → ISP Tester → Settings** holds all thresholds, the IPTV VLAN (or device) and the list of ports. The ping hosts are set in collectd (luci-app-statistics).
 
 The UI is in English and Polish.
 
