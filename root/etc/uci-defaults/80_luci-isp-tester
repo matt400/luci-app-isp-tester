@@ -18,7 +18,7 @@ uci -q get isp_tester.notify >/dev/null || {
 }
 # removed features: Wi-Fi clients, link hogs, SoC temperature, USB archive
 uci -q delete isp_tester.wifi
-while uci -q get 'isp_tester.@station[0]' >/dev/null; do uci -q delete 'isp_tester.@station[0]'; done
+while uci -q get 'isp_tester.@station[0]' >/dev/null; do uci -q delete 'isp_tester.@station[0]' || break; done
 uci -q delete isp_tester.wan.hogs
 uci -q delete isp_tester.wan.hogs_cooldown
 uci -q delete isp_tester.system.temp_warn

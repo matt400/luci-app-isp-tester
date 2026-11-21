@@ -177,8 +177,15 @@ static void utf8_clean(const uint8_t *s, int n, int p, char **o, char *end)
 		for (j = 1; j <= k; j++)
 			if (p + j >= n || (s[p + j] & 0xc0) != 0x80) { ok = 0; break; }
 		if (!ok) { p++; continue; }
+		/* code point; overlong forms, surrogates and values above U+10FFFF are not valid UTF-8 */
+		unsigned cp = (k == 1) ? ((c & 31) << 6) | (s[p + 1] & 63)
+			: (k == 2) ? ((c & 15) << 12) | ((s[p + 1] & 63) << 6) | (s[p + 2] & 63)
+			: ((c & 7) << 18) | ((s[p + 1] & 63) << 12) | ((s[p + 2] & 63) << 6) | (s[p + 3] & 63);
+		if ((k == 2 && (cp < 0x800 || (cp >= 0xd800 && cp <= 0xdfff))) || (k == 3 && (cp < 0x10000 || cp > 0x10ffff))) {
+			p++;
+			continue;
+		}
 		/* DVB control codes in UTF-8 text are U+E080..U+E09F */
-		unsigned cp = (k == 2) ? ((c & 15) << 12) | ((s[p + 1] & 63) << 6) | (s[p + 2] & 63) : 0;
 		if (!(cp >= 0xe080 && cp <= 0xe09f) && *o + k + 1 <= end) {
 			memcpy(*o, s + p, k + 1);
 			*o += k + 1;
@@ -832,6 +839,8 @@ struct prog {
 
 static int emit(struct prog *p, uint16_t code, uint32_t k, int jt, int jf)
 {
+	if (p->n >= (int)(sizeof(p->ins) / sizeof(p->ins[0])))
+		die(1, "internal error: filter too long");
 	int i = p->n++;
 	p->ins[i] = (struct sock_filter){ code, 0, 0, k };
 	p->fix_jt[i] = jt;
@@ -930,7 +939,9 @@ static int run_live(const char *dev, int vid, int dir_out, const char *state)
 	unsigned ifindex = if_nametoindex(dev);
 	if (!ifindex) die(3, "no such device: %s", dev);
 
-	int fd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
+	/* protocol 0: the socket receives nothing until bind() below, so no
+	 * unfiltered packet is queued while the filter is being attached */
+	int fd = socket(AF_PACKET, SOCK_RAW, 0);
 	if (fd < 0) die(4, "packet socket: %s", strerror(errno));
 
 	/* filter first, then bind: no unfiltered packet is ever queued */
@@ -939,8 +950,11 @@ static int run_live(const char *dev, int vid, int dir_out, const char *state)
 	if (setsockopt(fd, SOL_SOCKET, SO_ATTACH_FILTER, &fp, sizeof(fp)) < 0)
 		die(4, "attach filter: %s", strerror(errno));
 
+	/* SO_RCVBUF is capped by net.core.rmem_max (about 200 kB on OpenWrt);
+	 * as root the force variant gives the full size, so bursts are not dropped */
 	int rcv = 2 * 1024 * 1024;
-	setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &rcv, sizeof(rcv));
+	if (setsockopt(fd, SOL_SOCKET, SO_RCVBUFFORCE, &rcv, sizeof(rcv)) < 0)
+		setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &rcv, sizeof(rcv));
 
 	struct sockaddr_ll sll = { .sll_family = AF_PACKET, .sll_protocol = htons(ETH_P_ALL), .sll_ifindex = ifindex };
 	if (bind(fd, (struct sockaddr *)&sll, sizeof(sll)) < 0)
