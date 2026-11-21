@@ -23,6 +23,11 @@ DATA_FILES="events.json history.json channels.json wanpeak.json samples.csv samp
 DEF_KEY=/etc/dropbear/isp_tester_push_key
 
 fail() {
+	# 'send' also notes the failure in push.json: the collector then waits
+	# 30 min before the next try (without it, a send that cannot start -
+	# no address set, no dbclient - was started again every interval), and
+	# the settings page shows why
+	[ -n "$SENDING" ] && state "{\"ok\":false,\"ts\":$(date +%s),\"err\":\"$1\"}"
 	printf '{"result":false,"error":"%s"}\n' "$1"
 	exit 0
 }
@@ -95,25 +100,27 @@ test_login() {
 }
 
 send() {
-	load
 	mkdir -p "$VARDIR"
-	# one at a time
-	if [ -f "$LOCK" ] && [ -d "/proc/$(cat "$LOCK" 2>/dev/null)" ]; then
-		fail busy
-	fi
+	# one at a time; checked first: a busy try must not overwrite the state
+	# of the running one
+	local pid
+	pid=$(cat "$LOCK" 2>/dev/null)
+	case "$pid" in ''|*[!0-9]*) ;; *) [ "$pid" != $$ ] && [ -d "/proc/$pid" ] && fail busy ;; esac
+	SENDING=1
+	load
+	ensure_key "$KEY"
 	echo $$ > "$LOCK"
 	# global, not local: the EXIT trap runs after this function has returned
 	tmp=$VARDIR/push.$$.tar.gz
 	trap 'rm -f "$LOCK" "$tmp"' EXIT
 	local ts=$(date +%s) name size files= f out rc
 	state "{\"ok\":false,\"state\":\"running\",\"ts\":$ts}"
-	ensure_key "$KEY"
 	for f in $DATA_FILES; do [ -f "$RUNDIR/$f" ] && files="$files $f"; done
-	[ -n "$files" ] || { state "{\"ok\":false,\"ts\":$ts,\"err\":\"no_data\"}"; fail no_data; }
+	[ -n "$files" ] || fail no_data
 	name="isp-tester-$(host)-$(date +%Y%m%d-%H%M).tar.gz"
 	# the other device writes to a temporary name and renames at the end, so
 	# a cut transfer never leaves a broken .tar.gz behind
-	( cd "$RUNDIR" && tar -czf "$tmp" $files ) 2>/dev/null || { state "{\"ok\":false,\"ts\":$ts,\"err\":\"tar\"}"; fail tar; }
+	( cd "$RUNDIR" && tar -czf "$tmp" $files ) 2>/dev/null || fail tar
 	size=$(wc -c < "$tmp")
 	# only the exit status counts: dbclient also prints notes (new host key)
 	out=$(ssh_run "mkdir -p $DIR && cat > $DIR/$name.part && mv $DIR/$name.part $DIR/$name" < "$tmp")
