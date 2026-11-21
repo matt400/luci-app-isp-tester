@@ -130,6 +130,17 @@ A report with holes in it is easy for the ISP to dismiss, so the holes are named
 
 With the data in RAM nothing survives a reboot, so only *Router restarted* is logged. The state strip above the charts shows such periods hatched grey; outages and freezes that were open when the measurement stopped end there (their length does not include the time nobody measured). The report for the ISP starts with **Measurement coverage**: the share of the period that was measured, the router restarts, and every period without measurements with its reason.
 
+### Clock: times are only worth something when it is synchronized
+
+After a reboot the router starts with the time of its newest file until NTP sets the clock, so the first entries of a boot can carry a wrong time – exactly the entries the ISP would look at after an outage. Two sources, nothing measured twice:
+
+- **What the NTP client reports**: `/etc/hotplug.d/ntp/90-isp-tester` notes every hotplug *ntp* event of busybox `ntpd` (stratum, step, unsync, periodic) or chrony. Logged: *clock synchronized (stratum N)*, *clock not synchronized any more*, *no NTP client running*.
+- **The clock itself**: when wall time minus monotonic time jumps by more than 2 s, *Clock set by +N s* is logged.
+
+Entries logged shortly after a boot while the clock was not confirmed are marked; when NTP sets the clock they are **moved by the step** (with the chart points of that time) and only then written to the archive – the timeline says *N earlier entries of this boot moved to the right time*. Confirmed without a step, they were right; after an hour without either they stay as they are. A yellow strip under the banner warns while the clock is not synchronized, and the report names the clock state and any steps in the period.
+
+On install the package restarts `sysntpd` once (busybox ntpd reports to hotplug only when its state changes), so the current state is known at once.
+
 ### Archive: 7 / 30 days, weekly report
 
 With the data on USB, **Settings → General → Archive on USB** (default 30 days) also keeps, per UTC day, in `/tmp/isp-tester/archive/`:
@@ -177,8 +188,6 @@ The Internet card shows *IPv6: prefix …/56 · RA OK · ping 2/2*; the analysis
 The Internet card shows *DNS: 85 queries/min · 60 % from the cache · 0 % unanswered · 1.1.1.1 18 ms*. The analysis puts DNS failures while the line works on the upstream DNS server (the ISP's, or the one you set); during an outage they are just part of it.
 
 ## Path snapshot at a loss
-
-
 
 When a target starts losing packets (or everything is down), the collector runs one traceroute to a far target – the gateway alone would show nothing beyond hop 1. `mtr` (package `mtr`, 10 rounds at 0.5 s) is used when installed and gives loss per hop; otherwise busybox `traceroute -q 3`. The result is one event on the timeline: click it to fold out the hops.
 
@@ -241,7 +250,7 @@ How it works: UDP (default port 51477), one JSON message per datagram, signed wi
 | `wanpeak.json` | highest WAN rate seen (line speed for the bufferbloat check) |
 | `/var/run/isp-tester/peers.json` | receiver: last event number stored per second router (always RAM) |
 | `/tmp/isp-tester/alive.json` | last sign of life of the collector and the boot id (once a minute) |
-
+| `/var/run/isp-tester/ntp.last`, `ntp.pending` | what the NTP client reported (hotplug), newest / not read yet (always RAM) |
 
 ## Choosing what to measure IPTV on
 

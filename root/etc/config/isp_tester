@@ -55,7 +55,6 @@ config wan 'wan'
 	option interface6 ''
 	option ra_after '60'
 	# speed of the plan in Mbit/s; unset = the highest rate seen
-
 	#option down_mbit '300'
 	#option up_mbit '50'
 

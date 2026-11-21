@@ -322,6 +322,11 @@ function eventText(e) {
 	case 'dns_server_ok':   return _('DNS server %s answers normally again').format(e.src);
 	case 'router_reboot':   return _('ROUTER RESTARTED – up since %s').format(fmtTime(d.boot)) + (d.ram ? ' · ' + _('earlier data was in RAM and is lost') : '');
 	case 'data_gap':        return _('NOT MEASURED from %s to %s (%s): %s').format(d.from ? fmtTime(d.from) : '?', fmtTime(d.to), fmtDur(d.len), gapWhy(d.why));
+	case 'ntp_sync':        return _('Clock synchronized by NTP (stratum %s)').format(d.stratum != null ? d.stratum : '?') + (d.after != null && d.after < 3600 ? ' · ' + _('%s after boot').format(fmtDur(d.after)) : '');
+	case 'ntp_unsync':      return _('Clock NOT synchronized any more (NTP lost its servers) – times may drift');
+	case 'ntp_off':         return _('No NTP client running – the times in the log cannot be trusted');
+	case 'clock_step':      return _('Clock set by %s%s').format(d.by > 0 ? '+' : '−', fmtDur(Math.abs(d.by))) +
+		(d.fixed ? ' · ' + _('%d earlier entries of this boot moved to the right time').format(d.fixed) : '');
 	default:                return e.type;
 	}
 }
@@ -1020,6 +1025,18 @@ return view.extend({
 		]);
 	},
 
+	/* ---- clock: times are only worth something when it is synchronized */
+	renderClock: function(st) {
+		var n = st.ntp;
+		if (!n || (n.state === 'synced' && !n.untrusted) || n.state === 'unknown') return '';
+		var text = n.state === 'off' ? _('No NTP client is running on the router (System → System → Time synchronization). The times in the log and in the report cannot be trusted.')
+			: n.untrusted ? _('The clock has not been confirmed by NTP since the router started (%s ago). Times logged until then are corrected automatically when NTP sets the clock.').format(fmtDur(n.uptime))
+			: _('The clock is not synchronized (NTP reports no server). The times in the log may be wrong – check the Internet connection and System → System → Time synchronization.');
+		return E('div', { 'class': 'ispt-banner ispt-bg-warn', 'style': 'padding:.5em 1em' }, [
+			dot('warn'), E('div', {}, [ E('strong', {}, _('Clock not synchronized')), ' – ', text ])
+		]);
+	},
+
 	/* ---- cards */
 	renderWan: function(st) {
 		var w = st.wan;
@@ -1529,6 +1546,15 @@ return view.extend({
 			row(_('Measured'), _('%s%% of the period').format(coverage.toFixed(coverage >= 99.95 ? 0 : 1)) +
 				(gaps.length ? ' · ' + _('not measured: %s in %d periods (listed below)').format(fmtDur(unmeasured), gaps.length) : ' · ' + _('without interruption'))) +
 			row(_('Router restarts'), _('%d×').format(allEv.filter(function(e) { return e.type === 'router_reboot' && !e.host && e.ts >= w.from && e.ts <= w.to; }).length)) +
+			row(_('Router clock'), (function() {
+				var n = st.ntp || {};
+				var s = n.state === 'synced' ? _('synchronized by NTP') + (n.stratum != null ? ' (' + _('stratum %s').format(n.stratum) + ')' : '')
+					: n.state === 'off' ? _('NO NTP client – times not reliable')
+					: n.state === 'unsynced' ? _('NOT synchronized now – times may be off')
+					: _('NTP running, no report since boot yet');
+				var steps = allEv.filter(function(e) { return e.type === 'clock_step' && !e.host && e.ts >= w.from && e.ts <= w.to; });
+				return s + (steps.length ? ' · ' + _('set %d× in the period (entries logged before were corrected)').format(steps.length) : '');
+			})()) +
 			'</table>' +
 			(gaps.length ? '<p class="muted">' + x(_('The router did not measure at these times; nothing in this report covers them:')) + '</p><table class="ev">' +
 				gaps.map(function(g) {
@@ -1536,7 +1562,6 @@ return view.extend({
 						'</td><td>' + x(g.why === 'before' ? _('monitoring had not started yet (or older data was deleted)') : gapWhy(g.why)) + '</td></tr>';
 				}).join('') + '</table>' : '') +
 			'<h2>' + x(_('Connection')) + '</h2><table>' +
-
 			row(_('WAN interface / device'), (st.wan ? st.wan.interface + ' / ' + st.wan.device : '–')) +
 			(st.wan && st.wan.session ? row(_('Session'), (st.wan.session.proto || '') + ' · ' + (st.wan.session.ip || '')) : '') +
 			row(_('Ping targets'), targets || '–') +
@@ -1546,7 +1571,6 @@ return view.extend({
 			row(_('Internet outages'), _('%d, total %s, longest %s').format(net.n, fmtDur(net.total), fmtDur(net.longest))) +
 			row(_('Packet loss at the ISP gateway'), _('%d×').format(count(function(e) { return e.src === 'gateway' && (e.type === 'target_degraded' || e.type === 'target_fail') && e.d && e.d.loss > 0; }))) +
 			row(_('Packet loss to far targets'), _('%d×').format(count(function(e) { return e.area === 'wan' && e.src !== 'gateway' && e.src !== 'dns' && e.src !== 'netifd' && !(e.d && e.d.fam === 6) && (e.type === 'target_degraded' || e.type === 'target_fail') && e.d && e.d.loss > 0; }))) +
-
 			row(_('WAN session drops (PPPoE/DHCP)'), _('%d×').format(count(function(e) { return e.type === 'wan_reconnect' || e.type === 'wan_if_down'; }))) +
 			row(_('WAN port link drops'), _('%d×').format(count(function(e) { return e.type === 'link_down' && e.area === 'wan'; }))) +
 			(st.wan && st.wan.v6 && st.wan.v6.found ? row(_('IPv6 outages (IPv4 working)'), (function() { var v = sum('v6_down', [ 'v6_up', 'monitor_start' ]); return _('%d, total %s, longest %s').format(v.n, fmtDur(v.total), fmtDur(v.longest)); })()) +
@@ -1555,7 +1579,6 @@ return view.extend({
 			row(_('Related messages in the system log'), _('%d×').format(count(function(e) { return e.type === 'log'; }))) +
 			row(_('DNS failing (no answer from the upstream server)'), (function() { var v = sum('dns_fail', [ 'dns_ok', 'monitor_start' ]); return _('%d, total %s, longest %s').format(v.n, fmtDur(v.total), fmtDur(v.longest)); })() +
 				(count(function(e) { return e.type === 'dns_server_bad'; }) ? ' · ' + _('servers with many failed queries: %s').format(own.filter(function(e) { return e.type === 'dns_server_bad'; }).map(function(e) { return e.src; }).filter(function(v, i, a) { return a.indexOf(v) === i; }).join(', ')) : '')) +
-
 			row(_('IPTV freezes'), _('%d, total %s, longest %s').format(tv.n, fmtDur(tv.total), fmtDur(tv.longest)) + (r.zaps ? ' · ' + _('%d channel changes not counted').format(r.zaps) : '')) +
 			row(_('Decoder restarts'), _('%d×').format(evs.filter(function(e) { return e.type === 'decoder_restart'; }).length)) +
 			row(_('Wi-Fi drops of watched devices'), _('%d×').format(evs.filter(function(e) { return e.type === 'wifi_reconnect' && e.lvl !== 'info'; }).length)) +
@@ -1781,6 +1804,8 @@ return view.extend({
 			this.ensureArchive(w).then(function(loaded) { if (loaded) self.redraw(); });
 
 		var parts = [ this.renderBanner(res) ];
+		if (st) parts.push(this.renderClock(st));
+
 		if (st) {
 			parts.push(this.renderDiagnosis(st, w));
 			parts.push(E('div', { 'class': 'ispt-cards' }, [ this.renderWan(st), this.renderIptv(st), this.renderPorts(st), this.renderWifi(st) ].concat(this.renderPeers(st))));

@@ -130,6 +130,8 @@ function round(v, digits) {
 	return int(v * m + (v >= 0 ? 0.5 : -0.5)) / (m * 1.0);
 }
 
+function absf(v) { return (v < 0) ? -v : v; }
+
 function worst(a, b) {
 	return (LEVEL[b] > LEVEL[a]) ? b : a;
 }
@@ -495,7 +497,9 @@ const MSG = {
 		v6_no_route: 'No IPv6 default route (no router advertisement) on %s', v6_route_back: 'IPv6 default route back after %s',
 		dns_fail: 'DNS: %d%% of the queries sent upstream unanswered (%d of %d in %ss)', dns_ok: 'DNS OK again after %s (at worst %d%% unanswered)',
 		dns_server_bad: 'DNS server %s: %d of %d queries retried or failed in %s', dns_server_ok: 'DNS server %s OK again',
-		router_reboot: 'Router restarted (up since %s)', data_gap: 'No measurements from %s to %s (%s): %s'
+		router_reboot: 'Router restarted (up since %s)', data_gap: 'No measurements from %s to %s (%s): %s',
+		ntp_sync: 'Clock synchronized (NTP stratum %s)', ntp_unsync: 'Clock NOT synchronized - times in the log may be wrong',
+		ntp_off: 'No NTP client running - times in the log may be wrong', clock_step: 'Clock set by %ss'
 	},
 	pl: {
 		link_down: '%s: BRAK ŁĄCZA', link_up: '%s: łącze wróciło po %s', link_flap: '%s: łącze mrugnęło',
@@ -525,7 +529,9 @@ const MSG = {
 		v6_no_route: 'Brak domyślnej trasy IPv6 (brak RA) na %s', v6_route_back: 'Domyślna trasa IPv6 wróciła po %s',
 		dns_fail: 'DNS: %d%% zapytań wysłanych dalej bez odpowiedzi (%d z %d w %ss)', dns_ok: 'DNS znów OK po %s (najgorzej %d%% bez odpowiedzi)',
 		dns_server_bad: 'Serwer DNS %s: %d z %d zapytań ponowionych lub nieudanych w %s', dns_server_ok: 'Serwer DNS %s znów OK',
-		router_reboot: 'Router uruchomiony ponownie (działa od %s)', data_gap: 'Brak pomiarów od %s do %s (%s): %s'
+		router_reboot: 'Router uruchomiony ponownie (działa od %s)', data_gap: 'Brak pomiarów od %s do %s (%s): %s',
+		ntp_sync: 'Zegar zsynchronizowany (NTP stratum %s)', ntp_unsync: 'Zegar NIE jest zsynchronizowany - czasy w logu mogą być błędne',
+		ntp_off: 'Brak klienta NTP - czasy w logu mogą być błędne', clock_step: 'Zegar przestawiony o %ss'
 	}
 };
 
@@ -594,6 +600,8 @@ function event_text(e, lang) {
 	case 'dns_server_bad': return sprintf(f, e.src, d.bad, d.sent, dur_txt(d.win));
 	case 'dns_server_ok': return sprintf(f, e.src);
 	case 'router_reboot': return sprintf(f, tstamp(d.boot));
+	case 'ntp_sync': return sprintf(f, d.stratum ?? '?');
+	case 'clock_step': return sprintf(f, (d.by > 0 ? '+' : '') + d.by);
 	case 'data_gap': return sprintf(f, d.from ? tstamp(d.from) : '?', tstamp(d.to), dur_txt(d.len),
 		(lang == 'pl' ? GAP_WHY_PL : GAP_WHY_EN)[d.why] ?? d.why);
 	default: return f;
@@ -617,7 +625,6 @@ function event_msg(e, lang) {
 const RECOVERY = { wan_up: true, stream_resume: true, stream_lost: true, stream_off: true, link_up: true,
 	wan_if_up: true, proxy_up: true, target_ok: true, dev_present: true, peer_back: true, wifi_weak_ok: true,
 	bufferbloat_ok: true, v6_up: true, v6_if_up: true, v6_pd_back: true, v6_route_back: true, dns_ok: true, dns_server_ok: true };
-
 
 function urlenc(s) {
 	let out = '';
@@ -814,9 +821,35 @@ function arch_check() {
 	arch.info = { days: cfg.archive_days, have: length(keys(days)), oldest, size };
 }
 
+/* ------------------------------------------------------------- the clock */
+
+/*
+ * Times in the log are only worth something with a synchronized clock.
+ * After a reboot the router starts with the time of its newest file
+ * (sysfixtime) until NTP sets it, so the first events of a boot can carry
+ * a wrong time. Two sources:
+ *   - the NTP client's own reports: /etc/hotplug.d/ntp/90-isp-tester notes
+ *     every hotplug "ntp" event (busybox ntpd: stratum / step / unsync /
+ *     periodic, chrony: stratum) in VARDIR/ntp.last and ntp.pending
+ *   - a step of the clock itself: wall time minus monotonic time changes
+ * Events logged by this run while the clock was not confirmed (shortly
+ * after boot) are marked (_fix); when the clock is stepped they are moved by
+ * the step, with the charts' points of this run, and only then written to
+ * the archive. After an hour without a step they are kept as they are.
+ */
+let clk = { on: false, off: null, steps: 0, last: null, hold: [], run_hist: 0, run_min: 0, m0: 0 };
+let ntp = { state: 'unknown', client: null, checked: 0, sync_ts: null, stratum: null, offset: null, poll: null, action: null };
+
+function clk_fields(typ) {
+	if (typ == 'data_gap') return [ 'd.to' ];
+	if (typ == 'router_reboot') return [ 'ts', 'd.boot' ];
+	return [ 'ts' ];
+}
+
 /* store one event (own or received from the second router) */
 function store_event(e) {
-	arch_append('ev', e.ts, e);
+	if (e._fix) push(clk.hold, e);
+	else arch_append('ev', e.ts, e);
 	push(events, e);
 	if (length(events) > cfg.max_events)
 		events = slice(events, length(events) - cfg.max_events);
@@ -825,7 +858,9 @@ function store_event(e) {
 
 function emit(lvl, area, src, typ, data, ts) {
 	let e = { ts: ts ?? now(), lvl, area, src, type: typ, d: data ?? {} };
+	if (clk.on) e._fix = clk_fields(typ);
 	store_event(e);
+
 	save_events();
 	peer_queue(e);
 }
@@ -977,6 +1012,7 @@ function agg_put(a, vals) {
 
 function agg_flush() {
 	if (!agg) return;
+	if (clk.on) clk.run_min++;
 	hist_add(history_min, agg.t, agg_vals(agg), cfg.long_history);
 	write_atomic(`${RUNDIR}/history.json`, sprintf('%J', history_min));
 	agg = null;
@@ -996,6 +1032,141 @@ function agg_add(t, vals) {
 	}
 	agg10 ??= { t: m10, v: {} };
 	agg_put(agg10, vals);
+}
+
+/* ------------------------------------------------------- the clock (2/2) */
+
+function clk_shift_hist(h, n, by) {
+	let len = length(h.t);
+	for (let i = max(0, len - n); i < len; i++) h.t[i] += by;
+}
+
+/* the clock was stepped by `by` seconds: move what this run logged before */
+function clk_fix(by) {
+	let n = 0;
+	for (let e in events) {
+		if (!e._fix) continue;
+		for (let k in e._fix) {
+			if (k == 'ts') e.ts += by;
+			else { let f = substr(k, 2); if (type(e.d[f]) == 'int') e.d[f] += by; }
+		}
+		if (e.type == 'data_gap') e.d.len = e.d.to - (e.d.from ?? e.d.to);
+		e.d.clock_fixed = by;
+		delete e._fix;
+		n++;
+	}
+	clk_shift_hist(history, clk.run_hist, by);
+	clk_shift_hist(history_min, clk.run_min, by);
+	if (agg) agg.t += by;
+	agg10 = null;
+	started += by;
+	alive_ts = 0;
+	return n;
+}
+
+/* stop marking: write what was held back to the archive */
+function clk_release() {
+	for (let e in events) delete e._fix;
+	for (let e in clk.hold) arch_append('ev', e.ts, e);
+	clk.hold = [];
+	clk.on = false;
+	save_events();
+	write_atomic(`${RUNDIR}/history.json`, sprintf('%J', history_min));
+}
+
+/* every tick, before anything is measured */
+function clk_check() {
+	let off = time() - mono();
+	if (clk.off != null && absf(off - clk.off) >= 2.5) {
+		let by = int(round(off - clk.off, 0));
+		let n = clk.on ? clk_fix(by) : 0;
+		clk.steps++;
+		clk.last = { ts: now(), by };
+		if (clk.on) clk_release();
+		emit(absf(by) >= 60 ? 'warn' : 'info', 'system', 'clock', 'clock_step', { by, fixed: n, ntp: ntp.state });
+	}
+	clk.off = off;
+	if (clk.on && mono() - clk.m0 > 3600) clk_release();
+}
+
+function ntp_apply(j, quiet) {
+	if (type(j) != 'object' || !match(`${j.action ?? ''}`, /^(stratum|step|unsync|periodic)$/)) return;
+	let was = ntp.state;
+	ntp.action = j.action;
+	if (j.action == 'unsync' || j.stratum == 16) {
+		ntp.state = 'unsynced';
+		if (!quiet && was == 'synced') emit('warn', 'system', 'clock', 'ntp_unsync', { stratum: j.stratum });
+		return;
+	}
+	ntp.state = 'synced';
+	ntp.sync_ts = (type(j.ts) == 'int') ? j.ts : now();
+	ntp.stratum = j.stratum;
+	ntp.offset = j.offset;
+	ntp.poll = j.poll;
+	if (!quiet && was != 'synced')
+		emit('info', 'system', 'clock', 'ntp_sync', { stratum: j.stratum, offset: j.offset, after: int(uptime_s() ?? 0) });
+	/* confirmed without a step: the times were right */
+	if (clk.on) clk_release();
+}
+
+function ntp_lines(text, quiet) {
+	for (let l in split(trim(text ?? ''), '\n')) {
+		let j;
+		try { j = json(l); } catch (e) { continue; }
+		ntp_apply(j, quiet);
+	}
+}
+
+/* is there an NTP client at all (once a minute) */
+function ntp_client() {
+	let t = now();
+	if (t - ntp.checked < 60) return;
+	ntp.checked = t;
+	let c = null;
+	for (let pid in (fs.lsdir(PROC) ?? [])) {
+		if (!match(pid, /^[0-9]+$/)) continue;
+		let n = trim(fs.readfile(`${PROC}/${pid}/comm`) ?? '');
+		if (n == 'ntpd' || n == 'chronyd') { c = n; break; }
+	}
+	let was = ntp.client;
+	ntp.client = c;
+	if (!c && was !== null && !getenv('ISP_TESTER_CONFIG')) {
+		if (ntp.state != 'off') emit('warn', 'system', 'clock', 'ntp_off', {});
+		ntp.state = 'off';
+	}
+	else if (c && ntp.state == 'off') ntp.state = 'unknown';
+}
+
+function ntp_poll() {
+	let f = `${VARDIR}/ntp.pending`, w = `${VARDIR}/ntp.work`;
+	if (fs.stat(f) && fs.rename(f, w)) {
+		ntp_lines(fs.readfile(w), false);
+		fs.unlink(w);
+	}
+	ntp_client();
+}
+
+function ntp_out() {
+	let up = uptime_s() ?? 0;
+	let st = ntp.state;
+	/* nothing heard since boot, shortly after a reboot: not confirmed */
+	if (st == 'unknown' && up < 1800 && mono() - clk.m0 > 300) st = 'unsynced';
+	return { state: st, raw: ntp.state, client: ntp.client, sync_ts: ntp.sync_ts, stratum: ntp.stratum, offset: ntp.offset,
+		poll: ntp.poll, untrusted: clk.on, steps: clk.steps, last_step: clk.last, uptime: int(up) };
+}
+
+/* at start: what the NTP client reported this boot (RAM) */
+function clk_init() {
+	clk.m0 = mono();
+	clk.off = time() - mono();
+	ntp_lines(fs.readfile(`${VARDIR}/ntp.last`), true);
+	fs.unlink(`${VARDIR}/ntp.pending`);
+	ntp.checked = 0;
+	ntp_client();
+	let up = uptime_s();
+	/* shortly after boot and not confirmed yet: the clock may still be set */
+	clk.on = ntp.state != 'synced' && up != null && up < 3600 && !getenv('ISP_TESTER_CONFIG') ||
+		getenv('ISP_TESTER_CLOCKFIX') == '1';
 }
 
 /* --------------------------------------------------------------- devices */
@@ -2248,7 +2419,6 @@ const LOG_RULES = [
 	[ /^pppd$/, /LCP terminated by peer|Modem hangup|Connection terminated/, 'ppp_down', 'warn', 'wan' ],
 	[ /^udhcpc$/, /no lease, failing|lease lost/, 'dhcp_fail', 'warn', 'wan' ],
 	[ /^odhcp6c$/, /Failed to send|timed out|[Nn]o (prefix|address)|NoPrefixAvail|NoAddrsAvail/, 'dhcp6_fail', 'warn', 'wan' ],
-
 	[ /^(igmpproxy|mcproxy|omcproxy|improxy)$/, /(error|fail|cannot|unable|invalid)/i, 'proxy_log', 'warn', 'iptv' ],
 	[ /^kernel$/, /NETDEV WATCHDOG|transmit queue [0-9]+ timed out|[Tt][Xx] timeout/, 'nic_timeout', 'err', 'system' ],
 	[ /^kernel$/, /nf_conntrack: table full/, 'conntrack_drop', 'warn', 'system' ],
@@ -3538,7 +3708,6 @@ function refresh_wan6() {
 	v6s.found = false;
 }
 
-
 function refresh_wan_device() {
 	if (!cfg.wan.enabled || !cfg.wan.interface) return;
 	let st = wan_status();
@@ -3793,6 +3962,8 @@ function handle_clear_request() {
 }
 
 function tick() {
+	clk_check();
+	ntp_poll();
 	if (now() - alive_ts >= 60) alive_save(now());
 	arch_check();
 	handle_clear_request();
@@ -3883,8 +4054,6 @@ function tick() {
 			bloat: bloat_out(),
 			v6,
 			dns: dns_res,
-
-
 			rx_kbps: wd?.delta ? round(wd.delta.rx_bps / 1000, 0) : null,
 			tx_kbps: wd?.delta ? round(wd.delta.tx_bps / 1000, 0) : null,
 			source: { type: source.type, error: source.error, sock_error: source.sock_error, ping_plugin: source.ping_plugin, gateway: gateway_ip() },
@@ -3962,6 +4131,7 @@ function tick() {
 			hv[`drop:${d.dev}`] = r.delta ? r.delta.drop : null;
 		}
 		hist_add(history, t, hv, cfg.history);
+		if (clk.on) clk.run_hist++;
 
 		let mv = { ...hv };
 		for (let x in (wan?.targets ?? [])) mv[`rttmax:${x.label}`] = x.rtt;
@@ -4010,6 +4180,7 @@ function tick() {
 		history,
 		csv_rows,
 		data: { dir: RUNDIR, link: (fs.lstat(RUNDIR)?.type == 'link') ? fs.readlink(RUNDIR) : null, archive: arch.info },
+		ntp: ntp_out(),
 		notify: cfg.notify.enabled ? { service: cfg.notify.service, pending: length(notif.pending),
 			last_ok: notif.last_ok, last_fail: notif.last_fail, last_err: notif.last_err, fetch: FETCH != null } : null
 	};
@@ -4047,10 +4218,11 @@ chn_load();
 history_min = load_hist('history.json', cfg.long_history);
 
 arch_check();
+clk_init();
 gap_check();
+
 emit('info', 'system', 'collector', 'monitor_start', { interval: cfg.interval, iptv_interval: iptv_fast() ? cfg.iptv.sample_interval : null,
 	uptime: int(uptime_s() ?? 0) });
-
 
 uloop.init();
 peer_start();

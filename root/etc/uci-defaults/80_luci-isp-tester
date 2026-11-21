@@ -8,7 +8,6 @@ uci -q get isp_tester.peer >/dev/null || {
 }
 uci -q get isp_tester.dns >/dev/null || uci -q set isp_tester.dns=dns
 uci -q get isp_tester.notify >/dev/null || {
-
 	uci -q set isp_tester.notify=notify
 	uci -q set isp_tester.notify.enabled=0
 }
@@ -16,6 +15,12 @@ uci -q get isp_tester.notify >/dev/null || {
 uci -q delete isp_tester.iptv.q_window
 uci -q delete isp_tester.iptv.q_interval
 uci -q commit isp_tester
+
+# busybox ntpd tells hotplug only when its state changes: restart it once,
+# so the tester learns the current state (it re-syncs within seconds)
+[ -f /var/run/isp-tester/ntp.last ] || {
+	/etc/init.d/sysntpd enabled 2>/dev/null && /etc/init.d/sysntpd restart >/dev/null 2>&1
+}
 
 rm -f /tmp/luci-indexcache* /tmp/luci-modulecache/* 2>/dev/null
 /etc/init.d/rpcd reload

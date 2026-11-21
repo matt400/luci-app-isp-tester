@@ -83,7 +83,6 @@ function fmtSec(s) {
 }
 
 function periodicity(list) {
-
 	if (list.length < 4) return null;
 	var ts = list.map(function(e) { return e.ts; }).sort(function(a, b) { return a - b; });
 	var gaps = [];

@@ -335,7 +335,6 @@ return view.extend({
 		o.depends('ipv6', '1');
 
 		o = s.option(form.Flag, 'trace', _('Path snapshot at a loss'),
-
 			_('When a loss starts (or the connection is down), one traceroute is run to a far target – <code>mtr</code> when installed (10 rounds, more precise), otherwise the busybox <code>traceroute</code>. The timeline then shows at which hop the loss starts and carries on to the destination: concrete proof for the ISP. Takes a few seconds, at most once per the time below.'));
 		o.default = '1';
 		o.rmempty = false;
