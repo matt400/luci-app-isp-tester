@@ -7,9 +7,11 @@ D=/var/run/isp-tester
 mkdir -p "$D" 2>/dev/null || exit 0
 
 case "$ACTION" in stratum|step|unsync|periodic) ;; *) exit 0 ;; esac
-case "$stratum" in ''|*[!0-9]*) stratum=null ;; esac
-case "$offset" in ''|*[!0-9eE.+-]*) offset=null ;; esac
-case "$poll_interval" in ''|*[!0-9]*) poll_interval=null ;; esac
+# JSON numbers: no sign, no leading zero for the integers; the offset is
+# "-0.001234" or in exponent form, never "+0.1", "-" or "1.2.3"
+case "$stratum" in ''|*[!0-9]*|0?*) stratum=null ;; esac
+printf '%s' "$offset" | grep -Eq '^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][-+]?[0-9]+)?$' || offset=null
+case "$poll_interval" in ''|*[!0-9]*|0?*) poll_interval=null ;; esac
 
 line=$(printf '{"action":"%s","stratum":%s,"offset":%s,"poll":%s,"ts":%s}' \
 	"$ACTION" "$stratum" "$offset" "$poll_interval" "$(date +%s)")

@@ -18,7 +18,7 @@
 		"write": {
 			"ubus": {
 				"luci.isp_tester": [ "clear", "set_enabled", "mark", "test_notify", "update_apply", "channels_forget", "maint",
-					"backup", "backup_check", "restore" ]
+					"backup", "backup_check", "backup_clean", "restore" ]
 			},
 			"file": {
 				"/tmp/isp-tester-restore.tar.gz": [ "write" ]

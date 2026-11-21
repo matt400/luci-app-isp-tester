@@ -714,7 +714,7 @@ function lineChart(t, series, opts) {
 	var span = Math.max(1, t1 - t0);
 	var step = medianStep(t);
 	var x = function(ts) { return L + (ts - t0) / span * (W - L - R); };
-	var y = function(v) { return T + (1 - Math.min(v, max) / max) * (H - T - B); };
+	var y = function(v) { return T + (1 - Math.max(0, Math.min(v, max)) / max) * (H - T - B); };
 
 	var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg" font-size="11" fill="currentColor">';
 
@@ -895,6 +895,8 @@ return view.extend({
 	minHist: null,
 	/* archive on USB: per UTC day { ev: [...], h: [...], at: load time } */
 	arch: {},
+	archVer: 0,           /* counts changes of arch, for the cache of events() */
+	evCache: null,
 	archLoading: null,
 
 	load: function() {
@@ -918,11 +920,19 @@ return view.extend({
 		this.redraw();
 	},
 
+	/* the merged timeline is asked for about ten times per redraw (cards,
+	 * charts, analysis, timeline): the same inputs give the same list, so it
+	 * is merged and sorted once. Callers must not change the returned array. */
 	events: function() {
 		var recent = (this.last && this.last[1] && this.last[1].events) || [];
-		var older = this.allEvents || [];
+		var base = this.allEvents || [];
+		var c = this.evCache;
+		if (c && c.recent === recent && c.base === base && c.arch === this.archVer) return c.out;
+		var older = base;
 		for (var d in this.arch) older = older.concat(this.arch[d].ev);
-		return mergeEvents(recent, older);
+		var out = mergeEvents(recent, older);
+		this.evCache = { recent: recent, base: base, arch: this.archVer, out: out };
+		return out;
 	},
 
 	/* ---- archive (7 / 30 days, only with the data on USB) */
@@ -957,7 +967,11 @@ return view.extend({
 	ensureArchive: function(w) {
 		var self = this;
 		if (!this.needsArchive(w)) return Promise.resolve(false);
-		if (this.archLoading) return this.archLoading;
+		/* days of another window are being read: wait for them, then load what
+		 * this window still lacks (a report must not be built from half the days) */
+		if (this.archLoading) return this.archLoading.then(function() {
+			return self.ensureArchive(w).then(function() { return true; });
+		});
 		var today = utcDay(Date.now() / 1000);
 		var todo = this.archDays(w).filter(function(d) {
 			var a = self.arch[d];
@@ -967,7 +981,7 @@ return view.extend({
 		this.archLoading = Promise.all(todo.map(function(d) {
 			var rd = function(kind) { return fs.read_direct(ARCH_DIR + '/' + kind + '-' + d + '.jsonl').then(parseLines).catch(function() { return []; }); };
 			return Promise.all([ rd('ev'), rd('h') ]).then(function(r) { self.arch[d] = { ev: r[0], h: r[1], at: Date.now() }; });
-		})).then(function() { self.archLoading = null; return true; });
+		})).then(function() { self.archLoading = null; self.archVer++; return true; });
 		return this.archLoading;
 	},
 
@@ -2238,6 +2252,7 @@ return view.extend({
 						self.allEvents = [];
 						self.minHist = null;
 						self.arch = {};
+						self.archVer++;
 						ui.addNotification(null, E('p', _('Logs will be cleared within one interval.')), 'info');
 					});
 				} }, _('Clear'))
