@@ -281,7 +281,20 @@ return baseclass.extend({
 		/* ---- router overloaded at the time of the problems */
 		var problemsAll = anyWan.concat(allStalls, by(function(e) { return e.area === 'ports' && e.lvl !== 'info'; }))
 			.filter(function(e) { return e.type !== 'log'; });
-		var duringBusy = problemsAll.filter(function(e) { return inPeriods(busy, e.ts, 20); });
+		/* overheated / throttled: a hot SoC slows the CPU down, so packets are lost */
+		var hotPer = periods(sorted, [ 'temp_high', 'throttle' ], to);
+		var hotEv  = by(function(e) { return e.type === 'temp_high' || e.type === 'throttle'; });
+		var maxTemp = 0, throttled = false;
+		hotEv.forEach(function(e) {
+			if (e.d && e.d.temp > maxTemp) maxTemp = e.d.temp;
+			if (e.type === 'throttle') throttled = true;
+		});
+		var duringHot = problemsAll.filter(function(e) { return inPeriods(hotPer, e.ts, 20); });
+		var duringBusy = problemsAll.filter(function(e) { return inPeriods(busy, e.ts, 20) && duringHot.indexOf(e) < 0; });
+		if (duringHot.length)
+			add('home', 2.5, 'router_hot', duringHot, { temp: maxTemp, throttled: throttled, events: hotEv.length });
+		else
+			add('info', 0, 'router_temp', hotEv, { temp: maxTemp, throttled: throttled });
 		if (duringBusy.length)
 			add('home', 2, 'router_busy', duringBusy);
 		else
@@ -496,6 +509,12 @@ return baseclass.extend({
 		case 'log_proxy':       return _('The multicast proxy logged errors (%d×) – check its configuration (upstream / downstream interfaces).').format(f.n);
 		case 'log_nic':         return _('Network driver / switch chip hung (%d×, kernel "transmit timed out") – router hardware or driver.').format(f.n);
 		case 'router_busy':     return _('%d problems happened while the router was overloaded (CPU / RAM / connection table) – the router itself may be dropping packets.').format(f.n);
+		case 'router_hot':      return (a.throttled
+			? _('%d problems happened while the router was overheated and its CPU slowed down (up to %s °C) – the router itself loses packets; check ventilation, the heatsink, the case.')
+			: _('%d problems happened while the router was overheated (up to %s °C) – the router itself may lose packets; check ventilation, the heatsink, the case.')).format(f.n, a.temp);
+		case 'router_temp':     return (a.throttled
+			? _('The router overheated and throttled its CPU (up to %s °C, %d×) – no problems at those moments.')
+			: _('The router was overheated (up to %s °C, %d×) – no problems at those moments.')).format(a.temp, f.n);
 		case 'router_load':     return _('The router was overloaded %d× (no problems at those moments).').format(f.n);
 		case 'marks_seen':      return _('%d of %d of your reports match a measured problem.').format(f.n, a.total);
 		case 'marks_unseen':    return _('%d of %d of your reports have nothing measured around them – the problem is not visible on this router: check the IPTV device setting, or the cause is the decoder, the TV or Wi-Fi.').format(f.n, a.total);

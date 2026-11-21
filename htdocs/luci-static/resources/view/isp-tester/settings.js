@@ -599,6 +599,11 @@ return view.extend({
 		o.datatype = 'range(0,100)';
 		o.placeholder = '90';
 
+		o = s.option(form.Value, 'temp_warn', _('Overheated from (°C)'),
+			_('SoC temperature from /sys/class/thermal, two intervals in a row; throttling (slower CPU) is logged on its own. Empty = 5 °C below the point where the kernel starts to throttle (85 °C when unknown), -1 disables.'));
+		o.datatype = 'integer';
+		o.placeholder = _('automatic');
+
 		/* ---- DNS */
 		s = m.section(form.NamedSection, 'dns', 'dns', _('DNS'),
 			_('Pages that do not open while ping works are often DNS. No own test: dnsmasq\'s statistics are read – over ubus every interval (queries sent upstream, answered from the cache, unanswered), and per upstream server from the statistics dnsmasq writes to the system log on SIGUSR1 (queries sent, retried = no answer in time, failed = SERVFAIL/REFUSED, average latency).'));

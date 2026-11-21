@@ -290,6 +290,10 @@ function eventText(e) {
 	case 'proxy_restart':   return _('Multicast proxy %s restarted').format(d.name);
 	case 'cpu_high':        return _('Router CPU busy: %d%% on %s (softirq %d%%)').format(d.cpu, d.core || 'cpu', d.sirq);
 	case 'cpu_high_ok':     return _('Router CPU load normal again after %s').format(fmtDur(d.dur));
+	case 'temp_high':       return _('Router OVERHEATED: %s %s °C (limit %s °C)').format(d.zone, d.temp, d.warn);
+	case 'temp_high_ok':    return _('Router temperature normal again after %s').format(fmtDur(d.dur));
+	case 'throttle':        return _('Router CPU SLOWED DOWN by heat: %s MHz instead of %s MHz (%s °C)').format(d.mhz != null ? d.mhz : '?', d.max_mhz != null ? d.max_mhz : '?', d.temp != null ? d.temp : '?');
+	case 'throttle_ok':     return _('Router CPU at full speed again after %s').format(fmtDur(d.dur));
 	case 'mem_low':         return _('Router is low on RAM: %d%% free').format(d.pct);
 	case 'mem_low_ok':      return _('Router RAM OK again after %s').format(fmtDur(d.dur));
 	case 'conntrack_full':  return _('Connection table %d%% full (%d of %d)').format(d.pct, d.n, d.max);
@@ -366,6 +370,26 @@ function selfTitle(s) {
 		_('collector (with logread, bridge, rrdtool it runs): now %s%%, average %s%%, at most %s%%, RAM %s').format(fmtPct(s.cpu), fmtPct(s.avg), fmtPct(s.max), fmtKB(s.rss));
 	if (s.tsmon) t += '\n' + _('tsmon (IPTV picture): now %s%%, at most %s%%, RAM %s').format(fmtPct(s.tsmon.cpu), fmtPct(s.tsmon.max), fmtKB(s.tsmon.rss));
 	return t;
+}
+
+/* SoC temperature and throttling: one short line + details in the tooltip */
+function thermalLine(th) {
+	var t = [ th.temp != null ? '%s °C'.format(th.temp) : '–' ];
+	if (th.mhz != null) t.push(th.throttle ? _('%d of %d MHz').format(th.mhz, th.max_mhz) : '%d MHz'.format(th.mhz));
+	if (th.throttle) t.push(_('throttled'));
+	return _('Router: %s').format(t.join(' · '));
+}
+
+function thermalTitle(th) {
+	var l = (th.zones || []).map(function(z) {
+		return '%s: %s °C (%s %s °C)'.format(z.type, z.temp, _('limit'), z.warn);
+	});
+	(th.cool || []).forEach(function(c) {
+		l.push('%s: %s %d/%s'.format(c.type, c.fan ? _('fan') : _('cooling'), c.state, c.max != null ? c.max : '?'));
+	});
+	if (th.max_temp != null) l.push(_('Highest since start: %s °C (%s)').format(th.max_temp, fmtTime(th.max_ts)));
+	if (th.hot_s || th.thr_s) l.push(_('Overheated for %s, throttled for %s since start').format(fmtDur(th.hot_s), fmtDur(th.thr_s)));
+	return l.join('\n');
 }
 
 function gapWhy(w) {
@@ -1113,6 +1137,8 @@ return view.extend({
 					_('Updated %s ago · running for %s').format(fmtDur(age), fmtDur(st.ts - st.started))),
 					st.self && st.self.cpu != null ? E('div', { 'class': 'ispt-muted', 'style': 'font-size:.85em',
 						'title': selfTitle(st.self) }, _('Tester itself: CPU %s%% · RAM %s').format(fmtPct(st.self.total), fmtKB(st.self.rss_total))) : '',
+				st.thermal && st.thermal.temp != null ? E('div', { 'class': st.thermal.hot || st.thermal.throttle ? 'ispt-warn-text' : 'ispt-muted', 'style': 'font-size:.85em',
+					'title': thermalTitle(st.thermal) }, thermalLine(st.thermal)) : '',
 				E('button', { 'class': 'cbi-button cbi-button-action ispt-markbtn', 'style': 'margin-top:.4em',
 					'title': _('Click the moment you notice a problem (TV freezes, Internet slow). It is logged and compared with the measurements.'),
 					'click': ui.createHandlerFn(this, 'showMark') }, _('⚑ Problem now')),
@@ -1622,6 +1648,16 @@ return view.extend({
 				{ name: _('Upload'), color: '#2a9d5b', data: (s['wan:tx'] || []).map(mb), fmt: function(v) { return fmtRate(v * 1000); } }
 			], { from: w.from, to: w.to, title: _('WAN traffic (Mbit/s) – yellow = bufferbloat (ping up while the link is full)'),
 				bands: bloatBands, fmt: function(v) { return v.toFixed(v < 10 ? 1 : 0); }, min_max: 1, legend: true }));
+		}
+
+		if (s.temp && s.temp.some(function(v) { return v != null; })) {
+			var thr = s.thr || [], tw = st.thermal && st.thermal.warn;
+			out.push(lineChart(t, [
+				{ name: _('SoC temperature'), color: '#d4774a', data: s.temp, fmt: function(v, k) { return v.toFixed(1) + ' °C' + (thr[k] ? ' · ' + _('throttled') : ''); } }
+			].concat(tw ? [ { name: _('limit'), color: '#d64541', data: s.temp.map(function() { return tw; }), fmt: function(v) { return v + ' °C'; } } ] : []),
+			{ from: w.from, to: w.to, bands: bandsFor(t, function(k) { return thr[k] > 0; }, '#d64541', _('CPU throttled')),
+				title: _('Router temperature (°C) – red background = CPU slowed down by heat'),
+				fmt: function(v) { return Math.round(v); }, min_max: 50, legend: true }));
 		}
 
 		var errSeries = [], ci = 0;
