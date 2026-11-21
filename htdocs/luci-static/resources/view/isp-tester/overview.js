@@ -232,6 +232,8 @@ function reasonText(r) {
 	case 'v6_if_down':      return _('IPv6 interface %s is down for %s').format(r.iface, fmtDur(Date.now() / 1000 - r.since));
 	case 'v6_pd_lost':      return _('No IPv6 prefix from the ISP for %s – the home network has no IPv6').format(fmtDur(Date.now() / 1000 - r.since));
 	case 'v6_no_route':     return _('No IPv6 default route for %s – the ISP stopped sending router advertisements').format(fmtDur(Date.now() / 1000 - r.since));
+	case 'dns_fail_now':    return _('DNS: %d%% of the queries get no answer from the upstream server (for %s)').format(r.pct, fmtDur(Date.now() / 1000 - r.since));
+	case 'dns_server_bad':  return _('DNS server %s retries or fails many queries').format(r.server);
 	default:                return r.c;
 	}
 }
@@ -313,6 +315,11 @@ function eventText(e) {
 	case 'v6_pd_change':    return _('IPv6 prefix CHANGED %s → %s – devices at home renumber, IPv6 connections break').format((d.from || []).join(', '), (d.to || []).join(', '));
 	case 'v6_no_route':     return _('No IPv6 default route on %s – no router advertisement from the ISP for %s').format(d.iface, fmtDur(d.after));
 	case 'v6_route_back':   return _('IPv6 default route back after %s').format(fmtDur(d.dur));
+	case 'dns_fail':        return _('DNS FAILING: %d%% of the queries sent upstream got no answer (%d of %d within %s)').format(d.pct, d.unans, d.fwd, fmtDur(d.win));
+	case 'dns_ok':          return _('DNS answers again after %s (at worst %d%% unanswered)').format(fmtDur(d.dur), d.max_pct);
+	case 'dns_server_bad':  return _('DNS server %s: %d of %d queries retried or failed within %s (%d retried = no answer in time, %d failed = SERVFAIL/REFUSED)').format(e.src, d.bad, d.sent, fmtDur(d.win), d.retried, d.failed) +
+		(d.lat != null ? ' · ' + _('average %d ms').format(d.lat) : '');
+	case 'dns_server_ok':   return _('DNS server %s answers normally again').format(e.src);
 	default:                return e.type;
 	}
 }
@@ -1031,6 +1038,23 @@ return view.extend({
 			v6t.forEach(function(x, i) { if (i) v6p.push(' · '); v6p.push(x); });
 			kv.push(E('span', { 'class': 'k' }, 'IPv6'), E('span', {}, v6p));
 		}
+		if (w.dns) {
+			var dn = w.dns, dl = dn.last || {}, dt = [];
+			if (dn.err) dt.push(E('span', { 'class': 'ispt-muted' }, _('no statistics from dnsmasq (ubus)')));
+			else {
+				dt.push(_('%d queries/min').format(dl.q || 0));
+				if (dl.q) dt.push(_('%d%% from the cache').format(Math.round(dl.local * 100 / dl.q)));
+				if (dn.unans) dt.push(E('span', { 'class': dn.bad ? 'ispt-warn-text' : '' }, _('%d%% unanswered').format(dl.pct || 0)));
+			}
+			(dn.servers || []).forEach(function(x) {
+				var d = x.d || {};
+				dt.push(E('span', { 'class': x.bad ? 'ispt-warn-text' : '', 'title': _('Since the previous statistics: %d sent, %d retried, %d failed').format(d.sent || 0, d.retried || 0, d.failed || 0) },
+					x.server + (x.lat != null ? ' %d ms'.format(x.lat) : '') + (d.sent ? ' ' + _('%d%% bad').format(Math.round((d.bad || 0) * 100 / d.sent)) : '')));
+			});
+			var dp = [];
+			dt.forEach(function(x, i) { if (i) dp.push(' · '); dp.push(x); });
+			kv.push(E('span', { 'class': 'k', 'title': _('DNS of the router, from dnsmasq\'s own statistics') }, _('DNS')), E('span', {}, dp));
+		}
 		if (w.bloat) {
 			var b = w.bloat;
 			kv.push(E('span', { 'class': 'k' }, _('Line speed')), E('span', {},
@@ -1477,6 +1501,9 @@ return view.extend({
 				row(_('IPv6 prefix lost / changed'), _('%d× / %d×').format(count(function(e) { return e.type === 'v6_pd_lost'; }), count(function(e) { return e.type === 'v6_pd_change'; }))) +
 				row(_('No IPv6 router advertisement'), _('%d×').format(count(function(e) { return e.type === 'v6_no_route'; }))) : '') +
 			row(_('Related messages in the system log'), _('%d×').format(count(function(e) { return e.type === 'log'; }))) +
+			row(_('DNS failing (no answer from the upstream server)'), (function() { var v = sum('dns_fail', [ 'dns_ok', 'monitor_start' ]); return _('%d, total %s, longest %s').format(v.n, fmtDur(v.total), fmtDur(v.longest)); })() +
+				(count(function(e) { return e.type === 'dns_server_bad'; }) ? ' · ' + _('servers with many failed queries: %s').format(own.filter(function(e) { return e.type === 'dns_server_bad'; }).map(function(e) { return e.src; }).filter(function(v, i, a) { return a.indexOf(v) === i; }).join(', ')) : '')) +
+
 			row(_('IPTV freezes'), _('%d, total %s, longest %s').format(tv.n, fmtDur(tv.total), fmtDur(tv.longest)) + (r.zaps ? ' · ' + _('%d channel changes not counted').format(r.zaps) : '')) +
 			row(_('Decoder restarts'), _('%d×').format(evs.filter(function(e) { return e.type === 'decoder_restart'; }).length)) +
 			row(_('Wi-Fi drops of watched devices'), _('%d×').format(evs.filter(function(e) { return e.type === 'wifi_reconnect' && e.lvl !== 'info'; }).length)) +

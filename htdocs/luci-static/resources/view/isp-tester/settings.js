@@ -499,7 +499,37 @@ return view.extend({
 		o.datatype = 'range(0,100)';
 		o.placeholder = '90';
 
+		/* ---- DNS */
+		s = m.section(form.NamedSection, 'dns', 'dns', _('DNS'),
+			_('Pages that do not open while ping works are often DNS. No own test: dnsmasq\'s statistics are read – over ubus every interval (queries sent upstream, answered from the cache, unanswered), and per upstream server from the statistics dnsmasq writes to the system log on SIGUSR1 (queries sent, retried = no answer in time, failed = SERVFAIL/REFUSED, average latency).'));
+
+		o = s.option(form.Flag, 'enabled', _('Watch DNS'));
+		o.default = '1';
+		o.rmempty = false;
+
+		o = s.option(form.Value, 'warn_pct', _('Unanswered for a warning (%)'),
+			_('Share of the queries sent upstream within a minute that get no answer, and of retried/failed queries per server.'));
+		o.datatype = 'range(1,100)';
+		o.placeholder = '10';
+		o.depends('enabled', '1');
+
+		o = s.option(form.Value, 'min_queries', _('At least (queries per minute)'),
+			_('Fewer queries sent upstream within a minute are not judged.'));
+		o.datatype = 'range(1,10000)';
+		o.placeholder = '5';
+		o.depends('enabled', '1');
+
+		o = s.option(form.ListValue, 'dump', _('Per-server statistics'),
+			_('How often dnsmasq is asked (SIGUSR1) to write its per-server statistics to the system log; each time adds a few lines to the log. Needs “Read the system log”.'));
+		o.value('0', _('Off'));
+		o.value('300', _('every 5 min'));
+		o.value('900', _('every 15 min'));
+		o.value('3600', _('every hour'));
+		o.default = '300';
+		o.depends('enabled', '1');
+
 		/* ---- decoders */
+
 		s = m.section(form.NamedSection, 'iptv', 'iptv', _('Decoders'),
 			_('Tells “the decoder restarted” from “the stream vanished”. In a bridged IPTV VLAN the decoders get their address from the ISP, so the router has no neighbour entry for them; it uses the bridge\'s MAC table instead: every device in the IPTV VLAN on a port other than the one to the ISP is a decoder. A restart is seen when the port\'s link goes down (decoder directly on the port), when it vanishes from the MAC table and comes back, or when it is silent while the stream stops. Behind a switch the port stays up – install the package on the router the decoder is plugged into and let it send its events here. Needs the IPTV VLAN set above and the <code>ip-bridge</code> package.'));
 

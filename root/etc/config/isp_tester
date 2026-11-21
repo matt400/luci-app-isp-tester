@@ -184,3 +184,12 @@ config port
 	option device 'lan2'
 	option label 'Access point'
 	option expect_up '1'
+
+# DNS of the router, from dnsmasq: ubus metrics every interval and, every
+# 'dump' seconds (0 = off), its per-server statistics (SIGUSR1 -> system log)
+config dns 'dns'
+	option enabled '1'
+	# unanswered (or per server: retried + failed) share for a warning
+	option warn_pct '10'
+	option min_queries '5'
+	option dump '300'

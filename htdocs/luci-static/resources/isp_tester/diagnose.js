@@ -253,6 +253,13 @@ return baseclass.extend({
 		add('isp', 1, 'log_dhcp6', v6Log.filter(function(e) { return !near(wanLinkDown, e.ts, 60); }));
 		add('isp', 0.5, 'v6_loss', v6Loss.filter(function(e) { return !near(v6Down, e.ts); }));
 
+		/* DNS failing while the line works: the upstream DNS server; during an
+		 * outage it is just part of it */
+		var dnsFail = by(function(e) { return e.type === 'dns_fail' && !near(anyWan, e.ts, 60); });
+		var dnsSrv  = by(function(e) { return e.type === 'dns_server_bad' && !near(anyWan, e.ts, 300); });
+		add('isp', 1.5, 'dns_fail', dnsFail);
+		add('isp', 1, 'dns_server', dnsSrv, { servers: uniq(dnsSrv, 'src').join(', ') });
+
 		/* lags only with the link full: own traffic fills a buffer; SQM at home fixes it */
 		if (bloats.length) {
 			var maxAdd = 0, dirs = {};
@@ -453,6 +460,9 @@ return baseclass.extend({
 		case 'v6_session':      return _('IPv6 (DHCPv6) session dropped %d× while IPv4 stayed up – ISP DHCPv6.').format(f.n);
 		case 'log_dhcp6':       return _('odhcp6c: no answer or no prefix from the ISP\'s DHCPv6 server (%d×).').format(f.n);
 		case 'v6_loss':         return _('Packet loss over IPv6 only (%d×) – ISP IPv6 routing.').format(f.n);
+		case 'dns_fail':        return _('DNS failed %d× while ping worked – pages do not open although the line is fine. The upstream DNS server (the ISP\'s, or the one set in the router) does not answer: try another one.').format(f.n);
+		case 'dns_server':      return _('DNS server %s retried or failed many queries (%d×) – slow or overloaded; consider another server.').format(a.servers, f.n);
+
 		case 'stall_with_wan':  return _('%d of %d IPTV freezes happened together with Internet problems – shared cause on the ISP line.').format(f.n, a.total);
 		case 'stall_with_port': return _('%d of %d IPTV freezes coincided with port problems (%s) – cable or switch at home.').format(f.n, a.total, a.devs);
 		case 'stall_with_dev':  return _('%d of %d IPTV freezes came with errors on the IPTV device – cable/port on the IPTV path.').format(f.n, a.total);

@@ -171,6 +171,9 @@ function default_config() {
 		system: {
 			enabled: true, cpu_warn: 90, mem_warn: 10, conntrack_warn: 90
 		},
+		/* DNS of the router (dnsmasq): ubus metrics every tick, per-server
+		 * statistics from its SIGUSR1 dump in the system log every dump s */
+		dns: { enabled: true, warn_pct: 10, min_queries: 5, dump: 300 },
 		notify: {
 			enabled: false, service: 'ntfy', url: '', token: '', chat_id: '',
 			min_level: 'err', cooldown: 300, lang: 'en'
@@ -208,6 +211,12 @@ function load_config() {
 		let n = cur.get_all('isp_tester', 'notify') || {};
 		let pr = cur.get_all('isp_tester', 'peer') || {};
 		let wf = cur.get_all('isp_tester', 'wifi') || {};
+		let dn = cur.get_all('isp_tester', 'dns') || {};
+
+		c.dns.enabled     = bool(dn.enabled, true);
+		c.dns.warn_pct    = num(dn.warn_pct, c.dns.warn_pct);
+		c.dns.min_queries = num(dn.min_queries, c.dns.min_queries);
+		c.dns.dump        = num(dn.dump, c.dns.dump);
 
 		c.wifi.enabled     = bool(wf.enabled, true);
 		c.wifi.signal_warn = num(wf.signal_warn, c.wifi.signal_warn);
@@ -372,6 +381,10 @@ function load_config() {
 	if (c.wan.trace_cooldown < 60) c.wan.trace_cooldown = 60;
 	if (c.wan.interface6 && !match(c.wan.interface6, /^[A-Za-z0-9_]{1,15}$/)) c.wan.interface6 = '';
 	if (c.wan.ra_after < 10) c.wan.ra_after = 10;
+	if (c.dns.warn_pct < 1 || c.dns.warn_pct > 100) c.dns.warn_pct = 10;
+	if (c.dns.min_queries < 1) c.dns.min_queries = 1;
+	c.dns.dump = int(c.dns.dump);
+	if (c.dns.dump != 0 && c.dns.dump < 60) c.dns.dump = 60;
 	let dl = {};
 	for (let mac, l in (type(c.iptv.dec_labels) == 'object' ? c.iptv.dec_labels : {})) {
 		mac = lc(mac);
@@ -479,7 +492,9 @@ const MSG = {
 		v6_down: 'IPv6 DOWN - no IPv6 target responds (IPv4 works)', v6_up: 'IPv6 back after %s',
 		v6_if_down: 'IPv6 interface %s went down', v6_if_up: 'IPv6 interface %s up again after %s',
 		v6_pd_lost: 'IPv6 prefix lost (%s)', v6_pd_back: 'IPv6 prefix back after %s: %s', v6_pd_change: 'IPv6 prefix changed %s -> %s',
-		v6_no_route: 'No IPv6 default route (no router advertisement) on %s', v6_route_back: 'IPv6 default route back after %s'
+		v6_no_route: 'No IPv6 default route (no router advertisement) on %s', v6_route_back: 'IPv6 default route back after %s',
+		dns_fail: 'DNS: %d%% of the queries sent upstream unanswered (%d of %d in %ss)', dns_ok: 'DNS OK again after %s (at worst %d%% unanswered)',
+		dns_server_bad: 'DNS server %s: %d of %d queries retried or failed in %s', dns_server_ok: 'DNS server %s OK again'
 	},
 	pl: {
 		link_down: '%s: BRAK ŁĄCZA', link_up: '%s: łącze wróciło po %s', link_flap: '%s: łącze mrugnęło',
@@ -506,7 +521,9 @@ const MSG = {
 		v6_down: 'IPv6 NIE DZIAŁA - żaden cel IPv6 nie odpowiada (IPv4 działa)', v6_up: 'IPv6 wróciło po %s',
 		v6_if_down: 'Interfejs IPv6 %s rozłączony', v6_if_up: 'Interfejs IPv6 %s znów działa po %s',
 		v6_pd_lost: 'Utrata prefiksu IPv6 (%s)', v6_pd_back: 'Prefiks IPv6 wrócił po %s: %s', v6_pd_change: 'Zmiana prefiksu IPv6 %s -> %s',
-		v6_no_route: 'Brak domyślnej trasy IPv6 (brak RA) na %s', v6_route_back: 'Domyślna trasa IPv6 wróciła po %s'
+		v6_no_route: 'Brak domyślnej trasy IPv6 (brak RA) na %s', v6_route_back: 'Domyślna trasa IPv6 wróciła po %s',
+		dns_fail: 'DNS: %d%% zapytań wysłanych dalej bez odpowiedzi (%d z %d w %ss)', dns_ok: 'DNS znów OK po %s (najgorzej %d%% bez odpowiedzi)',
+		dns_server_bad: 'Serwer DNS %s: %d z %d zapytań ponowionych lub nieudanych w %s', dns_server_ok: 'Serwer DNS %s znów OK'
 	}
 };
 
@@ -565,6 +582,10 @@ function event_text(e, lang) {
 	case 'v6_pd_lost': return sprintf(f, join(' ', d.prev ?? []) || '-');
 	case 'v6_pd_back': return sprintf(f, dur_txt(d.dur), join(' ', d.prefix ?? []));
 	case 'v6_pd_change': return sprintf(f, join(' ', d.from ?? []), join(' ', d.to ?? []));
+	case 'dns_fail': return sprintf(f, d.pct, d.unans, d.fwd, d.win);
+	case 'dns_ok': return sprintf(f, dur_txt(d.dur), d.max_pct);
+	case 'dns_server_bad': return sprintf(f, e.src, d.bad, d.sent, dur_txt(d.win));
+	case 'dns_server_ok': return sprintf(f, e.src);
 	default: return f;
 	}
 }
@@ -585,7 +606,7 @@ function event_msg(e, lang) {
  * port coming up or a target recovering from an unsent warning stays quiet */
 const RECOVERY = { wan_up: true, stream_resume: true, stream_lost: true, stream_off: true, link_up: true,
 	wan_if_up: true, proxy_up: true, target_ok: true, dev_present: true, peer_back: true, wifi_weak_ok: true,
-	bufferbloat_ok: true, v6_up: true, v6_if_up: true, v6_pd_back: true, v6_route_back: true };
+	bufferbloat_ok: true, v6_up: true, v6_if_up: true, v6_pd_back: true, v6_route_back: true, dns_ok: true, dns_server_ok: true };
 
 
 function urlenc(s) {
@@ -1971,6 +1992,151 @@ function sample_system() {
 	return o;
 }
 
+/* -------------------------------------------------------------------- DNS */
+
+/*
+ * DNS of the router, from dnsmasq itself - no own resolver test:
+ *   - ubus "dnsmasq metrics" every tick: queries forwarded upstream,
+ *     answered from the cache / locally, and dns_unanswered (forwarded,
+ *     but no server answered: timeout). A share of unanswered queries of
+ *     warn_pct % or more within a minute (at least min_queries forwarded)
+ *     is "DNS failing"; it ends when the share stays below half of it.
+ *   - per upstream server: SIGUSR1 makes dnsmasq write its statistics to
+ *     the system log ("server 1.1.1.1#53: queries sent 120, retried 3,
+ *     failed 0, nxdomain replies 4, avg. latency 18ms"); sent every dump s
+ *     (5 lines or so in the log), read by read_log. Retried = no answer in
+ *     time, failed = SERVFAIL / REFUSED.
+ */
+const DNS_WIN = 60;
+let dns = { ok: null, err: null, prev: null, win: [], bad: false, since: null, max_pct: 0, last: null,
+	srv: {}, srv_prev: {}, srv_bad: {}, dump_ts: 0, dump_got: null, pids: [] };
+
+function dnsmasq_metrics() {
+	let f = getenv('ISP_TESTER_DNSMASQ');
+	if (f) {
+		let j;
+		try { j = json(fs.readfile(f) || 'null'); } catch (e) { j = null; }
+		return (type(j) == 'object') ? j : null;
+	}
+	if (getenv('ISP_TESTER_CONFIG')) return null;
+	try {
+		ubus_conn ??= require('ubus').connect();
+		let sum = null;
+		/* one object per dnsmasq instance */
+		for (let o in (ubus_conn?.list('dnsmasq*') ?? [])) {
+			let r = ubus_conn.call(o, 'metrics');
+			r = r?.metrics ?? r;
+			if (type(r) != 'object') continue;
+			sum ??= {};
+			for (let k, v in r) if (type(v) == 'int') sum[k] = (sum[k] ?? 0) + v;
+		}
+		return sum;
+	}
+	catch (e) {
+		return null;
+	}
+}
+
+function dnsmasq_pids() {
+	let out = [];
+	for (let pid in (fs.lsdir(PROC) ?? []))
+		if (match(pid, /^[0-9]+$/) && trim(fs.readfile(`${PROC}/${pid}/comm`) ?? '') == 'dnsmasq') push(out, int(pid));
+	return out;
+}
+
+/* the dump in the log, one line per upstream server (read_log) */
+function dns_log_line(l) {
+	let m = match(l.msg, /^server ([0-9A-Fa-f.:]+)#([0-9]+): queries sent ([0-9]+), retried ([0-9]+), failed ([0-9]+)(, nxdomain replies ([0-9]+))?(, avg\. latency ([0-9]+)ms)?/);
+	let old = m ? null : match(l.msg, /^server ([0-9A-Fa-f.:]+)#([0-9]+): queries sent ([0-9]+), retried or failed ([0-9]+)/);
+	if (!m && !old) return false;
+	let k = (m ?? old)[1];
+	dns.srv[k] = m
+		? { sent: +m[3], retried: +m[4], failed: +m[5], nx: m[7] != null ? +m[7] : null, lat: m[9] != null ? +m[9] : null, ts: l.ts }
+		: { sent: +old[3], retried: +old[4], failed: 0, nx: null, lat: null, ts: l.ts };
+	dns.dump_got = now();
+	return true;
+}
+
+/* after a dump: what each server did since the previous one */
+function dns_judge_servers() {
+	if (dns.dump_got == null) return;
+	dns.dump_got = null;
+	for (let k, s in dns.srv) {
+		let p = dns.srv_prev[k];
+		dns.srv_prev[k] = s;
+		if (!p || s.sent < p.sent) continue;          /* first dump, or dnsmasq restarted */
+		let sent = s.sent - p.sent, bad = max(0, s.retried - p.retried) + max(0, s.failed - p.failed);
+		s.d = { sent, bad, retried: max(0, s.retried - p.retried), failed: max(0, s.failed - p.failed), win: s.ts - p.ts };
+		let worse = sent >= 10 && bad * 100 >= sent * cfg.dns.warn_pct;
+		if (worse && !dns.srv_bad[k]) {
+			dns.srv_bad[k] = true;
+			emit('warn', 'wan', k, 'dns_server_bad', { server: k, ...s.d, lat: s.lat });
+		}
+		else if (!worse && dns.srv_bad[k] && sent >= 5) {
+			delete dns.srv_bad[k];
+			emit('info', 'wan', k, 'dns_server_ok', { server: k, ...s.d, lat: s.lat });
+		}
+	}
+}
+
+function sample_dns() {
+	if (!cfg.dns.enabled) return null;
+	let t = now(), m = dnsmasq_metrics();
+	if (m == null) {
+		dns.err = 'no_metrics';
+		dns.prev = null;
+	}
+	else {
+		dns.err = null;
+		let cur = { fwd: m.dns_queries_forwarded ?? 0, local: (m.dns_local_answered ?? 0) + (m.dns_auth_answered ?? 0),
+			stale: m.dns_stale_answered ?? 0, unans: m.dns_unanswered, cache: m.dns_cache_inserted ?? 0 };
+		let p = dns.prev;
+		if (p && cur.fwd >= p.fwd && cur.local >= p.local)
+			push(dns.win, { ts: t, fwd: cur.fwd - p.fwd, local: cur.local - p.local, stale: max(0, cur.stale - p.stale),
+				unans: (cur.unans != null && p.unans != null) ? max(0, cur.unans - p.unans) : null });
+		dns.prev = cur;
+		dns.has_unans = cur.unans != null;
+	}
+	dns.win = filter(dns.win, (x) => t - x.ts < DNS_WIN);
+
+	let s = { fwd: 0, local: 0, stale: 0, unans: 0, n: length(dns.win) };
+	for (let x in dns.win) { s.fwd += x.fwd; s.local += x.local; s.stale += x.stale; s.unans += x.unans ?? 0; }
+	let pct = (s.fwd > 0) ? round(s.unans * 100 / s.fwd, 0) : 0;
+	dns.last = { ...s, pct, q: s.fwd + s.local };
+
+	if (dns.has_unans && s.n) {
+		if (!dns.bad && s.fwd >= cfg.dns.min_queries && pct >= cfg.dns.warn_pct) {
+			dns.bad = true;
+			/* from the first interval with unanswered queries */
+			dns.since = (filter(dns.win, (x) => x.unans > 0)[0] ?? dns.win[0]).ts - cfg.interval;
+
+			dns.max_pct = pct;
+			emit('warn', 'wan', 'dns', 'dns_fail', { pct, fwd: s.fwd, unans: s.unans, win: DNS_WIN }, dns.since);
+		}
+		else if (dns.bad) {
+			if (pct > dns.max_pct) dns.max_pct = pct;
+			if (pct * 2 < cfg.dns.warn_pct || s.fwd == 0) {
+				dns.bad = false;
+				emit('info', 'wan', 'dns', 'dns_ok', { dur: t - dns.since, max_pct: dns.max_pct });
+			}
+		}
+	}
+
+	/* the per-server dump: needs the system log */
+	if (cfg.logread && LOGREAD && cfg.dns.dump > 0 && t - dns.dump_ts >= cfg.dns.dump) {
+		dns.dump_ts = t;
+		dns.pids = dnsmasq_pids();
+		for (let pid in dns.pids)
+			system([ '/bin/sh', '-c', `kill -USR1 ${pid} 2>/dev/null` ]);
+	}
+
+	let srv = [];
+	for (let k, x in dns.srv)
+		push(srv, { server: k, sent: x.sent, retried: x.retried, failed: x.failed, lat: x.lat, ts: x.ts, d: x.d, bad: !!dns.srv_bad[k] });
+	return { err: dns.err, unans: dns.has_unans, bad: dns.bad, since: dns.since, last: dns.last, servers: srv,
+		dump: (cfg.logread && LOGREAD) ? cfg.dns.dump : 0, warn_pct: cfg.dns.warn_pct };
+}
+
 /* ------------------------------------------------------------ user marks */
 
 /* "problem now" reports from the web UI (appended by rpcd) */
@@ -2065,8 +2231,10 @@ function read_log() {
 		/* on start only remember where the log ends; old lines are history */
 		if (first) continue;
 
+		if (l.prog == 'dnsmasq' && cfg.dns.enabled && dns_log_line(l)) continue;
 		for (let r in LOG_RULES) {
 			if (!match(l.prog, r[0]) || !match(l.msg, r[1])) continue;
+
 			let k = r[2];
 			let st = logst.kinds[k] ??= { n: 0, last: 0 };
 			if (st.n == 0) {
@@ -3569,6 +3737,8 @@ function tick() {
 	if (!iptv_fast()) igmp_poll();
 	sample_system();
 	read_log();
+	dns_judge_servers();
+	let dns_res = sample_dns();
 	sample_pings();
 
 	let m = mono();
@@ -3620,6 +3790,12 @@ function tick() {
 			for (let r in wd.reasons) push(reasons, r);
 		}
 		/* IPv6 trouble while IPv4 works: yellow (pages are slow, not gone) */
+		if (dns_res?.bad) {
+			level = worst(level, 'warn');
+			push(reasons, { c: 'dns_fail_now', pct: dns_res.last?.pct, since: dns_res.since });
+		}
+		for (let x in (dns_res?.servers ?? []))
+			if (x.bad) { level = worst(level, 'warn'); push(reasons, { c: 'dns_server_bad', server: x.server }); }
 		let v6 = v6_out();
 		if (v6 && length(v6.reasons)) {
 			level = worst(level, 'warn');
@@ -3635,6 +3811,8 @@ function tick() {
 				n: trace.n, cooldown: cfg.wan.trace_cooldown } : null,
 			bloat: bloat_out(),
 			v6,
+			dns: dns_res,
+
 
 			rx_kbps: wd?.delta ? round(wd.delta.rx_bps / 1000, 0) : null,
 			tx_kbps: wd?.delta ? round(wd.delta.tx_bps / 1000, 0) : null,

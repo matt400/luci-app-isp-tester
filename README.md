@@ -33,6 +33,7 @@ Target: **OpenWrt 24.10 and 25.12** (ucode + rpcd + LuCI JS). No compiled code, 
 | **Internet** | Ping results of **collectd** (luci-app-statistics, Ping plugin): loss, latency and jitter per host. The host netifd reports as gateway is marked as the ISP gateway | packet loss, high latency, high jitter (optional), host not responding, *Internet down* (no host responds), recovery with duration |
 | **WAN session** | netifd status of the WAN interface | interface down/up (PPPoE/DHCP session lost), session restarted between two checks, WAN address changed |
 | **IPv6** | netifd status of the DHCPv6 interface (`wan6`, what odhcp6c got) + the IPv6 hosts of the collectd Ping plugin | *IPv6 down* (no IPv6 host answers while IPv4 does), DHCPv6 session down/up, delegated **prefix lost / changed**, **no router advertisement** (default route gone) |
+| **DNS** | dnsmasq's own statistics: `ubus call dnsmasq metrics` every interval, per upstream server from its SIGUSR1 dump in the system log (every 5 min) | **DNS failing** (≥ 10 % of the queries sent upstream unanswered within a minute) / *OK again*; *DNS server X: N of M queries retried or failed* |
 | **System log** | `logread`: pppd, udhcpc, igmpproxy/mcproxy, kernel, dnsmasq | LCP echo timeouts, PPPoE discovery/authentication failures, DHCP lease lost, proxy errors, network driver hang, connection table full, out of memory, DNS query limit |
 | **IPTV** | Bitrate of the IPTV VLAN (bridge per-VLAN counters), or of a device that carries only IPTV traffic (e.g. `eth1.387`, or the decoder's port measured outgoing) | stream started, **stream stopped**, stream resumed after *N s* (with what IGMP did meanwhile), **decoder switched off** (stream gone and no channel subscribed any more: logged as info, not a fault), stream lost (still subscribed: long outage), bitrate dip |
 | **IGMP** | Joined groups on the proxy's upstream (`/proc/net/igmp`), multicast proxy process (igmpproxy, mcproxy, omcproxy), bridge MDB and IGMP timers | proxy stopped / restarted; every freeze is tagged as *channel change*, *membership dropped* or *still subscribed* |
@@ -155,7 +156,17 @@ A common fault that looks like "the Internet is slow": IPv6 breaks while IPv4 ke
 
 The Internet card shows *IPv6: prefix …/56 · RA OK · ping 2/2*; the analysis puts IPv6 faults on the ISP side, and the report counts IPv6 outages with their total and longest time.
 
+## DNS (dnsmasq)
+
+"Pages do not open but ping works" is often DNS. There is no own resolver test; dnsmasq already counts everything:
+
+- **Every interval**, `ubus call dnsmasq metrics`: queries sent upstream (`dns_queries_forwarded`), answered from the cache or locally, and `dns_unanswered` (sent upstream, but no server answered in time). When at least *Unanswered for a warning* (10 %) of the queries sent upstream within a minute stay unanswered (and at least 5 were sent), **DNS failing** is logged; it ends when the share falls below half of that.
+- **Per upstream server**, every 5 min (*Per-server statistics*): `kill -USR1` makes dnsmasq write its statistics to the system log (`server 1.1.1.1#53: queries sent 120, retried 3, failed 0, nxdomain replies 4, avg. latency 18ms`), which the collector reads with the rest of the log. *Retried* is a query that got no answer in time, *failed* a SERVFAIL/REFUSED. A server with 10 % or more of them since the previous dump is logged as *DNS server X: N of M queries retried or failed*. Each dump adds a few lines to the system log; set it to *Off* to avoid that.
+
+The Internet card shows *DNS: 85 queries/min · 60 % from the cache · 0 % unanswered · 1.1.1.1 18 ms*. The analysis puts DNS failures while the line works on the upstream DNS server (the ISP's, or the one you set); during an outage they are just part of it.
+
 ## Path snapshot at a loss
+
 
 
 When a target starts losing packets (or everything is down), the collector runs one traceroute to a far target – the gateway alone would show nothing beyond hop 1. `mtr` (package `mtr`, 10 rounds at 0.5 s) is used when installed and gives loss per hop; otherwise busybox `traceroute -q 3`. The result is one event on the timeline: click it to fold out the hops.
