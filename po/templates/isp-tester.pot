@@ -2593,3 +2593,75 @@ msgstr ""
 
 msgid "The address is not valid."
 msgstr ""
+
+msgid "%s kB"
+msgstr ""
+
+msgid "%s queries/min"
+msgstr ""
+
+msgid "As in LuCI (System → Language)"
+msgstr ""
+
+msgid "Bitrate"
+msgstr ""
+
+msgid "Counters since the router started."
+msgstr ""
+
+msgid "Drop"
+msgstr ""
+
+msgid "Dropped"
+msgstr ""
+
+msgid "Err"
+msgstr ""
+
+msgid "Errors"
+msgstr ""
+
+msgid "Line"
+msgstr ""
+
+msgid "Links up"
+msgstr ""
+
+msgid "Logging in to the other device…"
+msgstr ""
+
+msgid "More details"
+msgstr ""
+
+msgid "No answer from the other device – check the address, the port and that its SSH server is running."
+msgstr ""
+
+msgid "No answer from the router."
+msgstr ""
+
+msgid "STOPPED"
+msgstr ""
+
+msgid "Stream"
+msgstr ""
+
+msgid "The highest loss of all targets"
+msgstr ""
+
+msgid "The router did not answer the request."
+msgstr ""
+
+msgid "Total dropped packets since boot"
+msgstr ""
+
+msgid "Total errors since boot"
+msgstr ""
+
+msgid "Usual"
+msgstr ""
+
+msgid "Where it is measured"
+msgstr ""
+
+msgid "running"
+msgstr ""

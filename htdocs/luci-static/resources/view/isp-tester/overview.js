@@ -68,14 +68,30 @@ var CSS = [
 	'.ispt-card.l-ok{border-left-color:#2e9d4f}.ispt-card.l-warn{border-left-color:#e0a100}.ispt-card.l-fail{border-left-color:#d64541}.ispt-card.l-unknown{border-left-color:#999}',
 	'.ispt-card h3{margin:0 0 .5em 0;display:flex;align-items:center;gap:.4em;font-size:1.15em;border:0;padding:0}',
 	'.ispt-card h3 .chip{margin-left:auto;font-size:.75em;padding:.15em .6em;border-radius:1em;color:#fff}',
-	'.ispt-kv{display:grid;grid-template-columns:auto 1fr;gap:.2em 1em;font-size:.95em}',
-	'.ispt-kv .k{opacity:.7}',
+	/* cards: status and the key numbers first, details below (folded) */
+	'.ispt-card{display:flex;flex-direction:column;line-height:1.45}',
+	'.ispt-kv{display:grid;grid-template-columns:minmax(7.5em,max-content) 1fr;gap:.35em 1em;font-size:.93em;align-items:baseline}',
+	'.ispt-kv .k{opacity:.65}',
+	'.ispt-kv>span:nth-child(2n){overflow-wrap:anywhere}',
+	'.ispt-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(5.6em,1fr));gap:.5em;margin:.1em 0 .8em 0}',
+	'.ispt-kpi{border-radius:6px;padding:.4em .6em;background:rgba(128,128,128,.08);border-top:3px solid transparent;min-width:0}',
+	'.ispt-kpi.l-warn{border-top-color:#e0a100}.ispt-kpi.l-fail{border-top-color:#d64541;background:rgba(214,69,65,.08)}',
+	'.ispt-kpi .l{font-size:.75em;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+	'.ispt-kpi .v{font-size:1.3em;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.25;white-space:nowrap}',
+	'.ispt-kpi .u{font-size:.65em;font-weight:normal;opacity:.7;margin-left:.2em}',
+	'.ispt-sec{font-size:.8em;font-weight:600;opacity:.6;margin:.9em 0 .35em 0;padding-top:.5em;border-top:1px solid rgba(128,128,128,.18)}',
+	'.ispt-more{margin-top:.6em}',
+	'.ispt-more>summary{cursor:pointer;font-size:.9em;opacity:.8;padding:.2em 0;user-select:none}',
+	'.ispt-more>summary:hover{opacity:1}',
 	'.ispt-big{font-size:1.6em;font-weight:bold}',
-	'.ispt-reasons{margin:.5em 0 0 0;padding:0;list-style:none;font-size:.9em}',
+	'.ispt-reasons{margin:0 0 .7em 0;padding:.4em .7em;list-style:none;font-size:.92em;border-radius:6px;background:rgba(214,69,65,.08);border:1px solid rgba(214,69,65,.3)}',
 	'.ispt-reasons li{padding:.15em 0}',
 	'.ispt-mini{width:100%;border-collapse:collapse;font-size:.92em}',
-	'.ispt-mini td,.ispt-mini th{padding:.2em .3em;text-align:left;border-bottom:1px solid rgba(128,128,128,.15)}',
-	'.ispt-mini th{opacity:.7;font-weight:normal}',
+	'.ispt-mini td,.ispt-mini th{padding:.3em .35em;text-align:left;border-bottom:1px solid rgba(128,128,128,.15)}',
+	'.ispt-mini th{opacity:.65;font-weight:normal;font-size:.9em;white-space:nowrap}',
+	'.ispt-mini .n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}',
+	'.ispt-mini .zero{opacity:.4}',
+	'.ispt-mini .bad{color:#d64541;font-weight:600}',
 	'.ispt-chart{margin:.3em 0 1em 0}',
 	'.ispt-chart svg{width:100%;height:auto;display:block}',
 	'.ispt-svgwrap{position:relative}',
@@ -158,26 +174,86 @@ function fmtDur(s) {
 	return _('%d s').format(sec);
 }
 
-function fmtTime(ts) {
+/* the language set in LuCI (System → Language), which the theme writes into
+ * <html lang>; dates and numbers follow it, not the browser's own language */
+var LOCALE = (function() {
+	var l = (document.documentElement.getAttribute('lang') || '').replace(/_/g, '-');
+	if (!l || l === 'auto') return undefined;
+	try { Intl.DateTimeFormat.supportedLocalesOf([ l ]); return l; } catch (e) { return undefined; }
+})();
+
+/* number with a fixed count of decimals, in the LuCI language (1,5 in Polish) */
+function num(v, dec) {
+	return Number(v).toLocaleString(LOCALE, { minimumFractionDigits: dec || 0, maximumFractionDigits: dec || 0 });
+}
+
+/* "2026-11-21 18:29:03": for CSV files and file names (machine-readable) */
+function isoTime(ts) {
 	var d = new Date(ts * 1000);
 	var pad = function(n) { return (n < 10 ? '0' : '') + n; };
 	return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' +
 		pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
 }
 
+/* date and time for people, in the LuCI language */
+function fmtTime(ts) {
+	return new Date(ts * 1000).toLocaleString(LOCALE, { year: 'numeric', month: '2-digit', day: '2-digit',
+		hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+/* shorter: day, month and time (with the year only when asked) */
+function fmtShort(ts, year) {
+	var o = { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' };
+	if (year) o.year = 'numeric';
+	return new Date(ts * 1000).toLocaleString(LOCALE, o);
+}
+
+/* time only today, day and time before */
+function fmtWhen(ts) {
+	var d = new Date(ts * 1000), n = new Date();
+	return (d.toDateString() === n.toDateString()) ? hhmm(ts) : fmtShort(ts);
+}
+
 function fmtRate(kbps) {
 	if (kbps == null) return '–';
-	if (kbps >= 1000) return '%.1f Mbit/s'.format(kbps / 1000);
-	return '%d kbit/s'.format(kbps);
+	if (kbps >= 1000) return num(kbps / 1000, 1) + ' Mbit/s';
+	return num(kbps) + ' kbit/s';
 }
 
 function fmtMs(v) {
-	return (v == null) ? '–' : '%.1f ms'.format(v);
+	return (v == null) ? '–' : num(v, 1) + ' ms';
 }
 
 function fmtSpeed(mbit) {
 	if (mbit == null || mbit < 0) return '–';
-	return (mbit >= 1000) ? (mbit / 1000) + ' Gbit/s' : mbit + ' Mbit/s';
+	return (mbit >= 1000) ? num(mbit / 1000, mbit % 1000 ? 1 : 0) + ' Gbit/s' : num(mbit) + ' Mbit/s';
+}
+
+/* [number, unit] of a bitrate, for the big numbers on the cards */
+function rateParts(kbps) {
+	if (kbps == null) return [ '–', '' ];
+	return (kbps >= 1000) ? [ num(kbps / 1000, kbps >= 100000 ? 0 : 1), 'Mbit/s' ] : [ num(kbps), 'kbit/s' ];
+}
+
+/* one key number on a card: label, value, unit; level colours its top edge */
+function kpi(label, value, unit, level, title) {
+	return E('div', { 'class': 'ispt-kpi l-' + (level || 'ok'), 'title': title || label }, [
+		E('div', { 'class': 'l' }, label),
+		E('div', { 'class': 'v' }, [ value, unit ? E('span', { 'class': 'u' }, unit) : '' ])
+	]);
+}
+
+/* a numeric table cell: right-aligned, a zero is greyed, a non-zero problem count is red */
+function numCell(v, badIfNonZero) {
+	if (v == null) return E('td', { 'class': 'n zero' }, '–');
+	return E('td', { 'class': 'n' + (v === 0 ? ' zero' : (badIfNonZero ? ' bad' : '')) }, num(v));
+}
+
+/* does a key/value row show a problem? (such rows are never folded away) */
+function isAlert(node) {
+	if (!node || !node.nodeType) return false;
+	if (node.classList && node.classList.contains('ispt-warn-text')) return true;
+	return !!(node.querySelector && node.querySelector('.ispt-warn-text, .ispt-dot.ispt-fail, .ispt-dot.ispt-warn'));
 }
 
 function targetName(label, host) {
@@ -300,7 +376,7 @@ function eventText(e) {
 	case 'log':             return logText(d.kind) + ' – ' + d.prog + ': „' + d.msg + '”' + (d.n > 1 ? ' (%d×)'.format(d.n) : '');
 	case 'trace':           return traceText(e);
 	case 'sfp_rx_drop':     return _('OPTICAL SIGNAL WEAKER: RX %s dBm, usually %s dBm (%s dB less) on %s').format(d.rx, d.base != null ? d.base : '?',
-		d.base != null ? (d.base - d.rx).toFixed(1) : '?', d.dev) + (d.why === 'module' ? ' · ' + _('the module itself warns') : d.why === 'min' ? ' · ' + _('below the set limit') : '');
+		d.base != null ? num(d.base - d.rx, 1) : '?', d.dev) + (d.why === 'module' ? ' · ' + _('the module itself warns') : d.why === 'min' ? ' · ' + _('below the set limit') : '');
 	case 'sfp_rx_drop_ok':  return _('Optical signal back to %s dBm after %s (weakest %s dBm)').format(d.rx, fmtDur(d.dur), d.min);
 	case 'sfp_los':         return _('NO LIGHT from the line on %s (SFP RX) – the fibre, the connector or the ISP\'s side').format(d.dev);
 	case 'sfp_los_ok':      return _('Light is back after %s (RX %s dBm)').format(fmtDur(d.dur), d.rx != null ? d.rx : '?');
@@ -356,11 +432,11 @@ function eventText(e) {
 }
 
 function fmtPct(v) {
-	return v == null ? '–' : (v < 1 ? v.toFixed(2) : v.toFixed(1));
+	return v == null ? '–' : num(v, v < 1 ? 2 : 1);
 }
 
 function fmtKB(kb) {
-	return kb == null ? '–' : (kb >= 1024 ? _('%s MB').format((kb / 1024).toFixed(1)) : _('%d kB').format(kb));
+	return kb == null ? '–' : (kb >= 1024 ? _('%s MB').format(num(kb / 1024, 1)) : _('%s kB').format(num(kb)));
 }
 
 /* what the tester itself uses: proof that it does not load the router */
@@ -467,7 +543,7 @@ function traceTable(d) {
 		var bad = d.first_bad != null && h.n >= d.first_bad;
 		return E('tr', { 'class': bad ? 'ispt-warn-text' : '' }, [
 			E('td', {}, String(h.n)), E('td', {}, h.ip || '???'), E('td', {}, '%d%%'.format(h.loss)),
-			E('td', {}, h.avg != null ? '%.1f ms'.format(h.avg) : '–')
+			E('td', {}, h.avg != null ? fmtMs(h.avg) : '–')
 		]);
 	})));
 }
@@ -556,7 +632,7 @@ function hoursText(hr) {
 
 /* "2026-11-21" of a local day, for <input type="date"> */
 function dayStr(ts) {
-	return fmtTime(ts).substr(0, 10);
+	return isoTime(ts).substr(0, 10);
 }
 
 /* local midnight of "2026-11-21" */
@@ -594,9 +670,9 @@ function medianStep(t) {
 }
 
 function hhmm(ts, secs) {
-	var d = new Date(ts * 1000);
-	return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2) +
-		(secs ? ':' + ('0' + d.getSeconds()).slice(-2) : '');
+	var o = { hour: '2-digit', minute: '2-digit' };
+	if (secs) o.second = '2-digit';
+	return new Date(ts * 1000).toLocaleTimeString(LOCALE, o);
 }
 
 /* attach a crosshair + tooltip to an svg chart */
@@ -781,7 +857,7 @@ function download(name, text, mime) {
 }
 
 function stamp() {
-	return fmtTime(Date.now() / 1000).replace(/[: ]/g, '-');
+	return isoTime(Date.now() / 1000).replace(/[: ]/g, '-');
 }
 
 function csvCell(v) {
@@ -872,7 +948,7 @@ return view.extend({
 		};
 		var winText = w.live
 			? _('last %s (live)').format(this.rangeName(this.range))
-			: fmtTime(w.from).substr(5, 11) + ' – ' + fmtTime(w.to).substr(5, 11);
+			: fmtShort(w.from) + ' – ' + fmtShort(w.to);
 
 		return E('div', { 'class': 'ispt-nav' }, RANGES.map(function(r) {
 			return btn(r[1], self.range === r[0], function() { self.setWindow(r[0], self.end); });
@@ -910,11 +986,16 @@ return view.extend({
 			]) : E('div', { 'class': 'ispt-muted', 'style': 'font-size:.9em' }, _('Nothing was logged that points at a fault.'))
 		]);
 
-		var items = r.findings.slice(0, 8).map(function(f) {
+		/* the 8 that weigh most (the verdict rests on them), shown by time:
+		 * the latest first, findings without a moment (notes) at the end */
+		var items = r.findings.slice(0, 8).sort(function(a, b) {
+			return (b.last || 0) - (a.last || 0);
+		}).map(function(f) {
 			return E('li', {}, [
 				E('span', { 'class': 'ispt-side ' + f.side }, diagnose.sideText(f.side)),
 				E('span', {}, diagnose.findingText(f)),
-				f.last ? E('span', { 'class': 'ispt-muted', 'style': 'margin-left:auto;white-space:nowrap;font-size:.85em' }, _('last %s').format(hhmm(f.last))) : ''
+				f.last ? E('span', { 'class': 'ispt-muted', 'style': 'margin-left:auto;white-space:nowrap;font-size:.85em;font-variant-numeric:tabular-nums',
+					'title': fmtTime(f.last) }, _('last %s').format(fmtWhen(f.last))) : ''
 			]);
 		});
 
@@ -1144,30 +1225,49 @@ return view.extend({
 		if (!w)
 			return this.disabledCard(_('Internet'));
 
-		var rows = (w.targets || []).map(function(t) {
+		var targets = w.targets || [];
+		var rows = targets.map(function(t) {
 			return E('tr', {}, [
 				E('td', {}, [ dot(t.level), targetName(t.label, t.host) ]),
-				E('td', {}, (t.loss == null) ? '–' : t.loss + '%'),
-				E('td', {}, fmtMs(t.rtt)),
-				E('td', {}, fmtMs(t.jitter))
+				E('td', { 'class': 'n' + (t.loss ? ' bad' : (t.loss === 0 ? ' zero' : '')) }, (t.loss == null) ? '–' : num(t.loss) + ' %'),
+				E('td', { 'class': 'n' }, fmtMs(t.rtt)),
+				E('td', { 'class': 'n' }, fmtMs(t.jitter))
 			]);
 		});
-		var kv = [
-			E('span', { 'class': 'k' }, _('WAN device')), E('span', {}, w.device || '–'),
-			E('span', { 'class': 'k' }, _('Traffic ↓ / ↑')), E('span', {}, fmtRate(w.rx_kbps) + ' / ' + fmtRate(w.tx_kbps))
-		];
+
+		/* the key numbers: the worst loss, the ping of the gateway (else of the
+		 * first target), the traffic */
+		var gw = targets.filter(function(t) { return t.label === 'gateway'; })[0] || targets[0];
+		var worst = null, worstLvl = 'ok';
+		targets.forEach(function(t) {
+			if (t.loss != null && (worst == null || t.loss > worst)) worst = t.loss;
+			if (t.level === 'fail' || (t.level === 'warn' && worstLvl !== 'fail')) worstLvl = t.level;
+		});
+		var rx = rateParts(w.rx_kbps), tx = rateParts(w.tx_kbps);
+		var kpis = E('div', { 'class': 'ispt-kpis' }, [
+			kpi(_('Packet loss'), worst == null ? '–' : num(worst), worst == null ? '' : '%', worst ? worstLvl : 'ok', _('The highest loss of all targets')),
+			kpi(_('Ping'), gw && gw.rtt != null ? num(gw.rtt, 1) : '–', 'ms', gw ? lvl(gw.level) : 'ok', gw ? targetName(gw.label, gw.host) : ''),
+			kpi(_('Download'), rx[0], rx[1]),
+			kpi(_('Upload'), tx[0], tx[1])
+		]);
+
+		/* details, by topic */
+		var conn = [], kv = [];
+		conn.push(E('span', { 'class': 'k' }, _('WAN device')), E('span', {}, w.device || '–'));
 		if (w.source)
-			kv.push(E('span', { 'class': 'k' }, _('Ping data')), E('span', { 'class': w.source.type ? '' : 'ispt-warn-text' },
+			conn.push(E('span', { 'class': 'k' }, _('Ping data')), E('span', { 'class': w.source.type ? '' : 'ispt-warn-text' },
 				w.source.type === 'unixsock' ? _('collectd (live)')
 				: w.source.type === 'rrd' ? _('collectd RRD files (delayed; enable the UnixSock plugin for live values)')
 				: _('none')));
+		var head = [];
 		if (w.session) {
 			var ss = w.session;
-			kv.push(E('span', { 'class': 'k' }, _('Session')), E('span', {},
+			head.push(E('span', { 'class': 'k' }, _('Session')), E('span', { 'class': ss.up ? '' : 'ispt-warn-text' },
 				ss.up ? _('%s, up for %s').format((ss.proto || '').toUpperCase() || 'WAN', fmtDur(ss.uptime)) : _('DOWN')));
-			kv.push(E('span', { 'class': 'k' }, _('Address')), E('span', {}, (ss.ip || '–') +
+			head.push(E('span', { 'class': 'k' }, _('Address')), E('span', {}, (ss.ip || '–') +
 				(ss.reconnects ? ' · ' + _('%d reconnects since start').format(ss.reconnects) : '')));
 		}
+		var v6kv = [], dnskv = [], linekv = [];
 		if (w.v6) {
 			var v6 = w.v6, v6t = [];
 			if (!v6.found) v6t.push(_('no DHCPv6 interface (wan6)'));
@@ -1183,30 +1283,30 @@ return view.extend({
 				v6t.push(E('span', { 'class': 'ispt-muted', 'title': _('Add an IPv6 host (e.g. 2606:4700:4700::1111) to the collectd Ping plugin') }, _('no IPv6 ping target')));
 			var v6p = [];
 			v6t.forEach(function(x, i) { if (i) v6p.push(' · '); v6p.push(x); });
-			kv.push(E('span', { 'class': 'k' }, 'IPv6'), E('span', {}, v6p));
+			v6kv.push(E('span', { 'class': 'k' }, 'IPv6'), E('span', {}, v6p));
 		}
 		if (w.dns) {
 			var dn = w.dns, dl = dn.last || {}, dt = [];
 			if (dn.err) dt.push(E('span', { 'class': 'ispt-muted' }, _('no statistics from dnsmasq (ubus)')));
 			else {
-				dt.push(_('%d queries/min').format(dl.q || 0));
+				dt.push(_('%s queries/min').format(num(dl.q || 0)));
 				if (dl.q) dt.push(_('%d%% from the cache').format(Math.round(dl.local * 100 / dl.q)));
 				if (dn.unans) dt.push(E('span', { 'class': dn.bad ? 'ispt-warn-text' : '' }, _('%d%% unanswered').format(dl.pct || 0)));
 			}
 			(dn.servers || []).forEach(function(x) {
 				var d = x.d || {};
 				dt.push(E('span', { 'class': x.bad ? 'ispt-warn-text' : '', 'title': _('Since the previous statistics: %d sent, %d retried, %d failed').format(d.sent || 0, d.retried || 0, d.failed || 0) },
-					x.server + (x.lat != null ? ' %d ms'.format(x.lat) : '') + (d.sent ? ' ' + _('%d%% bad').format(Math.round((d.bad || 0) * 100 / d.sent)) : '')));
+					x.server + (x.lat != null ? ' ' + num(x.lat) + ' ms' : '') + (d.sent ? ' ' + _('%d%% bad').format(Math.round((d.bad || 0) * 100 / d.sent)) : '')));
 			});
 			var dp = [];
 			dt.forEach(function(x, i) { if (i) dp.push(' · '); dp.push(x); });
-			kv.push(E('span', { 'class': 'k', 'title': _('DNS of the router, from dnsmasq\'s own statistics') }, _('DNS')), E('span', {}, dp));
+			dnskv.push(E('span', { 'class': 'k', 'title': _('DNS of the router, from dnsmasq\'s own statistics') }, _('DNS')), E('span', {}, dp));
 		}
 		if (w.bloat) {
 			var b = w.bloat;
-			kv.push(E('span', { 'class': 'k' }, _('Line speed')), E('span', {},
+			linekv.push(E('span', { 'class': 'k' }, _('Line speed')), E('span', {},
 				(b.cap_rx >= 1000 ? '↓ %s / ↑ %s'.format(fmtRate(b.cap_rx), fmtRate(b.cap_tx)) : '–') + ' (' + (b.learned ? _('highest seen') : _('set')) + ')'));
-			kv.push(E('span', { 'class': 'k', 'title': _('Ping of the gateway at low load and with the link full, from collectd and the WAN traffic of the same interval') }, _('Ping idle / full link')),
+			linekv.push(E('span', { 'class': 'k', 'title': _('Ping of the gateway at low load and with the link full, from collectd and the WAN traffic of the same interval') }, _('Ping idle / full link')),
 				E('span', { 'class': b.active ? 'ispt-warn-text' : '' }, bloatText(b)));
 		}
 
@@ -1217,22 +1317,25 @@ return view.extend({
 			else {
 				var bad = sp.los || sp.drop;
 				sv.push(E('span', { 'class': bad ? 'ispt-warn-text' : '', 'title': _('Received power; usually %s dBm, a fall of %s dB counts as a fault').format(sp.base != null ? sp.base : '?', sp.drop_db) },
-					sp.rx != null ? 'RX %s dBm'.format(sp.rx) : _('RX no light')));
-				if (sp.tx != null) sv.push(' · TX %s dBm'.format(sp.tx));
-				if (sp.temp != null) sv.push(' · %s °C'.format(sp.temp));
+					sp.rx != null ? 'RX ' + num(+sp.rx, 1) + ' dBm' : _('RX no light')));
+				if (sp.tx != null) sv.push(' · TX ' + num(+sp.tx, 1) + ' dBm');
+				if (sp.temp != null) sv.push(' · ' + num(+sp.temp) + ' °C');
 				if (sp.alarm) sv.push(E('span', { 'class': 'ispt-warn-text' }, ' · ' + (sp.flags || []).join(', ')));
 			}
-			kv.push(E('span', { 'class': 'k', 'title': _('From the SFP module itself (ethtool -m %s)').format(sp.dev || '') }, _('Optical signal')), E('span', {}, sv));
+			linekv.push(E('span', { 'class': 'k', 'title': _('From the SFP module itself (ethtool -m %s)').format(sp.dev || '') }, _('Optical signal')), E('span', {}, sv));
 		}
 
 		return E('div', { 'class': 'ispt-card l-' + lvl(w.level) }, [
 			E('h3', {}, [ _('Internet'), chip(w.level) ]),
+			this.reasons(w.reasons),
+			kpis,
 			E('table', { 'class': 'ispt-mini' }, [
-				E('tr', {}, [ E('th', {}, _('Target')), E('th', {}, _('Loss')), E('th', {}, _('Ping')),
-					E('th', { 'title': _('Standard deviation of the ping time (collectd)') }, _('Jitter')) ])
+				E('tr', {}, [ E('th', {}, _('Target')), E('th', { 'class': 'n' }, _('Loss')), E('th', { 'class': 'n' }, _('Ping')),
+					E('th', { 'class': 'n', 'title': _('Standard deviation of the ping time (collectd)') }, _('Jitter')) ])
 			].concat(rows.length ? rows : [ E('tr', {}, E('td', { colspan: 4, 'class': 'ispt-muted' }, _('Waiting for ping results…'))) ])),
-			E('div', { 'class': 'ispt-kv', 'style': 'margin-top:.5em' }, kv),
-			this.reasons(w.reasons)
+			this.details('wan', head, [
+				[ _('Connection'), conn ], [ 'IPv6', v6kv ], [ 'DNS', dnskv ], [ _('Line'), linekv ]
+			])
 		]);
 	},
 
@@ -1248,25 +1351,38 @@ return view.extend({
 		}[t.state] || t.state;
 
 		var v = t.vlan;
-		var kv = v ? [
+		var where = v ? [
 			E('span', { 'class': 'k' }, _('Measured on')), E('span', {}, _('VLAN %d on %s').format(v.id, v.bridge || '?')),
 			E('span', { 'class': 'k' }, _('Ports')), E('span', {}, (v.upstream ? v.upstream + ' (' + _('ISP') + ') → ' : '') +
 				(v.ports || []).filter(function(p) { return p !== v.upstream; }).join(', '))
 		] : [
 			E('span', { 'class': 'k' }, _('Device')), E('span', {}, '%s (%s)'.format(t.device, t.direction === 'tx' ? _('outgoing') : _('incoming')))
 		];
-		kv.push(
-			E('span', { 'class': 'k' }, _('State')), E('span', {}, stateText + ' · ' + _('for %s').format(fmtDur(Date.now() / 1000 - t.since))),
-			E('span', { 'class': 'k' }, _('Usual bitrate')), E('span', {}, t.avg ? fmtRate(t.avg) : '–'),
-			E('span', { 'class': 'k' }, _('Packets/s')), E('span', {}, t.pps != null ? String(t.pps) : '–'));
+
+		/* the key numbers: state, bitrate now and usually, packets */
+		var stLvl = t.state === 'stalled' ? 'fail' : t.state === 'playing' ? 'ok' : 'unknown';
+		var now = rateParts(t.kbps), avg = rateParts(t.avg || null);
+		var kpis = E('div', { 'class': 'ispt-kpis' }, [
+			kpi(_('Stream'), { playing: _('running'), stalled: _('STOPPED'), idle: _('none') }[t.state] || t.state || '–', '', stLvl,
+				stateText + ' · ' + _('for %s').format(fmtDur(Date.now() / 1000 - t.since))),
+			kpi(_('Bitrate'), now[0], now[1], t.kbps && t.avg && t.kbps < t.avg / 2 ? 'warn' : 'ok'),
+			kpi(_('Usual'), avg[0], avg[1]),
+			kpi(_('Packets/s'), t.pps != null ? num(t.pps) : '–', '')
+		]);
+
+		var head = [
+			E('span', { 'class': 'k' }, _('State')), E('span', { 'class': t.state === 'stalled' ? 'ispt-warn-text' : '' },
+				stateText + ' · ' + _('for %s').format(fmtDur(Date.now() / 1000 - t.since)))
+		];
+		var kv = [], decs = [], igmp = [];
 
 		var wv = watching(t);
 		if (wv)
-			kv.push(E('span', { 'class': 'k' }, _('Watching')), E('span', {}, wv));
+			head.push(E('span', { 'class': 'k' }, _('Watching')), E('span', {}, wv));
 
 		/* decoders found in the bridge MAC table of the IPTV VLAN */
 		(t.decoders || []).forEach(function(x) {
-			kv.push(E('span', { 'class': 'k' }, _('Decoder %s').format(x.label || x.mac)), E('span', { 'class': x.present ? '' : 'ispt-warn-text' },
+			decs.push(E('span', { 'class': 'k' }, _('Decoder %s').format(x.label || x.mac)), E('span', { 'class': x.present ? '' : 'ispt-warn-text' },
 				x.present
 					? [ dot(x.quiet ? 'warn' : 'ok'), _('on %s, for %s').format(x.port, fmtDur(Date.now() / 1000 - x.since)) +
 						(x.quiet ? ' · ' + _('silent for %s').format(fmtDur(Date.now() / 1000 - x.active)) : '') ]
@@ -1284,7 +1400,7 @@ return view.extend({
 			if (x.changes) bad.push(_('IP changed %d×').format(x.changes));
 			if (x.naks) bad.push(_('refused %d×').format(x.naks));
 			if (x.expired) bad.push(_('lease expired'));
-			kv.push(E('span', { 'class': 'k', 'title': _('Seen from the operator\'s DHCP replies (%s)').format(x.via === 'dnsmasq' ? 'dnsmasq' : _('in the IPTV VLAN')) },
+			decs.push(E('span', { 'class': 'k', 'title': _('Seen from the operator\'s DHCP replies (%s)').format(x.via === 'dnsmasq' ? 'dnsmasq' : _('in the IPTV VLAN')) },
 				_('DHCP %s').format(x.label || x.mac)),
 				E('span', { 'class': bad.length ? 'ispt-warn-text' : '' }, bits.join(' · ') + (bad.length ? ' · ' + bad.join(' · ') : '')));
 		});
@@ -1312,7 +1428,7 @@ return view.extend({
 						g.total ? ' · ' + _('%d since the channel started').format(g.total) : '' ]);
 				});
 
-			kv.push(E('span', { 'class': 'k' }, _('Picture quality')), E('span', {}, qv));
+			head.push(E('span', { 'class': 'k' }, _('Picture quality')), E('span', {}, qv));
 			if (q.running && q.since && !qe)
 				kv.push(E('span', { 'class': 'k' }, _('Measuring')),
 					E('span', {}, _('continuously, every packet, for %s').format(fmtDur(Date.now() / 1000 - q.since))));
@@ -1322,9 +1438,9 @@ return view.extend({
 		}
 
 		if (t.bridge) {
-			kv.push(E('span', { 'class': 'k' }, _('IGMP snooping (%s)').format(t.bridge.name)),
+			igmp.push(E('span', { 'class': 'k' }, _('IGMP snooping (%s)').format(t.bridge.name)),
 				E('span', {}, t.bridge.snooping == null ? '–' : (t.bridge.snooping === '1' ? _('on') : _('off'))));
-			kv.push(E('span', { 'class': 'k' }, _('IGMP querier')),
+			igmp.push(E('span', { 'class': 'k' }, _('IGMP querier')),
 				E('span', {}, t.bridge.querier == null ? '–' : (t.bridge.querier === '1' ? _('on') : _('off'))));
 		}
 
@@ -1335,21 +1451,21 @@ return view.extend({
 					(q.src ? ' · ' + q.src : '') + (q.ver ? ' (IGMPv' + q.ver + ')' : '') + (q.silent ? ' · ' + _('SILENT, memberships can expire') : '') ];
 			else
 				qs = [ dot(q.never ? 'warn' : 'ok'), q.never ? _('none seen in %s').format(fmtDur(q.seen_for)) : _('waiting for the first query') ];
-			kv.push(E('span', { 'class': 'k', 'title': _('General IGMP queries sent by the operator on the IPTV VLAN, seen by the router. Without them the memberships time out.') },
+			igmp.push(E('span', { 'class': 'k', 'title': _('General IGMP queries sent by the operator on the IPTV VLAN, seen by the router. Without them the memberships time out.') },
 				_('ISP IGMP queries')), E('span', {}, qs));
 		}
 		if (t.bridge && t.bridge.membership_interval)
-			kv.push(E('span', { 'class': 'k', 'title': _('Settings of this router\'s bridge, not what the operator sends – see "ISP IGMP queries".') }, _('IGMP timers')), E('span', {},
+			igmp.push(E('span', { 'class': 'k', 'title': _('Settings of this router\'s bridge, not what the operator sends – see "ISP IGMP queries".') }, _('IGMP timers')), E('span', {},
 				_('membership %d s, query %d s').format(t.bridge.membership_interval, t.bridge.query_interval || 0)));
 		if (t.bridge && t.bridge.mdb)
-			kv.push(E('span', { 'class': 'k' }, _('Bridge groups')), E('span', { 'class': 'ispt-groups' },
+			igmp.push(E('span', { 'class': 'k' }, _('Bridge groups')), E('span', { 'class': 'ispt-groups' },
 				t.bridge.mdb.length ? groupsByPort(t.bridge.mdb, t) : _('none')));
 		if (t.igmp) {
 			var ig = t.igmp;
-			if (!v || ig.proxy_seen) kv.push(E('span', { 'class': 'k' }, _('Multicast proxy')), E('span', {},
+			if (!v || ig.proxy_seen) igmp.push(E('span', { 'class': 'k' }, _('Multicast proxy')), E('span', {},
 				ig.proxy_running ? [ dot('ok'), ig.proxy ] : ig.proxy_seen ? [ dot('fail'), _('%s not running').format(ig.proxy) ] : _('none found')));
 			if (ig.dev && !v)
-				kv.push(E('span', { 'class': 'k' }, _('Channels joined (%s)').format(ig.dev)), E('span', { 'class': 'ispt-groups' },
+				igmp.push(E('span', { 'class': 'k' }, _('Channels joined (%s)').format(ig.dev)), E('span', { 'class': 'ispt-groups' },
 					!ig.found ? _('device not in IGMP table') :
 					(ig.groups && ig.groups.length ? ig.groups.map(function(g) { return chLabel(t, g); }).join(', ') : _('none')) + (ig.version ? ' · IGMP' + ig.version.replace('V', 'v') : '') +
 					(ig.last_change ? ' · ' + _('changed %s ago').format(fmtDur(Date.now() / 1000 - ig.last_change)) : '')));
@@ -1357,9 +1473,11 @@ return view.extend({
 
 		return E('div', { 'class': 'ispt-card l-' + lvl(t.level) }, [
 			E('h3', {}, [ _('IPTV'), chip(t.level) ]),
-			E('div', { 'class': 'ispt-big' }, fmtRate(t.kbps)),
-			E('div', { 'class': 'ispt-kv' }, kv),
-			this.reasons(t.reasons)
+			this.reasons(t.reasons),
+			kpis,
+			this.details('iptv', head, [
+				[ _('Where it is measured'), where ], [ _('Picture quality'), kv ], [ _('Decoders'), decs ], [ 'IGMP / multicast', igmp ]
+			])
 		]);
 	},
 
@@ -1368,29 +1486,47 @@ return view.extend({
 		if (!p || !p.list || !p.list.length)
 			return this.disabledCard(_('Ports'), _('Add ports to watch in Settings.'));
 
+		var up = 0, errs = 0, drops = 0, flaps = 0;
 		var rows = p.list.map(function(x) {
-			var link = !x.present ? _('missing') : x.up ? fmtSpeed(x.speed) + (x.duplex && x.duplex !== 'full' ? ' ' + x.duplex : '') : _('down');
+			var link = !x.present ? E('span', { 'class': 'ispt-warn-text' }, _('missing'))
+				: x.up ? fmtSpeed(x.speed) + (x.duplex && x.duplex !== 'full' ? ' ' + x.duplex : '')
+				: E('span', { 'class': x.level === 'fail' ? 'ispt-warn-text' : 'ispt-muted' }, _('down'));
 			var tot = x.totals || {};
+			var e = (tot.rx_errors || 0) + (tot.tx_errors || 0), d = (tot.rx_dropped || 0) + (tot.tx_dropped || 0);
+			if (x.up) up++;
+			errs += e; drops += d; flaps += tot.carrier_changes || 0;
 			return E('tr', { 'title': (x.reasons || []).map(reasonText).join('\n') }, [
-				E('td', {}, [ dot(x.level), x.label ? '%s (%s)'.format(x.label, x.dev) : x.dev ]),
-				E('td', {}, link),
-				E('td', {}, x.up ? fmtDur(Date.now() / 1000 - x.since) : '–'),
-				E('td', {}, '%d / %d'.format((tot.rx_errors || 0) + (tot.tx_errors || 0), (tot.rx_dropped || 0) + (tot.tx_dropped || 0))),
-				E('td', {}, String(tot.carrier_changes != null ? tot.carrier_changes : '–'))
+				E('td', {}, [ dot(x.level), x.label ? E('span', {}, [ x.label, ' ', E('span', { 'class': 'ispt-muted' }, x.dev) ]) : x.dev ]),
+				E('td', { 'style': 'white-space:nowrap' }, link),
+				E('td', { 'class': 'n' }, x.up ? fmtDur(Date.now() / 1000 - x.since) : '–'),
+				numCell(e, true),
+				numCell(d, false),
+				numCell(tot.carrier_changes, false)
 			]);
 		});
 
 		var reasons = [];
 		p.list.forEach(function(x) { (x.reasons || []).forEach(function(r) { reasons.push(r); }); });
 
+		var n = p.list.length;
+		var kpis = E('div', { 'class': 'ispt-kpis' }, [
+			kpi(_('Links up'), num(up) + ' / ' + num(n), '', up < n ? lvl(p.level) : 'ok'),
+			kpi(_('Errors'), num(errs), '', errs ? 'warn' : 'ok', _('Total errors since boot')),
+			kpi(_('Dropped'), num(drops), '', 'ok', _('Total dropped packets since boot')),
+			kpi(_('Flaps'), num(flaps), '', 'ok', _('Link state changes since boot'))
+		]);
+
 		return E('div', { 'class': 'ispt-card l-' + lvl(p.level) }, [
 			E('h3', {}, [ _('Ports'), chip(p.level) ]),
+			this.reasons(reasons),
+			kpis,
 			E('table', { 'class': 'ispt-mini' }, [
-				E('tr', {}, [ E('th', {}, _('Port')), E('th', {}, _('Link')), E('th', {}, _('Up for')),
-					E('th', { 'title': _('Total errors / dropped packets since boot') }, _('Err / drop')),
-					E('th', { 'title': _('Link state changes since boot') }, _('Flaps')) ])
+				E('tr', {}, [ E('th', {}, _('Port')), E('th', {}, _('Link')), E('th', { 'class': 'n' }, _('Up for')),
+					E('th', { 'class': 'n', 'title': _('Total errors since boot') }, _('Err')),
+					E('th', { 'class': 'n', 'title': _('Total dropped packets since boot') }, _('Drop')),
+					E('th', { 'class': 'n', 'title': _('Link state changes since boot') }, _('Flaps')) ])
 			].concat(rows)),
-			this.reasons(reasons)
+			E('div', { 'class': 'ispt-muted', 'style': 'font-size:.8em;margin-top:.4em' }, _('Counters since the router started.'))
 		]);
 	},
 
@@ -1436,9 +1572,35 @@ return view.extend({
 
 	reasons: function(list) {
 		if (!list || !list.length) return '';
-		return E('ul', { 'class': 'ispt-reasons' }, list.map(function(r) {
+		return E('ul', { 'class': 'ispt-reasons', 'role': 'alert' }, list.map(function(r) {
 			return E('li', {}, '⚠ ' + reasonText(r));
 		}));
+	},
+
+	/* the rows of a card: 'head' always shown, the sections folded under
+	 * "More details" - except rows that show a problem, which stay visible.
+	 * The folded state is kept over the 5 s refresh. */
+	details: function(key, head, sections) {
+		var self = this, shown = head.slice(), more = [];
+		this.opened = this.opened || {};
+
+		sections.forEach(function(sec) {
+			var kv = sec[1], rest = [];
+			for (var i = 0; i + 1 < kv.length; i += 2) {
+				if (isAlert(kv[i + 1])) shown.push(kv[i], kv[i + 1]);
+				else rest.push(kv[i], kv[i + 1]);
+			}
+			if (rest.length) more.push(E('div', { 'class': 'ispt-sec' }, sec[0]), E('div', { 'class': 'ispt-kv' }, rest));
+		});
+
+		return E([], [
+			shown.length ? E('div', { 'class': 'ispt-kv', 'style': 'margin-top:.6em' }, shown) : '',
+			more.length ? E('details', {
+				'class': 'ispt-more',
+				'open': this.opened[key] ? '' : null,
+				'toggle': function(ev) { self.opened[key] = ev.target.open; }
+			}, [ E('summary', {}, _('More details')) ].concat(more)) : ''
+		]);
 	},
 
 	/* ---- charts */
@@ -1506,7 +1668,7 @@ return view.extend({
 				from: w.from, to: w.to,
 				title: _('IPTV bitrate (Mbit/s) – red = stream stopped while watching'),
 				bands: stallBands,
-				fmt: function(v) { return v.toFixed(1); },
+				fmt: function(v) { return num(v, 1); },
 				min_max: 1
 			}));
 		}
@@ -1528,7 +1690,7 @@ return view.extend({
 				{ name: _('Download'), color: '#3b6fc0', data: s['wan:rx'].map(mb), fmt: function(v) { return fmtRate(v * 1000); } },
 				{ name: _('Upload'), color: '#2a9d5b', data: (s['wan:tx'] || []).map(mb), fmt: function(v) { return fmtRate(v * 1000); } }
 			], { from: w.from, to: w.to, title: _('WAN traffic (Mbit/s) – yellow = bufferbloat (ping up while the link is full)'),
-				bands: bloatBands, fmt: function(v) { return v.toFixed(v < 10 ? 1 : 0); }, min_max: 1, legend: true }));
+				bands: bloatBands, fmt: function(v) { return num(v, v < 10 ? 1 : 0); }, min_max: 1, legend: true }));
 		}
 
 		if (s['sfp:rx'] && s['sfp:rx'].some(function(v) { return v != null; })) {
@@ -1545,9 +1707,9 @@ return view.extend({
 					sfpBands.push({ from: e.ts, to: end, color: '#d64541', title: e.type === 'sfp_los' ? _('No light') : _('Weaker signal') });
 			});
 			var dbm = function(v) { return v == null ? null : v + 40; };
-			var sser = [ { name: _('RX power'), color: '#2a9d5b', data: s['sfp:rx'].map(dbm), fmt: function(v) { return (v - 40).toFixed(1) + ' dBm'; } } ];
+			var sser = [ { name: _('RX power'), color: '#2a9d5b', data: s['sfp:rx'].map(dbm), fmt: function(v) { return num(v - 40, 1) + ' dBm'; } } ];
 			if (s['sfp:tx'] && s['sfp:tx'].some(function(v) { return v != null; }))
-				sser.push({ name: _('TX power'), color: '#7a59c0', data: s['sfp:tx'].map(dbm), fmt: function(v) { return (v - 40).toFixed(1) + ' dBm'; } });
+				sser.push({ name: _('TX power'), color: '#7a59c0', data: s['sfp:tx'].map(dbm), fmt: function(v) { return num(v - 40, 1) + ' dBm'; } });
 			out.push(lineChart(t, sser, { from: w.from, to: w.to, bands: sfpBands, legend: true, min_max: 40,
 				title: _('Optical power of the SFP module (dBm) – red background = signal weaker / no light'),
 				fmt: function(v) { return Math.round(v - 40); } }));
@@ -1585,7 +1747,7 @@ return view.extend({
 			E('h3', {}, _('When do problems happen')),
 			E('div', { 'class': 'ispt-muted', 'style': 'font-size:.9em' },
 				_('Problems per hour of the day (%s). A peak in the evening points at an overloaded ISP network.').format(
-					fmtTime(from).substr(5, 11) + ' – ' + fmtTime(w.to).substr(5, 11))),
+					fmtShort(from) + ' – ' + fmtShort(w.to))),
 			E('div', { 'class': 'ispt-hours' }, h.map(function(n, i) {
 				return E('div', { 'class': n ? '' : 'zero', 'style': 'height:' + Math.max(1, Math.round(n * 100 / max)) + '%',
 					'title': _('%02d:00–%02d:59: %d problems').format(i, i, n) });
@@ -1646,7 +1808,7 @@ return view.extend({
 		ui.showModal(_('Report for the ISP'), [
 			E('p', {}, _('Choose the period and, if the problem shows only at certain times (e.g. in the evening when you watch TV), the hours of the day. Everything – the summary, the assessment, the event list and the measurement coverage – then counts only those hours.')),
 			E('h4', {}, _('Days')),
-			radio('window', _('The period shown in the charts: %s').format(fmtTime(w.from).substr(0, 16) + ' – ' + fmtTime(w.to).substr(0, 16))),
+			radio('window', _('The period shown in the charts: %s').format(fmtShort(w.from, true) + ' – ' + fmtShort(w.to, true))),
 			radio('days', _('Chosen days')), days,
 			E('div', { 'class': 'ispt-muted', 'style': 'font-size:.85em' }, _('Only the last 24 h of measurements and the timeline kept on the router are available here. Older files are on the device the data is sent to (Settings → Send data to another device).')),
 			E('h4', {}, _('Hours of the day')),
@@ -1682,7 +1844,7 @@ return view.extend({
 		var list = this.events().filter(function(e) { return e.ts >= w.from && e.ts <= w.to && inHours(e.ts, hr); }).reverse();
 		var lines = [ 'time,level,router,area,source,event,message' ];
 		list.forEach(function(e) {
-			lines.push([ fmtTime(e.ts), e.lvl, e.host || '', e.area, e.src, e.type, eventText(e) ].map(csvCell).join(','));
+			lines.push([ isoTime(e.ts), e.lvl, e.host || '', e.area, e.src, e.type, eventText(e) ].map(csvCell).join(','));
 		});
 		download('isp-tester-events-' + dayStr(w.from) + '_' + dayStr(w.to) + (hr ? '_%02d-%02d'.format(hr.from, hr.to) : '') + '.csv', lines.join('\n') + '\n');
 	},
@@ -1764,7 +1926,7 @@ return view.extend({
 			'<p class="muted">' + x(_('Period: %s – %s · generated %s by luci-app-isp-tester').format(fmtTime(w.from), fmtTime(w.to), fmtTime(Date.now() / 1000))) + '</p>' +
 			(hr ? '<p><b>' + x(_('Only the hours %s are counted in this report.').format(hoursText(hr))) + '</b></p>' : '') +
 			'<h2>' + x(_('Measurement coverage')) + '</h2><table>' +
-			row(_('Measured'), _('%s%% of the period').format(coverage.toFixed(coverage >= 99.95 ? 0 : 1)) +
+			row(_('Measured'), _('%s%% of the period').format(num(coverage, coverage >= 99.95 ? 0 : 1)) +
 				(gaps.length ? ' · ' + _('not measured: %s in %d periods (listed below)').format(fmtDur(unmeasured), gaps.length) : ' · ' + _('without interruption'))) +
 			row(_('Router restarts'), _('%d×').format(allEv.filter(function(e) { return e.type === 'router_reboot' && !e.host && e.ts >= w.from && e.ts <= w.to; }).length)) +
 			row(_('Monitor restarts (crash / watchdog)'), _('%d×').format(allEv.filter(function(e) { return e.type === 'collector_restart' && !e.host && e.ts >= w.from && e.ts <= w.to; }).length)) +
@@ -1776,7 +1938,7 @@ return view.extend({
 				ms.forEach(function(m) { len += clipLen(Math.max(m.from, w.from), Math.min(m.to, w.to), hr); });
 				if (!ms.length) return '';
 				return row(_('Maintenance (excluded)'), _('%d×, %s – the user worked on the network: %s').format(ms.length, fmtDur(len),
-					ms.map(function(m) { return fmtTime(m.from).substr(5, 11) + '–' + hhmm(m.to) + (m.note ? ' (' + m.note + ')' : ''); }).join(', ')));
+					ms.map(function(m) { return fmtShort(m.from) + '–' + hhmm(m.to) + (m.note ? ' (' + m.note + ')' : ''); }).join(', ')));
 			})() +
 			row(_('Router clock'), (function() {
 				var n = st.ntp || {};
@@ -1821,7 +1983,9 @@ return view.extend({
 				(st.wan.sfp.rx != null ? ' · ' + _('now RX %s dBm, usually %s dBm, weakest %s dBm since start').format(st.wan.sfp.rx, st.wan.sfp.base != null ? st.wan.sfp.base : '?', st.wan.sfp.min_rx != null ? st.wan.sfp.min_rx : '?') : '')) : '') +
 			row(_('Problems reported by the user'), _('%d×').format(count(function(e) { return e.type === 'user_mark'; }))) +
 			'</table><h2>' + x(_('Assessment')) + '</h2><p><b>' + x(diagnose.verdictText(r.verdict)) + '</b> (' + x(diagnose.confidenceText(r.confidence)) + ')</p><ul>' +
-			r.findings.map(function(f) { return '<li>[' + x(diagnose.sideText(f.side)) + '] ' + x(diagnose.findingText(f)) + '</li>'; }).join('') +
+			r.findings.slice().sort(function(a, b) { return (b.last || 0) - (a.last || 0); }).map(function(f) {
+				return '<li>[' + x(diagnose.sideText(f.side)) + '] ' + x(diagnose.findingText(f)) + (f.last ? ' <span class="muted">(' + x(_('last %s').format(fmtShort(f.last))) + ')</span>' : '') + '</li>';
+			}).join('') +
 			'</ul><h2>' + x(_('Problems by hour of day')) + '</h2><div class="hours">' +
 			h.map(function(n) { return '<div style="height:' + Math.max(1, Math.round(n * 100 / hmax)) + '%" title="' + n + '"></div>'; }).join('') +
 			'</div><div class="hl">' + h.map(function(n, i) { return '<span>' + i + '</span>'; }).join('') + '</div>' +
@@ -1982,7 +2146,7 @@ return view.extend({
 		var rows = function(list) {
 			var lines = [ 'time,level,router,area,source,event,message' ];
 			list.forEach(function(e) {
-				lines.push([ fmtTime(e.ts), e.lvl, e.host || '', e.area, e.src, e.type, eventText(e) ].map(csvCell).join(','));
+				lines.push([ isoTime(e.ts), e.lvl, e.host || '', e.area, e.src, e.type, eventText(e) ].map(csvCell).join(','));
 			});
 			download('isp-tester-events-' + stamp() + '.csv', lines.join('\n') + '\n');
 		};

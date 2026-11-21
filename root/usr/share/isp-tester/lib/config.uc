@@ -5,6 +5,18 @@
 import * as fs from 'fs';
 import { num, bool, aslist, valid_host, valid_dev, valid_group, valid_ip } from './common.uc';
 
+/* language of the notifications: 'en' / 'pl' as set, otherwise ('auto') the
+ * language of LuCI (System -> Language, uci luci.main.lang). When LuCI itself
+ * follows the browser ('auto'), the router cannot see it: then Polish if the
+ * Polish translation of this package is installed. */
+function notify_lang(v, cur) {
+	if (v == 'pl' || v == 'en') return v;
+	let l = lc(cur.get('luci', 'main', 'lang') ?? 'auto');
+	if (substr(l, 0, 2) == 'pl') return 'pl';
+	if (l != 'auto') return 'en';
+	return fs.stat('/usr/lib/lua/luci/i18n/isp-tester.pl.lmo') ? 'pl' : 'en';
+}
+
 function default_config() {
 	return {
 		interval: 10,
@@ -50,7 +62,7 @@ function default_config() {
 		dns: { enabled: true, warn_pct: 10, min_queries: 5, dump: 300 },
 		notify: {
 			enabled: false, service: 'ntfy', url: '', token: '', chat_id: '',
-			min_level: 'err', cooldown: 300, lang: 'en'
+			min_level: 'err', cooldown: 300, lang: 'auto'
 		},
 		/* data pushed over SSH (dropbear's dbclient) to another device, by push.sh */
 		push: { enabled: false, interval_h: 24 },
@@ -152,7 +164,7 @@ function load_config() {
 		c.notify.chat_id   = n.chat_id ?? '';
 		c.notify.min_level = (n.min_level == 'warn') ? 'warn' : 'err';
 		c.notify.cooldown  = num(n.cooldown, c.notify.cooldown);
-		c.notify.lang      = (n.lang == 'pl') ? 'pl' : 'en';
+		c.notify.lang      = notify_lang(n.lang, cur);
 
 		c.interval    = num(g.interval, c.interval);
 		c.max_samples = num(g.max_samples, c.max_samples);

@@ -181,8 +181,8 @@ config notify 'notify'
 	option min_level 'err'
 	# at most one message per this many seconds; events in between are batched
 	option cooldown '300'
-	# en | pl
-	option lang 'en'
+	# auto = the language of LuCI (System -> Language) | en | pl
+	option lang 'auto'
 
 # a channel name set by hand (multicast group -> name)
 #config channel
