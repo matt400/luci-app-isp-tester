@@ -32,6 +32,8 @@ Target: **OpenWrt 24.10 and 25.12** (ucode + rpcd + LuCI JS). No compiled code, 
 |------|-----|---------------|
 | **Internet** | Ping results of **collectd** (luci-app-statistics, Ping plugin): loss, latency and jitter per host. The host netifd reports as gateway is marked as the ISP gateway | packet loss, high latency, high jitter (optional), host not responding, *Internet down* (no host responds), recovery with duration |
 | **WAN session** | netifd status of the WAN interface | interface down/up (PPPoE/DHCP session lost), session restarted between two checks, WAN address changed |
+| **IPv6** | netifd status of the DHCPv6 interface (`wan6`, what odhcp6c got) + the IPv6 hosts of the collectd Ping plugin | *IPv6 down* (no IPv6 host answers while IPv4 does), DHCPv6 session down/up, delegated **prefix lost / changed**, **no router advertisement** (default route gone) |
+| **DNS** | dnsmasq's own statistics: `ubus call dnsmasq metrics` every interval, per upstream server from its SIGUSR1 dump in the system log (every 5 min) | **DNS failing** (≥ 10 % of the queries sent upstream unanswered within a minute) / *OK again*; *DNS server X: N of M queries retried or failed* |
 | **System log** | `logread`: pppd, udhcpc, igmpproxy/mcproxy, kernel, dnsmasq | LCP echo timeouts, PPPoE discovery/authentication failures, DHCP lease lost, proxy errors, network driver hang, connection table full, out of memory, DNS query limit |
 | **IPTV** | Bitrate of the IPTV VLAN (bridge per-VLAN counters), or of a device that carries only IPTV traffic (e.g. `eth1.387`, or the decoder's port measured outgoing) | stream started, **stream stopped**, stream resumed after *N s* (with what IGMP did meanwhile), **decoder switched off** (stream gone and no channel subscribed any more: logged as info, not a fault), stream lost (still subscribed: long outage), bitrate dip |
 | **IGMP** | Joined groups on the proxy's upstream (`/proc/net/igmp`), multicast proxy process (igmpproxy, mcproxy, omcproxy), bridge MDB and IGMP timers | proxy stopped / restarted; every freeze is tagged as *channel change*, *membership dropped* or *still subscribed* |
@@ -40,6 +42,7 @@ Target: **OpenWrt 24.10 and 25.12** (ucode + rpcd + LuCI JS). No compiled code, 
 | **Ports** | `/sys/class/net/<dev>` counters and link state | link down/up, link flapping between samples, speed change (e.g. 1 Gbit → 100 Mbit), RX/TX/CRC errors, drops |
 | **Router** | `/proc`: CPU per core (incl. softirq), RAM, connection tracking table. Only read to explain problems; for graphs use *Status → Realtime Graphs* or luci-app-statistics | router overloaded, low RAM, connection table full |
 | **You** | **⚑ Problem now** button | your report with the time of the click and an optional note |
+| **Gaps** | the collector's own sign of life (`alive.json`, once a minute) + the kernel's boot id and `/proc/uptime` | **router restarted** (up since …), **not measured from X to Y** (router restarted, monitoring off, collector stopped or blocked) – listed in the report |
 | **Decoders** (bridged IPTV VLAN) | bridge MAC table (`bridge -s fdb`: which MAC behind which port, seconds since its last frame) + link of that port | *decoder restarted* (away N s; port link down / vanished from the MAC table / silent while the stream stopped), *switched off*, *back* – freezes during a restart are not counted against the ISP |
 | **Path snapshot** | one `mtr -r` (when installed) or busybox `traceroute` when a loss starts or the WAN is down, at most every 10 min | *loss starts at hop N (IP) and carries on to the destination* – the hops fold out on the timeline and are in the report |
 | **Bufferbloat** | collectd's ping matched with the WAN traffic of the same interval (device counters); line speed = highest 30 s rate seen or set | *bufferbloat: ping +N ms with the link X % full* / *over*; WAN traffic chart with the periods marked; card: ping idle vs. full link |
@@ -56,7 +59,7 @@ The package does not duplicate what OpenWrt already does: ping comes from collec
 opkg install luci-app-statistics collectd-mod-ping collectd-mod-unixsock
 ```
 
-In *Statistics → Setup → Network plugins → Ping* add the ISP gateway (the WAN gateway or PPPoE peer) and one or two far hosts (e.g. `1.1.1.1`, `8.8.8.8`). Enable *UnixSock* in *General plugins* so the tester gets live values; without it, it reads the RRD files, which lag behind by the rrdtool cache time (minutes).
+In *Statistics → Setup → Network plugins → Ping* add the ISP gateway (the WAN gateway or PPPoE peer) and one or two far hosts (e.g. `1.1.1.1`, `8.8.8.8`), and for IPv6 one or two IPv6 hosts (e.g. `2606:4700:4700::1111`, `2001:4860:4860::8888`). Enable *UnixSock* in *General plugins* so the tester gets live values; without it, it reads the RRD files, which lag behind by the rrdtool cache time (minutes).
 
 Gateway vs. far-target loss helps pinpoint the cause. Loss to the gateway points at the line or the ISP access network. Loss only to the far targets points further into the ISP's network.
 
@@ -71,7 +74,8 @@ Gateway vs. far-target loss helps pinpoint the cause. Loss to the gateway points
 - A timeline of the selected period, filterable by area or "only problems". Click an event to zoom the charts to that moment.
 - **When do problems happen**: problems per hour of the day. An evening peak points at an overloaded ISP network.
 - **⚑ Problem now**: click it when the TV freezes or the Internet is slow. The mark goes on the timeline, and the analysis tells you whether the router measured anything at that moment. If not, the cause is probably the decoder, the TV, Wi-Fi, or the IPTV device is set wrong.
-- **Report for the ISP**: a printable summary of the selected period (outages, freezes with total/longest duration, session drops, verdict, problems by hour, event log). Print it or save it as PDF and attach it to your complaint.
+- **Report for the ISP**: a printable summary (measurement coverage, outages, freezes with total/longest duration, session drops, verdict, problems by hour, event log). Print it or save it as PDF and attach it to your complaint. The button asks for the period – the one shown in the charts or **chosen days** (from the archive on USB) – and the **hours of the day**, e.g. only *18–23* when the problem shows while you watch TV (presets: evening, 18–23, daytime; over midnight works too, e.g. 22–2). With hours chosen, everything counts only those hours: the summary, the assessment, the event list, the problems by hour and the coverage; an outage that started before 18:00 counts with its part after 18:00. The same dialog downloads the **timeline CSV of those days and hours**.
+- **🔧 Working on the network**: before you re-plug cables, restart the switch or change settings, choose 15 / 30 / 60 / 120 min (with an optional note). Everything is still logged, but flagged: it is left out of the analysis, the report's counts and event list, the banner's error counts and the cards' "problems in the last minutes", and no notifications are sent – so your own work is not taken for an outage. A blue strip shows the time left (*+30 min*, *End now*); the state strip marks the period blue; the timeline shows those entries greyed with *maintenance*; the report lists the maintenance windows as excluded. It survives a collector restart (saving settings). Events the second router logs during its own maintenance arrive flagged too.
 - Export buttons: measurements CSV (one row per interval) and timeline CSV.
 
 **Services → ISP Tester → Settings** holds all thresholds, the IPTV VLAN (or device) and the list of ports. The ping hosts are set in collectd (luci-app-statistics).
@@ -102,6 +106,7 @@ The panel looks at what happened **at the same time** (within 30 s) in the selec
 | Stream gone and no channel subscribed for 15 s (`off_after`) | decoder switched off: not a fault, not counted |
 | Multicast proxy stopped or restarted | router |
 | PPPoE/DHCP session dropped while the WAN link stayed up | ISP |
+| IPv6 down while IPv4 works, IPv6 prefix lost / changed, no router advertisement | ISP IPv6 |
 | DNS failing while ping works | DNS server (ISP's, if you set it) |
 | Problems while the router CPU / RAM / connection table was overloaded | router |
 | Your "Problem now" reports with / without anything measured around them | context (no weight) |
@@ -115,6 +120,47 @@ Each finding is weighted (repeated occurrences count up to 5×). The verdict is 
 Everything is kept in RAM in `/tmp/isp-tester/`, so flash is never written. The data survives a collector restart (e.g. after saving settings) but is lost on reboot, so download the CSVs before restarting the router.
 
 To keep it across reboots, mount a USB stick (*System → Mount Points*) and set **Settings → General → Keep data on** to it (e.g. `/mnt/sda1`). `/tmp/isp-tester` then becomes a link to `<folder>/isp-tester`. If the stick is not mounted at start, the data stays in RAM. Do not point it at the internal flash. The current state (`state.json`) always stays in RAM in `/var/run/isp-tester/`.
+
+### Reboots and gaps: "the router did not measure from X to Y"
+
+A report with holes in it is easy for the ISP to dismiss, so the holes are named. Once a minute the collector writes `alive.json` (in the data folder, so on USB it survives a reboot) with the kernel's boot id. At start it compares:
+
+- **another boot id** → *Router restarted – up since …* (from `/proc/uptime`) and *Not measured from <last sign of life> to <now>: the router restarted*;
+- **same boot**, a pause longer than a few intervals → *Not measured …: monitoring was turned off* (the init script marks a clean stop) or *the collector stopped unexpectedly*;
+- while running, a tick that came far too late → *… the collector was blocked*.
+
+With the data in RAM nothing survives a reboot, so only *Router restarted* is logged. The state strip above the charts shows such periods hatched grey; outages and freezes that were open when the measurement stopped end there (their length does not include the time nobody measured). The report for the ISP starts with **Measurement coverage**: the share of the period that was measured, the router restarts, and every period without measurements with its reason.
+
+### Watchdog: the monitor watches itself
+
+A monitor that silently stops is worse than none. The init script uses procd's own instance watchdog: the collector reports to procd every interval (`ubus call service watchdog`); when the reports stop for six intervals (at least 60 s) – the collector hangs, e.g. in a command that never returns – procd kills it and starts it again. After a crash procd restarts it after 5 s, without giving up. The next start logs *Monitor restarted by the watchdog: it hung* or *… after it stopped unexpectedly*, and the time without measurements as a gap (above).
+
+On the overview a red **MONITOR IS NOT WORKING** banner appears as soon as the collector has not updated its state for three intervals (with *Restart*), and a yellow strip when it restarted more than once in the last hour. The report counts the monitor restarts.
+
+### DHCP of the decoders
+
+Lease renewals and address changes from the operator. In a bridged IPTV VLAN (decoders get their address from the ISP) the lease is **not in the router** – dnsmasq does not hand it out and nothing about it reaches the system log, even though the traffic passes through the router. So the measuring helper `isp-tester-tsmon`, which listens on that VLAN anyway, also keeps the operator's DHCP replies (`-D`: unfragmented UDP 67 → 68 in its socket filter; OFFER, ACK with address, lease time and server, NAK) – a few packets an hour. When the router itself gives the decoders their address (routed IPTV), dnsmasq's `DHCPACK` / `DHCPNAK` lines in the system log are used for the decoders named in *Decoder names*.
+
+Logged: *address X from the operator (lease 1 h)* the first time, *asked for an address from scratch* (an OFFER before the ACK: restarted or lost its lease), **address CHANGED X → Y**, **the operator REFUSED its lease (DHCPNAK)**, *renewed N after it had run out*, *lease ran out without a renewal* (decoder still there). Renewals are counted, not logged. The IPTV card shows *DHCP TV: 10.236.0.50 · lease 1 h · renewed 12 min ago · 7 renewals*; the analysis puts address changes and refused / expired leases on the operator's DHCP. *Settings → Decoders → DHCP of the decoders* turns it off.
+
+### Backup and restore
+
+*Settings → Backup and restore*: **Download settings + data** makes one `.tar.gz` with `/etc/config/isp_tester` and the data – timeline, history, measurements CSV, channel names, the archive on USB – plus a small manifest (router name, time); **Download settings only** without the data. **Restore from a file…** uploads such an archive, checks it (only regular files with the names the backup writes – no links, no paths outside, a manifest of this package, a settings file that is a UCI file) and shows what it holds; then choose *settings*, *data* or both. Monitoring stops for a moment while the files are replaced; the previous settings are kept as `/etc/config/isp_tester.before-restore`. Moving between two routers (e.g. M477 → M477S): a backup from another router is marked – its settings name that router's ports, interfaces and role towards the second router, so check them or restore the data only.
+
+### The tester's own load
+
+Proof that the measurement does not load the router (and is not what breaks IPTV): under the banner's times a small line shows *Tester itself: CPU 0.3 % · RAM 4.1 MB* – the share of the router's **whole** CPU (all cores) used by the collector (including the commands it runs: logread, bridge, rrdtool) and by tsmon, from `/proc/<pid>/stat` and `status`. Hover it for now / average / maximum of each. The report says the same in one row (*Load of the tester itself*), and the 1-min history keeps its maximum.
+
+### Clock: times are only worth something when it is synchronized
+
+After a reboot the router starts with the time of its newest file until NTP sets the clock, so the first entries of a boot can carry a wrong time – exactly the entries the ISP would look at after an outage. Two sources, nothing measured twice:
+
+- **What the NTP client reports**: `/etc/hotplug.d/ntp/90-isp-tester` notes every hotplug *ntp* event of busybox `ntpd` (stratum, step, unsync, periodic) or chrony. Logged: *clock synchronized (stratum N)*, *clock not synchronized any more*, *no NTP client running*.
+- **The clock itself**: when wall time minus monotonic time jumps by more than 2 s, *Clock set by +N s* is logged.
+
+Entries logged shortly after a boot while the clock was not confirmed are marked; when NTP sets the clock they are **moved by the step** (with the chart points of that time) and only then written to the archive – the timeline says *N earlier entries of this boot moved to the right time*. Confirmed without a step, they were right; after an hour without either they stay as they are. A yellow strip under the banner warns while the clock is not synchronized, and the report names the clock state and any steps in the period.
+
+On install the package restarts `sysntpd` once (busybox ntpd reports to hotplug only when its state changes), so the current state is known at once.
 
 ### Archive: 7 / 30 days, weekly report
 
@@ -142,6 +188,25 @@ Back within *Switched off after* (10 min): **decoder restarted**, with how long 
 The analysis and the report put IPTV freezes during a decoder restart aside (*N freezes happened while decoder X restarted*), so they do not count against the ISP; repeated restarts point at the decoder (power supply, firmware, heat).
 
 With a second router: a decoder plugged into the second router is best watched there (its port link is the clearest signal) – its restarts reach the main router's timeline and analysis.
+
+## IPv6: IPv4 works, IPv6 does not
+
+A common fault that looks like "the Internet is slow": IPv6 breaks while IPv4 keeps working. Browsers try IPv6 first and fall back to IPv4 only after a delay, so pages hang for a moment instead of failing. Nothing is measured twice for it:
+
+- **What odhcp6c got**, from netifd (`ubus call network.interface.wan6 status`): the DHCPv6 session, the delegated prefix (*ipv6-prefix*, what the LAN addresses come from) and the IPv6 default route, which comes from the ISP's router advertisement. Logged: *IPv6 interface down / up*, **prefix lost** (the home network has no IPv6) and *back*, **prefix changed** (devices renumber, open IPv6 connections break), **no router advertisement** for *No router advertisement after* (60 s) and *back*. Only what was seen once is missed, so an ISP without IPv6 is not a fault. The interface is `wan6`, or `wan_6` when IPv6 is set to automatic on `wan` (*Settings → Internet → IPv6 interface* to choose another).
+- **IPv6 ping**: the IPv6 hosts of the collectd Ping plugin are targets like the IPv4 ones (chart, CSV), but judged on their own: when all IPv6 hosts fail while an IPv4 host answers, **IPv6 down** is logged (a fault) and *IPv6 works again after N* when one answers. *Internet down* needs every IPv4 host to fail, so a dead IPv6 does not look like a total outage. The path snapshot traces an IPv6 host with `mtr` (or `traceroute6`).
+- odhcp6c messages in the system log (no answer, no prefix available) are logged as *DHCPv6* events.
+
+The Internet card shows *IPv6: prefix …/56 · RA OK · ping 2/2*; the analysis puts IPv6 faults on the ISP side, and the report counts IPv6 outages with their total and longest time.
+
+## DNS (dnsmasq)
+
+"Pages do not open but ping works" is often DNS. There is no own resolver test; dnsmasq already counts everything:
+
+- **Every interval**, `ubus call dnsmasq metrics`: queries sent upstream (`dns_queries_forwarded`), answered from the cache or locally, and `dns_unanswered` (sent upstream, but no server answered in time). When at least *Unanswered for a warning* (10 %) of the queries sent upstream within a minute stay unanswered (and at least 5 were sent), **DNS failing** is logged; it ends when the share falls below half of that.
+- **Per upstream server**, every 5 min (*Per-server statistics*): `kill -USR1` makes dnsmasq write its statistics to the system log (`server 1.1.1.1#53: queries sent 120, retried 3, failed 0, nxdomain replies 4, avg. latency 18ms`), which the collector reads with the rest of the log. *Retried* is a query that got no answer in time, *failed* a SERVFAIL/REFUSED. A server with 10 % or more of them since the previous dump is logged as *DNS server X: N of M queries retried or failed*. Each dump adds a few lines to the system log; set it to *Off* to avoid that.
+
+The Internet card shows *DNS: 85 queries/min · 60 % from the cache · 0 % unanswered · 1.1.1.1 18 ms*. The analysis puts DNS failures while the line works on the upstream DNS server (the ISP's, or the one you set); during an outage they are just part of it.
 
 ## Path snapshot at a loss
 
@@ -205,6 +270,8 @@ How it works: UDP (default port 51477), one JSON message per datagram, signed wi
 | `archive/ev-*.jsonl`, `archive/h-*.jsonl` | with data on USB: events and 10-minute summaries per day (see *Archive*) |
 | `wanpeak.json` | highest WAN rate seen (line speed for the bufferbloat check) |
 | `/var/run/isp-tester/peers.json` | receiver: last event number stored per second router (always RAM) |
+| `/tmp/isp-tester/alive.json` | last sign of life of the collector and the boot id (once a minute) |
+| `/var/run/isp-tester/ntp.last`, `ntp.pending` | what the NTP client reported (hotplug), newest / not read yet (always RAM) |
 
 ## Choosing what to measure IPTV on
 

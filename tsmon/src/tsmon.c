@@ -100,6 +100,21 @@ struct group {
 };
 
 static struct group groups[MAX_GROUPS];
+
+/* DHCP replies of the operator's server to the decoders (-D): the decoder's
+ * lease lives at the ISP, so only these packets show it. A ring of the last
+ * ones, numbered, read by the collector. */
+#define DHCP_RING 16
+struct dhcp_ev {
+	unsigned seq;
+	long wall;
+	int type;                        /* 2 OFFER, 5 ACK, 6 NAK */
+	uint8_t mac[6];
+	uint32_t ip, server, mask, router, lease;
+};
+static struct dhcp_ev dhcp_ring[DHCP_RING];
+static unsigned dhcp_seq;
+static int want_dhcp;
 static unsigned next_id = 1;
 static unsigned gap_ms = 500;
 static uint64_t other, sock_drops;
@@ -435,6 +450,35 @@ static void groups_expire(double t)
 
 static inline unsigned be16(const uint8_t *p) { return (p[0] << 8) | p[1]; }
 
+/* BOOTP/DHCP reply (server port 67 -> client port 68), b = UDP payload */
+static void dhcp_frame(const uint8_t *b, int n)
+{
+	if (n < 240 || b[0] != 2 || b[1] != 1 || b[2] != 6) return;
+	if (b[236] != 0x63 || b[237] != 0x82 || b[238] != 0x53 || b[239] != 0x63) return;
+	struct dhcp_ev e;
+	memset(&e, 0, sizeof(e));
+	for (int p = 240; p < n; ) {
+		int code = b[p];
+		if (code == 0) { p++; continue; }
+		if (code == 255 || p + 1 >= n) break;
+		int len = b[p + 1];
+		const uint8_t *v = b + p + 2;
+		if (p + 2 + len > n) break;
+		if (code == 53 && len >= 1) e.type = v[0];
+		else if (code == 51 && len >= 4) e.lease = ((uint32_t)v[0] << 24) | (v[1] << 16) | (v[2] << 8) | v[3];
+		else if (code == 54 && len >= 4) memcpy(&e.server, v, 4);
+		else if (code == 1 && len >= 4) memcpy(&e.mask, v, 4);
+		else if (code == 3 && len >= 4) memcpy(&e.router, v, 4);
+		p += 2 + len;
+	}
+	if (e.type != 2 && e.type != 5 && e.type != 6) return;
+	memcpy(e.mac, b + 28, 6);
+	memcpy(&e.ip, b + 16, 4);
+	e.seq = ++dhcp_seq;
+	e.wall = (long)time(NULL);
+	dhcp_ring[e.seq % DHCP_RING] = e;
+}
+
 /* frame: Ethernet frame as received (VLAN tag inline or already removed by
  * the kernel), caplen bytes of it present, wirelen its real length */
 static void handle_frame(const uint8_t *f, int caplen, int wirelen, double t)
@@ -455,7 +499,12 @@ static void handle_frame(const uint8_t *f, int caplen, int wirelen, double t)
 	if (ihl < 20) return;
 	/* fragments cannot be parsed without reassembly */
 	if ((h[6] & 0x3f) || h[7] || (h[6] & 0x20)) { other++; return; }
-	if ((h[16] & 0xf0) != 0xe0) return;
+	if ((h[16] & 0xf0) != 0xe0) {
+		int u = ip + ihl;
+		if (want_dhcp && caplen >= u + 8 && be16(f + u) == 67 && be16(f + u + 2) == 68)
+			dhcp_frame(f + u + 8, caplen - u - 8);
+		return;
+	}
 
 	uint32_t addr;
 	memcpy(&addr, h + 16, 4);
@@ -617,7 +666,30 @@ static void write_json(FILE *o, double t, double up, const char *dev, int vid, i
 		fputc('}', o);
 		first = 0;
 	}
-	fputs("]}\n", o);
+	fputs("]", o);
+
+	if (want_dhcp) {
+		char a[4][INET_ADDRSTRLEN];
+		fprintf(o, ",\"dhcp_seq\":%u,\"dhcp\":[", dhcp_seq);
+		first = 1;
+		unsigned from = dhcp_seq > DHCP_RING ? dhcp_seq - DHCP_RING + 1 : 1;
+		for (unsigned s = from; s <= dhcp_seq; s++) {
+			const struct dhcp_ev *e = &dhcp_ring[s % DHCP_RING];
+			if (e->seq != s) continue;
+			inet_ntop(AF_INET, &e->ip, a[0], sizeof(a[0]));
+			inet_ntop(AF_INET, &e->server, a[1], sizeof(a[1]));
+			inet_ntop(AF_INET, &e->mask, a[2], sizeof(a[2]));
+			inet_ntop(AF_INET, &e->router, a[3], sizeof(a[3]));
+			fprintf(o, "%s{\"seq\":%u,\"t\":%ld,\"type\":%d,\"mac\":\"%02x:%02x:%02x:%02x:%02x:%02x\","
+				"\"ip\":\"%s\",\"server\":\"%s\",\"mask\":\"%s\",\"router\":\"%s\",\"lease\":%u}",
+				first ? "" : ",", e->seq, e->wall, e->type,
+				e->mac[0], e->mac[1], e->mac[2], e->mac[3], e->mac[4], e->mac[5],
+				a[0], a[1], a[2], a[3], e->lease);
+			first = 0;
+		}
+		fputc(']', o);
+	}
+	fputs("}\n", o);
 }
 
 static void update_rates(double t)
@@ -691,10 +763,10 @@ static int run_pcap(const char *file)
 /* ----------------------------------------------------------- live */
 
 struct prog {
-	struct sock_filter ins[64];
+	struct sock_filter ins[128];
 	int n;
 	/* jumps to fix up: index, target for jt, target for jf (-1 = keep) */
-	int fix_jt[64], fix_jf[64];
+	int fix_jt[128], fix_jf[128];
 };
 
 #define L_ACCEPT 1000
@@ -709,20 +781,30 @@ static int emit(struct prog *p, uint16_t code, uint32_t k, int jt, int jf)
 	return i;
 }
 
-/* IPv4 header at base: UDP, to 224.0.0.0/4 but not 224.0.0.0/24 */
+/* IPv4 header at base: UDP, to 224.0.0.0/4 but not 224.0.0.0/24; with -D
+ * also unfragmented UDP from port 67 to port 68 (DHCP server replies) */
 static void emit_ipcheck(struct prog *p, int base)
 {
-	int next;
+	int next, j_mc;
 	emit(p, BPF_LD | BPF_B | BPF_ABS, base + 9, 0, 0);
 	next = p->n + 1;
 	emit(p, BPF_JMP | BPF_JEQ | BPF_K, 17, next, L_DROP);
 	emit(p, BPF_LD | BPF_W | BPF_ABS, base + 16, 0, 0);
 	emit(p, BPF_ALU | BPF_AND | BPF_K, 0xf0000000, 0, 0);
 	next = p->n + 1;
-	emit(p, BPF_JMP | BPF_JEQ | BPF_K, 0xe0000000, next, L_DROP);
+	j_mc = emit(p, BPF_JMP | BPF_JEQ | BPF_K, 0xe0000000, next, want_dhcp ? -2 : L_DROP);  /* jf fixed below */
 	emit(p, BPF_LD | BPF_W | BPF_ABS, base + 16, 0, 0);
 	emit(p, BPF_ALU | BPF_AND | BPF_K, 0xffffff00, 0, 0);
 	emit(p, BPF_JMP | BPF_JEQ | BPF_K, 0xe0000000, L_DROP, L_ACCEPT);
+	if (!want_dhcp) return;
+	p->fix_jf[j_mc] = p->n;
+	emit(p, BPF_LD | BPF_H | BPF_ABS, base + 6, 0, 0);
+	emit(p, BPF_JMP | BPF_JSET | BPF_K, 0x1fff, L_DROP, p->n + 1);
+	emit(p, BPF_LDX | BPF_B | BPF_MSH, base, 0, 0);
+	emit(p, BPF_LD | BPF_H | BPF_IND, base, 0, 0);
+	emit(p, BPF_JMP | BPF_JEQ | BPF_K, 67, p->n + 1, L_DROP);
+	emit(p, BPF_LD | BPF_H | BPF_IND, base + 2, 0, 0);
+	emit(p, BPF_JMP | BPF_JEQ | BPF_K, 68, L_ACCEPT, L_DROP);
 }
 
 static void build_filter(struct prog *p, int vid)
@@ -869,8 +951,9 @@ __attribute__((noreturn))
 static void usage(void)
 {
 	fprintf(stderr,
-		"usage: isp-tester-tsmon -i DEV [-v VID] [-d in|out] -o STATE.json [-g GAP_MS]\n"
-		"       isp-tester-tsmon -r CAPTURE.pcap [-g GAP_MS]\n");
+		"usage: isp-tester-tsmon -i DEV [-v VID] [-d in|out] -o STATE.json [-g GAP_MS] [-D]\n"
+		"       isp-tester-tsmon -r CAPTURE.pcap [-g GAP_MS] [-D]\n"
+		"  -D  also note the DHCP server's replies (lease of the decoders)\n");
 	exit(2);
 }
 
@@ -879,8 +962,9 @@ int main(int argc, char **argv)
 	const char *dev = NULL, *state = NULL, *pcap = NULL;
 	int vid = 0, dir_out = 0, c;
 
-	while ((c = getopt(argc, argv, "i:v:d:o:g:r:h")) != -1) {
+	while ((c = getopt(argc, argv, "i:v:d:o:g:r:hD")) != -1) {
 		switch (c) {
+		case 'D': want_dhcp = 1; break;
 		case 'i': dev = optarg; break;
 		case 'v': vid = atoi(optarg); if (vid < 1 || vid > 4094) usage(); break;
 		case 'd':

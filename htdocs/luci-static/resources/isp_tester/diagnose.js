@@ -58,7 +58,7 @@ function periods(sorted, types, until) {
 			var k = e.type.replace(/_ok$/, '');
 			if (types.indexOf(k) >= 0 && open[k] != null) { out.push({ from: open[k], to: e.ts }); open[k] = null; }
 		}
-		else if (e.type === 'monitor_start') {
+		else if (e.type === 'monitor_start' || e.type === 'data_gap') {
 			Object.keys(open).forEach(function(k) { if (open[k] != null) { out.push({ from: open[k], to: e.ts }); open[k] = null; } });
 		}
 	});
@@ -73,6 +73,15 @@ function inPeriods(list, ts, slack) {
 }
 
 /* regular spacing of stalls -> IGMP membership/query timeout */
+/* "1 h 5 min" without the view's helpers (this module has none) */
+function fmtSec(s) {
+	s = Math.max(0, Math.round(s || 0));
+	var h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+	if (h) return _('%d h %d min').format(h, m);
+	if (m) return _('%d min %d s').format(m, s % 60);
+	return _('%d s').format(s);
+}
+
 function periodicity(list) {
 	if (list.length < 4) return null;
 	var ts = list.map(function(e) { return e.ts; }).sort(function(a, b) { return a - b; });
@@ -94,7 +103,9 @@ return baseclass.extend({
 	 */
 	analyze: function(events, from, to, ctx) {
 		ctx = ctx || {};
-		var evAll = events.filter(function(e) { return e.ts >= from && e.ts <= to; });
+		/* ctx.inHours: only these hours of every day count (report) */
+		/* e.m: logged during maintenance (the user worked on the network) */
+		var evAll = events.filter(function(e) { return e.ts >= from && e.ts <= to && !e.m && (!ctx.inHours || ctx.inHours(e.ts)); });
 		/*
 		 * Events of the second router (e.host) are evidence for the home side
 		 * only (its ports, Wi-Fi, decoders, your reports there); Internet and
@@ -117,13 +128,15 @@ return baseclass.extend({
 			return bloats.some(function(b) {
 				var end = b.ts + 3600;
 				for (var i = 0; i < sorted.length; i++)
-					if (sorted[i].ts > b.ts && (sorted[i].type === 'bufferbloat_ok' || sorted[i].type === 'monitor_start')) { end = sorted[i].ts; break; }
+					if (sorted[i].ts > b.ts && (sorted[i].type === 'bufferbloat_ok' || sorted[i].type === 'monitor_start' || sorted[i].type === 'data_gap')) { end = sorted[i].ts; break; }
 				return ts >= b.ts - 60 && ts <= end + 60;
 			});
 		};
 		/* a high ping / jitter (no loss) while the link was full belongs to the bufferbloat finding */
 		var bloatLag = function(e) { return e.type === 'target_degraded' && e.d && !(e.d.loss > 0) && inBloat(e.ts); };
-		var isLoss = function(e) { return e.area === 'wan' && (e.type === 'target_degraded' || e.type === 'target_fail') && !isJitter(e) && !bloatLag(e); };
+		/* IPv6 targets are judged on their own (IPv6 can break while IPv4 works) */
+		var isV6 = function(e) { return !!(e.d && e.d.fam === 6); };
+		var isLoss = function(e) { return e.area === 'wan' && (e.type === 'target_degraded' || e.type === 'target_fail') && !isJitter(e) && !bloatLag(e) && !isV6(e); };
 		var gwJitter = by(function(e) { return e.area === 'wan' && e.src === 'gateway' && isJitter(e) && !bloatLag(e); });
 
 		var wanLinkDown = by(function(e) { return e.type === 'link_down' && (e.area === 'wan' || e.src === wanDev); });
@@ -138,6 +151,13 @@ return baseclass.extend({
 		var pppIsp      = logOf([ 'ppp_auth', 'ppp_discovery', 'dhcp_fail' ]);
 		var pppDown     = logOf([ 'ppp_down' ]);
 		var anyWan      = gwLoss.concat(farLoss, wanDown, wanLinkDown, wanDevGone, wanSess, pppEcho, pppIsp, pppDown);
+		/* IPv6 */
+		var v6Down      = by(function(e) { return e.type === 'v6_down'; });
+		var v6Pd        = by(function(e) { return e.type === 'v6_pd_lost' || e.type === 'v6_pd_change'; });
+		var v6Route     = by(function(e) { return e.type === 'v6_no_route'; });
+		var v6If        = by(function(e) { return e.type === 'v6_if_down'; });
+		var v6Log       = logOf([ 'dhcp6_fail' ]);
+		var v6Loss      = by(function(e) { return e.area === 'wan' && e.type === 'target_degraded' && isV6(e) && e.d.loss > 0; });
 
 		/* ports of both routers (a port of the second router is never the WAN of this one) */
 		var portLink    = byAll(function(e) { return e.area === 'ports' && (e.type === 'link_down' || e.type === 'link_flap'); });
@@ -171,7 +191,7 @@ return baseclass.extend({
 
 		/* what IGMP did during each freeze is stored on the matching resume event */
 		var igmpOf = function(s) {
-			var r = nextOf(sorted, s.ts, function(e) { return e.type === 'stream_resume' || e.type === 'stream_lost' || e.type === 'monitor_start'; });
+			var r = nextOf(sorted, s.ts, function(e) { return e.type === 'stream_resume' || e.type === 'stream_lost' || e.type === 'monitor_start' || e.type === 'data_gap'; });
 			return (r && r.type === 'stream_resume' && r.d) ? r.d.igmp : null;
 		};
 		/* decoder restarts (both routers): a freeze while a decoder was away is the decoder, not the stream */
@@ -218,6 +238,29 @@ return baseclass.extend({
 
 		add('edge', 1, 'wan_errors', wanErr, { dev: wanDev });
 
+		/* IPv6 broken while IPv4 works: browsers try IPv6 first, so pages hang
+		 * for a while before falling back - "the Internet is slow" */
+		var v6Total = 0, v6Long = 0;
+		v6Down.forEach(function(e) {
+			var r = nextOf(sorted, e.ts + 1, function(x) { return x.type === 'v6_up' || x.type === 'monitor_start' || x.type === 'data_gap'; });
+			var d = (r && r.type === 'v6_up' && r.d) ? r.d.dur : 0;
+			v6Total += d; if (d > v6Long) v6Long = d;
+		});
+		add('isp', 2, 'v6_down', v6Down.filter(function(e) { return !near(wanDown, e.ts, 60); }), { total: v6Total, longest: v6Long });
+		add('isp', 1.5, 'v6_prefix', v6Pd, { lost: v6Pd.filter(function(e) { return e.type === 'v6_pd_lost'; }).length,
+			changed: v6Pd.filter(function(e) { return e.type === 'v6_pd_change'; }).length });
+		add('isp', 1, 'v6_no_ra', v6Route);
+		add('isp', 1, 'v6_session', v6If.filter(function(e) { return !near(wanLinkDown, e.ts, 60) && !near(wanSess, e.ts, 60); }));
+		add('isp', 1, 'log_dhcp6', v6Log.filter(function(e) { return !near(wanLinkDown, e.ts, 60); }));
+		add('isp', 0.5, 'v6_loss', v6Loss.filter(function(e) { return !near(v6Down, e.ts); }));
+
+		/* DNS failing while the line works: the upstream DNS server; during an
+		 * outage it is just part of it */
+		var dnsFail = by(function(e) { return e.type === 'dns_fail' && !near(anyWan, e.ts, 60); });
+		var dnsSrv  = by(function(e) { return e.type === 'dns_server_bad' && !near(anyWan, e.ts, 300); });
+		add('isp', 1.5, 'dns_fail', dnsFail);
+		add('isp', 1, 'dns_server', dnsSrv, { servers: uniq(dnsSrv, 'src').join(', ') });
+
 		/* lags only with the link full: own traffic fills a buffer; SQM at home fixes it */
 		if (bloats.length) {
 			var maxAdd = 0, dirs = {};
@@ -263,6 +306,12 @@ return baseclass.extend({
 			devs: uniq(decRestarts.filter(function(r) { return decStalls.some(function(s) { return s.ts >= r.ts - 15 && s.ts <= r.ts + ((r.d && r.d.dur) || 0) + 10; }); }), 'src').join(', ') });
 		/* a decoder that restarts by itself: power supply, firmware, overheating */
 		add('home', 1, 'decoder_restarts', decRestarts, { devs: uniq(decRestarts, 'src').join(', ') });
+
+		/* the decoders' lease at the operator */
+		var dhChange = by(function(e) { return e.type === 'dhcp_ip_change'; });
+		var dhBad = by(function(e) { return e.type === 'dhcp_nak' || e.type === 'dhcp_expired' || e.type === 'dhcp_late'; });
+		add('isp', 1.5, 'dhcp_change', dhChange, { devs: uniq(dhChange, 'src').join(', ') });
+		add('isp', 1.5, 'dhcp_bad', dhBad, { devs: uniq(dhBad, 'src').join(', ') });
 		var proxyStop = proxyBad.filter(function(e) { return e.type !== 'log'; });
 		add('home', 3, 'proxy_down', proxyStop, { name: proxyStop[0] && proxyStop[0].d && proxyStop[0].d.name });
 		add('home', 1, 'log_proxy', proxyBad.filter(function(e) { return e.type === 'log'; }));
@@ -342,6 +391,13 @@ return baseclass.extend({
 		add('home', 1, 'port_errors', portErr, { devs: uniq(portErr, 'src').join(', ') });
 		add('home', 2, 'dev_missing', portMissing, { devs: uniq(portMissing, 'src').join(', ') });
 
+		/* ---- what is not known: the router was off or did not measure */
+		var reboots = by(function(e) { return e.type === 'router_reboot'; });
+		add('home', 1, 'router_reboot', reboots);
+		var gapLen = 0, gaps = by(function(e) { return e.type === 'data_gap'; });
+		gaps.forEach(function(e) { gapLen += Math.max(0, Math.min(e.d.to, to) - Math.max(e.d.from || e.d.to, from)); });
+		add('info', 0, 'not_measured', gaps, { len: gapLen });
+
 		/* ---- verdict */
 		var isp = 0, home = 0;
 		findings.forEach(function(f) {
@@ -412,6 +468,15 @@ return baseclass.extend({
 		case 'far_loss':        return _('Loss only beyond the gateway (%d×) – ISP backbone / peering.').format(f.n);
 		case 'one_target':      return _('Only %s had loss (%d×) – most likely that server, not your connection.').format(a.host, f.n);
 		case 'wan_errors':      return _('Errors on the WAN port (%d×) – cable to the ONT/modem or its port.').format(f.n);
+		case 'v6_down':         return _('IPv6 did not work while IPv4 did (%d×, %s in total, longest %s) – browsers try IPv6 first, so pages load slowly or hang. ISP IPv6 (prefix, routing) – ask them to check it, or switch IPv6 off as a workaround.').format(f.n, fmtSec(a.total), fmtSec(a.longest));
+		case 'v6_prefix':       return _('IPv6 prefix from the ISP lost %d× / changed %d× – devices at home lose or change their IPv6 addresses, open connections break. ISP DHCPv6 (prefix delegation).').format(a.lost, a.changed);
+		case 'v6_no_ra':        return _('No IPv6 router advertisement from the ISP (%d×) – the IPv6 default route vanished. ISP side (less often the router\'s firewall dropping ICMPv6).').format(f.n);
+		case 'v6_session':      return _('IPv6 (DHCPv6) session dropped %d× while IPv4 stayed up – ISP DHCPv6.').format(f.n);
+		case 'log_dhcp6':       return _('odhcp6c: no answer or no prefix from the ISP\'s DHCPv6 server (%d×).').format(f.n);
+		case 'v6_loss':         return _('Packet loss over IPv6 only (%d×) – ISP IPv6 routing.').format(f.n);
+		case 'dns_fail':        return _('DNS failed %d× while ping worked – pages do not open although the line is fine. The upstream DNS server (the ISP\'s, or the one set in the router) does not answer: try another one.').format(f.n);
+		case 'dns_server':      return _('DNS server %s retried or failed many queries (%d×) – slow or overloaded; consider another server.').format(a.servers, f.n);
+
 		case 'stall_with_wan':  return _('%d of %d IPTV freezes happened together with Internet problems – shared cause on the ISP line.').format(f.n, a.total);
 		case 'stall_with_port': return _('%d of %d IPTV freezes coincided with port problems (%s) – cable or switch at home.').format(f.n, a.total, a.devs);
 		case 'stall_with_dev':  return _('%d of %d IPTV freezes came with errors on the IPTV device – cable/port on the IPTV path.').format(f.n, a.total);
@@ -439,6 +504,8 @@ return baseclass.extend({
 			(a.lags ? ' ' + _('%d high-ping warnings at those times are not counted against the ISP.').format(a.lags) : '');
 		case 'stall_decoder':   return _('%d of %d IPTV freezes happened while a decoder (%s) restarted – the decoder, not a lost stream; not counted against the ISP.').format(f.n, a.total, a.devs);
 		case 'decoder_restarts': return _('Decoder %s restarted %d× – power supply, firmware update or overheating (or someone switched it off and on).').format(a.devs, f.n);
+		case 'dhcp_change':     return _('The operator gave decoder %s a different address %d× – each change interrupts the picture; the operator\'s DHCP (address pool, lease).').format(a.devs, f.n);
+		case 'dhcp_bad':        return _('Decoder %s: lease refused or not renewed in time (%d×) – the operator\'s DHCP server.').format(a.devs, f.n);
 		case 'trace_hop':       return _('Path snapshots (%d): the loss started at hop %d (%s) and carried on to the destination (%d× there) – inside the ISP\'s network or beyond; the hops before it were fine. Show this to the ISP.').format(f.n, a.hop, a.ip, a.same);
 		case 'trace_first_hop': return _('Path snapshots (%d): the loss started already at the first hop (%s) – the access line or the ISP\'s first router.').format(f.n, a.ip);
 		case 'marks_wifi':      return _('%d of %d of your reports came with a Wi-Fi drop or weak signal of %s, and nothing on the line – the cause is Wi-Fi.').format(f.n, a.total, a.devs);
@@ -456,6 +523,9 @@ return baseclass.extend({
 		case 'port_link':       return _('Link drops on %s (%d×) – cable, connector, power of the connected device, or switch.').format(a.devs, f.n);
 		case 'port_errors':     return _('Errors/drops on %s (%d×) – cable or connector.').format(a.devs, f.n);
 		case 'dev_missing':     return _('Network device %s disappeared (%d×) – driver, configuration or reboot.').format(a.devs, f.n);
+		case 'router_reboot':   return _('The router restarted %d× – a power cut, a crash or on purpose. Problems at those moments are not the ISP\'s.').format(f.n);
+		case 'not_measured':    return _('Not measured for %s in this period (%d×: router off, monitoring off) – nothing is known about that time.').format(fmtSec(a.len), f.n);
+
 		default:                return f.code;
 		}
 	}

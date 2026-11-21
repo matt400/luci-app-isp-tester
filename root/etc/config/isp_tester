@@ -48,6 +48,12 @@ config wan 'wan'
 	option bloat '1'
 	option bloat_ms '30'
 	option bloat_load '70'
+	# IPv6: DHCPv6 session, delegated prefix and default route (router
+	# advertisement) from netifd/odhcp6c; IPv6 ping = the IPv6 hosts of the
+	# collectd Ping plugin. interface6 empty = wan6 or <wan>_6
+	option ipv6 '1'
+	option interface6 ''
+	option ra_after '60'
 	# speed of the plan in Mbit/s; unset = the highest rate seen
 	#option down_mbit '300'
 	#option up_mbit '50'
@@ -60,6 +66,9 @@ config iptv 'iptv'
 	option dec_silence '40'
 	# away longer = switched off, not a restart
 	option dec_off '600'
+	# DHCP of the decoders: the operator's replies in the IPTV VLAN (tsmon),
+	# or dnsmasq-dhcp in the system log for the named decoders (routed IPTV)
+	option dhcp '1'
 	# IPTV VLAN number (e.g. 236). Enough when the VLAN is only bridged to the
 	# decoders: bitrate from the bridge's per-VLAN counters, channels from the
 	# bridge's multicast table, ports detected. Empty = use 'device' below.
@@ -177,3 +186,12 @@ config port
 	option device 'lan2'
 	option label 'Access point'
 	option expect_up '1'
+
+# DNS of the router, from dnsmasq: ubus metrics every interval and, every
+# 'dump' seconds (0 = off), its per-server statistics (SIGUSR1 -> system log)
+config dns 'dns'
+	option enabled '1'
+	# unanswered (or per server: retried + failed) share for a warning
+	option warn_pct '10'
+	option min_queries '5'
+	option dump '300'

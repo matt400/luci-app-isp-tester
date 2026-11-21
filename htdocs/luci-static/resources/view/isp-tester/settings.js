@@ -5,6 +5,107 @@
 'require rpc';
 'require ui';
 'require dom';
+'require fs';
+
+var callBackup = rpc.declare({
+	object: 'luci.isp_tester',
+	method: 'backup',
+	params: [ 'data' ],
+	expect: { '': {} }
+});
+
+var callBackupCheck = rpc.declare({
+	object: 'luci.isp_tester',
+	method: 'backup_check',
+	expect: { '': {} }
+});
+
+var callRestore = rpc.declare({
+	object: 'luci.isp_tester',
+	method: 'restore',
+	params: [ 'config', 'data' ],
+	expect: { '': {} }
+});
+
+var BK_ERR = {
+	no_file: _('No file was uploaded.'),
+	too_big: _('The file is too big (over 64 MB).'),
+	not_targz: _('This is not a .tar.gz archive.'),
+	empty: _('The archive is empty.'),
+	bad_entry: _('The archive contains links or special files – refused.'),
+	bad_name: _('The archive contains files that are not from ISP Tester – refused.'),
+	extract: _('The archive cannot be unpacked.'),
+	no_manifest: _('This is not an ISP Tester backup.'),
+	bad_config: _('The settings in the archive are not a valid settings file.'),
+	nothing: _('Nothing was chosen to restore.'),
+	no_config: _('The settings file cannot be read.')
+};
+
+function bkError(r) {
+	return (r && BK_ERR[r.error]) || _('Failed: %s').format((r && (r.error || r.out)) || '?');
+}
+
+/* settings (and data) as one .tar.gz, e.g. to move to another router */
+function backupSection() {
+	var download = function(data) {
+		return callBackup(data).then(function(r) {
+			if (!r || !r.result) throw new Error(bkError(r));
+			return fs.read_direct(r.path, 'blob').then(function(blob) {
+				var a = E('a', { 'href': URL.createObjectURL(blob), 'download': r.name, 'style': 'display:none' });
+				document.body.appendChild(a);
+				a.click();
+				setTimeout(function() { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+			});
+		}).catch(function(e) { ui.addNotification(null, E('p', e.message), 'danger'); });
+	};
+
+	var restore = function() {
+		return ui.uploadFile('/tmp/isp-tester-restore.tar.gz').then(function() {
+			return callBackupCheck();
+		}).then(function(r) {
+			if (!r || !r.result) throw new Error(bkError(r));
+			var m = r.manifest || {};
+			/* the manifest comes from the uploaded file: only a host name */
+			m.host = String(m.host || '').replace(/[^A-Za-z0-9._-]/g, '');
+			m.created = +m.created || 0;
+			var cConf = E('input', { 'type': 'checkbox', 'checked': r.config ? '' : null, 'disabled': r.config ? null : '' });
+			var cData = E('input', { 'type': 'checkbox', 'checked': r.data_files ? '' : null, 'disabled': r.data_files ? null : '' });
+			var other = m.host && r.this_host && m.host !== r.this_host;
+			ui.showModal(_('Restore from a backup'), [
+				E('p', {}, _('Backup of %s from %s: %s.').format(m.host || '?', new Date(m.created * 1000).toLocaleString(),
+					r.data_files ? _('settings and data (%d files, %d of them archive days, %d kB)').format(+r.data_files, +r.archive_files, +r.kb) : _('settings only'))),
+				other ? E('p', { 'class': 'alert-message warning' }, _('It comes from another router (%s). Its settings name that router\'s ports, interfaces and the role towards the second router – check them after restoring, or restore the data only.').format(m.host)) : '',
+				E('label', { 'style': 'display:block;margin:.3em 0' }, [ cConf, ' ', _('Settings (replace the current ones; the old file is kept as /etc/config/isp_tester.before-restore)') ]),
+				E('label', { 'style': 'display:block;margin:.3em 0' }, [ cData, ' ', _('Data: timeline, history, archive, channel names (replace the current ones)') ]),
+				E('p', { 'class': 'ispt-muted' }, _('Monitoring stops for a moment while the files are replaced.')),
+				E('div', { 'class': 'right' }, [
+					E('button', { 'class': 'cbi-button', 'click': ui.hideModal }, _('Cancel')), ' ',
+					E('button', { 'class': 'cbi-button cbi-button-negative', 'click': ui.createHandlerFn(this, function() {
+						return callRestore(cConf.checked, cData.checked).then(function(x) {
+							ui.hideModal();
+							if (!x || !x.result) throw new Error(bkError(x));
+							ui.addNotification(null, E('p', _('Restored: %s. The page reloads.').format(
+								[ x.config ? _('settings') : null, x.data ? _('data') : null ].filter(Boolean).join(', '))), 'info');
+							setTimeout(function() { location.reload(); }, 2500);
+						}).catch(function(e) { ui.addNotification(null, E('p', e.message), 'danger'); });
+					}) }, _('Restore'))
+				])
+			]);
+		}).catch(function(e) {
+			if (e && e.message) ui.addNotification(null, E('p', e.message), 'danger');
+		});
+	};
+
+	return E('div', { 'class': 'cbi-section' }, [
+		E('h3', {}, _('Backup and restore')),
+		E('div', { 'class': 'cbi-section-descr' }, _('One .tar.gz with the settings of the tester and, if you want, its data (timeline, history, the archive on USB, channel names) – to keep it, or to move the monitoring to another router (e.g. from M477 to M477S). Restoring checks the archive first: only files this page writes are accepted.')),
+		E('div', { 'style': 'display:flex;gap:.5em;flex-wrap:wrap' }, [
+			E('button', { 'class': 'cbi-button cbi-button-action', 'click': ui.createHandlerFn(this, download, true) }, _('Download settings + data')),
+			E('button', { 'class': 'cbi-button', 'click': ui.createHandlerFn(this, download, false) }, _('Download settings only')),
+			E('button', { 'class': 'cbi-button cbi-button-apply', 'click': ui.createHandlerFn(this, restore) }, _('Restore from a file…'))
+		])
+	]);
+}
 
 var callTestNotify = rpc.declare({
 	object: 'luci.isp_tester',
@@ -317,6 +418,23 @@ return view.extend({
 		o.datatype = 'uinteger';
 		o.placeholder = '0';
 
+		o = s.option(form.Flag, 'ipv6', _('Watch IPv6'),
+			_('Often IPv4 works and only IPv6 breaks – then pages hang for a while, because the browser tries IPv6 first. Logged from what odhcp6c reports to netifd: the DHCPv6 session, the delegated prefix (lost or changed) and the default route from the ISP\'s router advertisement. For the ping over IPv6 add one or two IPv6 hosts (e.g. <code>2606:4700:4700::1111</code>, <code>2001:4860:4860::8888</code>) to the collectd Ping plugin: when all of them fail while IPv4 targets answer, “IPv6 down” is logged.'));
+		o.default = '1';
+		o.rmempty = false;
+
+		o = s.option(widgets.NetworkSelect, 'interface6', _('IPv6 interface'),
+			_('The DHCPv6 interface. Empty = <code>wan6</code>, or <code>wan_6</code> when IPv6 is set to automatic on the WAN interface.'));
+		o.nocreate = true;
+		o.optional = true;
+		o.depends('ipv6', '1');
+
+		o = s.option(form.Value, 'ra_after', _('No router advertisement after (s)'),
+			_('How long the IPv6 default route may be missing before it is logged.'));
+		o.datatype = 'range(10,3600)';
+		o.placeholder = '60';
+		o.depends('ipv6', '1');
+
 		o = s.option(form.Flag, 'trace', _('Path snapshot at a loss'),
 			_('When a loss starts (or the connection is down), one traceroute is run to a far target – <code>mtr</code> when installed (10 rounds, more precise), otherwise the busybox <code>traceroute</code>. The timeline then shows at which hop the loss starts and carries on to the destination: concrete proof for the ISP. Takes a few seconds, at most once per the time below.'));
 		o.default = '1';
@@ -481,7 +599,37 @@ return view.extend({
 		o.datatype = 'range(0,100)';
 		o.placeholder = '90';
 
+		/* ---- DNS */
+		s = m.section(form.NamedSection, 'dns', 'dns', _('DNS'),
+			_('Pages that do not open while ping works are often DNS. No own test: dnsmasq\'s statistics are read – over ubus every interval (queries sent upstream, answered from the cache, unanswered), and per upstream server from the statistics dnsmasq writes to the system log on SIGUSR1 (queries sent, retried = no answer in time, failed = SERVFAIL/REFUSED, average latency).'));
+
+		o = s.option(form.Flag, 'enabled', _('Watch DNS'));
+		o.default = '1';
+		o.rmempty = false;
+
+		o = s.option(form.Value, 'warn_pct', _('Unanswered for a warning (%)'),
+			_('Share of the queries sent upstream within a minute that get no answer, and of retried/failed queries per server.'));
+		o.datatype = 'range(1,100)';
+		o.placeholder = '10';
+		o.depends('enabled', '1');
+
+		o = s.option(form.Value, 'min_queries', _('At least (queries per minute)'),
+			_('Fewer queries sent upstream within a minute are not judged.'));
+		o.datatype = 'range(1,10000)';
+		o.placeholder = '5';
+		o.depends('enabled', '1');
+
+		o = s.option(form.ListValue, 'dump', _('Per-server statistics'),
+			_('How often dnsmasq is asked (SIGUSR1) to write its per-server statistics to the system log; each time adds a few lines to the log. Needs “Read the system log”.'));
+		o.value('0', _('Off'));
+		o.value('300', _('every 5 min'));
+		o.value('900', _('every 15 min'));
+		o.value('3600', _('every hour'));
+		o.default = '300';
+		o.depends('enabled', '1');
+
 		/* ---- decoders */
+
 		s = m.section(form.NamedSection, 'iptv', 'iptv', _('Decoders'),
 			_('Tells “the decoder restarted” from “the stream vanished”. In a bridged IPTV VLAN the decoders get their address from the ISP, so the router has no neighbour entry for them; it uses the bridge\'s MAC table instead: every device in the IPTV VLAN on a port other than the one to the ISP is a decoder. A restart is seen when the port\'s link goes down (decoder directly on the port), when it vanishes from the MAC table and comes back, or when it is silent while the stream stops. Behind a switch the port stays up – install the package on the router the decoder is plugged into and let it send its events here. Needs the IPTV VLAN set above and the <code>ip-bridge</code> package.'));
 
@@ -494,6 +642,11 @@ return view.extend({
 		o.datatype = 'range(15,600)';
 		o.placeholder = '40';
 		o.depends('decoders', '1');
+
+		o = s.option(form.Flag, 'dhcp', _('DHCP of the decoders'),
+			_('Lease renewals and address changes from the operator. In a bridged IPTV VLAN the lease is not in the router, so the measuring helper (isp-tester-tsmon) also notes the operator\'s DHCP replies on that VLAN; when the router gives the decoders their address, dnsmasq\'s messages in the system log are used for the decoders named below.'));
+		o.default = '1';
+		o.rmempty = false;
 
 		o = s.option(form.Value, 'dec_off', _('Switched off after (s)'),
 			_('Away longer than this: switched off or unplugged, not a restart.'));
@@ -688,6 +841,6 @@ return view.extend({
 		o.editable = true;
 		o.rmempty = false;
 
-		return m.render().then(function(n) { n.insertBefore(UPD_CSS, n.firstChild); return n; });
+		return m.render().then(function(n) { n.insertBefore(UPD_CSS, n.firstChild); n.appendChild(backupSection()); return n; });
 	}
 });

@@ -1,0 +1,20 @@
+#!/bin/sh
+# luci-app-isp-tester: note what the NTP client reports (busybox ntpd via
+# ntpd-hotplug, chrony), for the collector. Values are checked: they end up
+# in JSON. RAM only; ntp.last is the newest one, ntp.pending what the
+# collector has not read yet.
+D=/var/run/isp-tester
+mkdir -p "$D" 2>/dev/null || exit 0
+
+case "$ACTION" in stratum|step|unsync|periodic) ;; *) exit 0 ;; esac
+case "$stratum" in ''|*[!0-9]*) stratum=null ;; esac
+case "$offset" in ''|*[!0-9eE.+-]*) offset=null ;; esac
+case "$poll_interval" in ''|*[!0-9]*) poll_interval=null ;; esac
+
+line=$(printf '{"action":"%s","stratum":%s,"offset":%s,"poll":%s,"ts":%s}' \
+	"$ACTION" "$stratum" "$offset" "$poll_interval" "$(date +%s)")
+echo "$line" > "$D/ntp.last"
+echo "$line" >> "$D/ntp.pending"
+# keep it small if the collector does not run
+[ "$(wc -l < "$D/ntp.pending")" -gt 50 ] && tail -n 20 "$D/ntp.pending" > "$D/ntp.p" && mv "$D/ntp.p" "$D/ntp.pending"
+exit 0

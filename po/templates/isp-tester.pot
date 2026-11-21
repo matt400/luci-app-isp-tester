@@ -1972,3 +1972,645 @@ msgstr ""
 
 msgid "e.g. Living room"
 msgstr ""
+
+msgid "IPv6 did not work while IPv4 did (%d×, %s in total, longest %s) – browsers try IPv6 first, so pages load slowly or hang. ISP IPv6 (prefix, routing) – ask them to check it, or switch IPv6 off as a workaround."
+msgstr ""
+
+msgid "IPv6 prefix from the ISP lost %d× / changed %d× – devices at home lose or change their IPv6 addresses, open connections break. ISP DHCPv6 (prefix delegation)."
+msgstr ""
+
+msgid "No IPv6 router advertisement from the ISP (%d×) – the IPv6 default route vanished. ISP side (less often the router's firewall dropping ICMPv6)."
+msgstr ""
+
+msgid "IPv6 (DHCPv6) session dropped %d× while IPv4 stayed up – ISP DHCPv6."
+msgstr ""
+
+msgid "odhcp6c: no answer or no prefix from the ISP's DHCPv6 server (%d×)."
+msgstr ""
+
+msgid "Packet loss over IPv6 only (%d×) – ISP IPv6 routing."
+msgstr ""
+
+msgid "DNS failed %d× while ping worked – pages do not open although the line is fine. The upstream DNS server (the ISP's, or the one set in the router) does not answer: try another one."
+msgstr ""
+
+msgid "DNS server %s retried or failed many queries (%d×) – slow or overloaded; consider another server."
+msgstr ""
+
+msgid "The operator gave decoder %s a different address %d× – each change interrupts the picture; the operator's DHCP (address pool, lease)."
+msgstr ""
+
+msgid "Decoder %s: lease refused or not renewed in time (%d×) – the operator's DHCP server."
+msgstr ""
+
+msgid "The router restarted %d× – a power cut, a crash or on purpose. Problems at those moments are not the ISP's."
+msgstr ""
+
+msgid "Not measured for %s in this period (%d×: router off, monitoring off) – nothing is known about that time."
+msgstr ""
+
+msgid "IPv6 does not work for %s while IPv4 does – pages load slowly (the browser tries IPv6 first)"
+msgstr ""
+
+msgid "IPv6 interface %s is down for %s"
+msgstr ""
+
+msgid "No IPv6 prefix from the ISP for %s – the home network has no IPv6"
+msgstr ""
+
+msgid "No IPv6 default route for %s – the ISP stopped sending router advertisements"
+msgstr ""
+
+msgid "DNS: %d%% of the queries get no answer from the upstream server (for %s)"
+msgstr ""
+
+msgid "DNS server %s retries or fails many queries"
+msgstr ""
+
+msgid "IPv6 DOWN – no IPv6 target responds while IPv4 works (pages load slowly)"
+msgstr ""
+
+msgid "IPv6 works again after %s"
+msgstr ""
+
+msgid "IPv6 interface %s DOWN (DHCPv6 session lost)"
+msgstr ""
+
+msgid "IPv6 interface %s up again after %s"
+msgstr ""
+
+msgid "IPv6 prefix LOST (%s) – the home network has no IPv6"
+msgstr ""
+
+msgid "IPv6 prefix back after %s: %s"
+msgstr ""
+
+msgid "a different one"
+msgstr ""
+
+msgid "IPv6 prefix CHANGED %s → %s – devices at home renumber, IPv6 connections break"
+msgstr ""
+
+msgid "No IPv6 default route on %s – no router advertisement from the ISP for %s"
+msgstr ""
+
+msgid "IPv6 default route back after %s"
+msgstr ""
+
+msgid "DNS FAILING: %d%% of the queries sent upstream got no answer (%d of %d within %s)"
+msgstr ""
+
+msgid "DNS answers again after %s (at worst %d%% unanswered)"
+msgstr ""
+
+msgid "DNS server %s: %d of %d queries retried or failed within %s (%d retried = no answer in time, %d failed = SERVFAIL/REFUSED)"
+msgstr ""
+
+msgid "average %d ms"
+msgstr ""
+
+msgid "DNS server %s answers normally again"
+msgstr ""
+
+msgid "ROUTER RESTARTED – up since %s"
+msgstr ""
+
+msgid "earlier data was in RAM and is lost"
+msgstr ""
+
+msgid "Monitor restarted by the watchdog: it hung (last report %s before)"
+msgstr ""
+
+msgid "Monitor restarted after it stopped unexpectedly (last report %s before)"
+msgstr ""
+
+msgid "NOT MEASURED from %s to %s (%s): %s"
+msgstr ""
+
+msgid "Clock synchronized by NTP (stratum %s)"
+msgstr ""
+
+msgid "%s after boot"
+msgstr ""
+
+msgid "Clock NOT synchronized any more (NTP lost its servers) – times may drift"
+msgstr ""
+
+msgid "No NTP client running – the times in the log cannot be trusted"
+msgstr ""
+
+msgid "Maintenance extended until %s"
+msgstr ""
+
+msgid "MAINTENANCE until %s: what happens meanwhile is not counted and not notified"
+msgstr ""
+
+msgid "Maintenance over after %s"
+msgstr ""
+
+msgid "ended by hand"
+msgstr ""
+
+msgid "Decoder %s: address %s from the operator"
+msgstr ""
+
+msgid "lease %s"
+msgstr ""
+
+msgid "server %s"
+msgstr ""
+
+msgid "Decoder %s asked for an address from scratch (restarted or lost its lease): %s"
+msgstr ""
+
+msgid "Decoder %s: address CHANGED %s → %s – the operator gave it a new one, the picture may stop for a moment"
+msgstr ""
+
+msgid "Decoder %s: the operator REFUSED its lease (DHCPNAK)"
+msgstr ""
+
+msgid "Decoder %s: lease of %s ran out without a renewal"
+msgstr ""
+
+msgid "Decoder %s renewed its lease %s after it had run out"
+msgstr ""
+
+msgid "Clock set by %s%s"
+msgstr ""
+
+msgid "%d earlier entries of this boot moved to the right time"
+msgstr ""
+
+msgid "%s MB"
+msgstr ""
+
+msgid "%d kB"
+msgstr ""
+
+msgid "Share of the router's whole CPU (%d cores) used by the tester:"
+msgstr ""
+
+msgid "collector (with logread, bridge, rrdtool it runs): now %s%%, average %s%%, at most %s%%, RAM %s"
+msgstr ""
+
+msgid "tsmon (IPTV picture): now %s%%, at most %s%%, RAM %s"
+msgstr ""
+
+msgid "the router restarted"
+msgstr ""
+
+msgid "monitoring was turned off"
+msgstr ""
+
+msgid "the collector stopped unexpectedly"
+msgstr ""
+
+msgid "the collector hung and was restarted by the watchdog"
+msgstr ""
+
+msgid "the collector was blocked"
+msgstr ""
+
+msgid "DHCPv6: no answer or no prefix from the ISP"
+msgstr ""
+
+msgid "%02d:00–%02d:59 every day"
+msgstr ""
+
+msgid "the whole day"
+msgstr ""
+
+msgid "Maintenance (not counted)"
+msgstr ""
+
+msgid "Not measured: %s"
+msgstr ""
+
+msgid "MONITOR IS NOT WORKING"
+msgstr ""
+
+msgid "The collector has not reported for %s – it seems to hang. The watchdog restarts it automatically after %s."
+msgstr ""
+
+msgid "The collector has not reported for %s, and the watchdog (%s) did not restart it – see the system log (logread -e isp-tester)."
+msgstr ""
+
+msgid "Nothing is measured meanwhile; the gap will be in the report."
+msgstr ""
+
+msgid "Tester itself: CPU %s%% · RAM %s"
+msgstr ""
+
+msgid "You are about to re-plug cables or change settings: the next minutes are not counted as faults and send no notifications."
+msgstr ""
+
+msgid "🔧 Working on the network"
+msgstr ""
+
+msgid "The monitor restarted %d× in the last hour"
+msgstr ""
+
+msgid "it crashes or hangs; see the system log (logread -e isp-tester) and report it. Measurements have short gaps."
+msgstr ""
+
+msgid "Optional note, e.g. replacing the switch"
+msgstr ""
+
+msgid "Maintenance starts within one interval."
+msgstr ""
+
+msgid "Maintenance ends within one interval."
+msgstr ""
+
+msgid "Working on the network"
+msgstr ""
+
+msgid "While you re-plug cables, restart the switch or change settings, what happens is still logged, but it is not counted as a fault: it is left out of the analysis and the report, the cards do not stay yellow afterwards, and no notifications are sent."
+msgstr ""
+
+msgid "%d min"
+msgstr ""
+
+msgid "Maintenance until %s"
+msgstr ""
+
+msgid "not counted as faults, no notifications (for %s so far)"
+msgstr ""
+
+msgid "+30 min"
+msgstr ""
+
+msgid "End now"
+msgstr ""
+
+msgid "No NTP client is running on the router (System → System → Time synchronization). The times in the log and in the report cannot be trusted."
+msgstr ""
+
+msgid "The clock has not been confirmed by NTP since the router started (%s ago). Times logged until then are corrected automatically when NTP sets the clock."
+msgstr ""
+
+msgid "The clock is not synchronized (NTP reports no server). The times in the log may be wrong – check the Internet connection and System → System → Time synchronization."
+msgstr ""
+
+msgid "Clock not synchronized"
+msgstr ""
+
+msgid "no DHCPv6 interface (wan6)"
+msgstr ""
+
+msgid "%s down"
+msgstr ""
+
+msgid "prefix %s"
+msgstr ""
+
+msgid "prefix lost"
+msgstr ""
+
+msgid "no prefix from the ISP"
+msgstr ""
+
+msgid "RA OK"
+msgstr ""
+
+msgid "no default route"
+msgstr ""
+
+msgid "ping %d/%d"
+msgstr ""
+
+msgid "Add an IPv6 host (e.g. 2606:4700:4700::1111) to the collectd Ping plugin"
+msgstr ""
+
+msgid "no IPv6 ping target"
+msgstr ""
+
+msgid "no statistics from dnsmasq (ubus)"
+msgstr ""
+
+msgid "%d queries/min"
+msgstr ""
+
+msgid "%d%% from the cache"
+msgstr ""
+
+msgid "%d%% unanswered"
+msgstr ""
+
+msgid "Since the previous statistics: %d sent, %d retried, %d failed"
+msgstr ""
+
+msgid "%d%% bad"
+msgstr ""
+
+msgid "DNS of the router, from dnsmasq's own statistics"
+msgstr ""
+
+msgid "DNS"
+msgstr ""
+
+msgid "renewed %s ago"
+msgstr ""
+
+msgid "%d renewals"
+msgstr ""
+
+msgid "IP changed %d×"
+msgstr ""
+
+msgid "refused %d×"
+msgstr ""
+
+msgid "lease expired"
+msgstr ""
+
+msgid "Seen from the operator's DHCP replies (%s)"
+msgstr ""
+
+msgid "in the IPTV VLAN"
+msgstr ""
+
+msgid "DHCP %s"
+msgstr ""
+
+msgid "from"
+msgstr ""
+
+msgid "to"
+msgstr ""
+
+msgid "Choose the period and, if the problem shows only at certain times (e.g. in the evening when you watch TV), the hours of the day. Everything – the summary, the assessment, the event list and the measurement coverage – then counts only those hours."
+msgstr ""
+
+msgid "Days"
+msgstr ""
+
+msgid "The period shown in the charts: %s"
+msgstr ""
+
+msgid "Chosen days"
+msgstr ""
+
+msgid "The archive on USB goes back %d days."
+msgstr ""
+
+msgid "The data is in RAM: only the last 24 h (and the timeline kept in RAM) are available. Keep the data on USB for a longer archive."
+msgstr ""
+
+msgid "Hours of the day"
+msgstr ""
+
+msgid "The whole day"
+msgstr ""
+
+msgid "Evening 18–24"
+msgstr ""
+
+msgid "18–23"
+msgstr ""
+
+msgid "Daytime 6–18"
+msgstr ""
+
+msgid "Whole day"
+msgstr ""
+
+msgid "Open report"
+msgstr ""
+
+msgid "Only the hours %s are counted in this report."
+msgstr ""
+
+msgid "Measurement coverage"
+msgstr ""
+
+msgid "Measured"
+msgstr ""
+
+msgid "%s%% of the period"
+msgstr ""
+
+msgid "not measured: %s in %d periods (listed below)"
+msgstr ""
+
+msgid "without interruption"
+msgstr ""
+
+msgid "Router restarts"
+msgstr ""
+
+msgid "Monitor restarts (crash / watchdog)"
+msgstr ""
+
+msgid "Load of the tester itself"
+msgstr ""
+
+msgid "average %s%%, at most %s%% of the router's CPU, RAM %s (since %s) – the measurement does not load the router"
+msgstr ""
+
+msgid "Maintenance (excluded)"
+msgstr ""
+
+msgid "%d×, %s – the user worked on the network: %s"
+msgstr ""
+
+msgid "Router clock"
+msgstr ""
+
+msgid "synchronized by NTP"
+msgstr ""
+
+msgid "stratum %s"
+msgstr ""
+
+msgid "NO NTP client – times not reliable"
+msgstr ""
+
+msgid "NOT synchronized now – times may be off"
+msgstr ""
+
+msgid "NTP running, no report since boot yet"
+msgstr ""
+
+msgid "set %d× in the period (entries logged before were corrected)"
+msgstr ""
+
+msgid "The router did not measure at these times; nothing in this report covers them:"
+msgstr ""
+
+msgid "monitoring had not started yet (or older data was deleted)"
+msgstr ""
+
+msgid "IPv6 outages (IPv4 working)"
+msgstr ""
+
+msgid "IPv6 prefix lost / changed"
+msgstr ""
+
+msgid "%d× / %d×"
+msgstr ""
+
+msgid "No IPv6 router advertisement"
+msgstr ""
+
+msgid "Decoder DHCP: address changes / refused / expired"
+msgstr ""
+
+msgid "%d× / %d× / %d×"
+msgstr ""
+
+msgid "DNS failing (no answer from the upstream server)"
+msgstr ""
+
+msgid "servers with many failed queries: %s"
+msgstr ""
+
+msgid "During maintenance – not counted"
+msgstr ""
+
+msgid "maintenance"
+msgstr ""
+
+msgid "No file was uploaded."
+msgstr ""
+
+msgid "The file is too big (over 64 MB)."
+msgstr ""
+
+msgid "This is not a .tar.gz archive."
+msgstr ""
+
+msgid "The archive is empty."
+msgstr ""
+
+msgid "The archive contains links or special files – refused."
+msgstr ""
+
+msgid "The archive contains files that are not from ISP Tester – refused."
+msgstr ""
+
+msgid "The archive cannot be unpacked."
+msgstr ""
+
+msgid "This is not an ISP Tester backup."
+msgstr ""
+
+msgid "The settings in the archive are not a valid settings file."
+msgstr ""
+
+msgid "Nothing was chosen to restore."
+msgstr ""
+
+msgid "The settings file cannot be read."
+msgstr ""
+
+msgid "Failed: %s"
+msgstr ""
+
+msgid "Restore from a backup"
+msgstr ""
+
+msgid "Backup of %s from %s: %s."
+msgstr ""
+
+msgid "settings and data (%d files, %d of them archive days, %d kB)"
+msgstr ""
+
+msgid "settings only"
+msgstr ""
+
+msgid "It comes from another router (%s). Its settings name that router's ports, interfaces and the role towards the second router – check them after restoring, or restore the data only."
+msgstr ""
+
+msgid "Settings (replace the current ones; the old file is kept as /etc/config/isp_tester.before-restore)"
+msgstr ""
+
+msgid "Data: timeline, history, archive, channel names (replace the current ones)"
+msgstr ""
+
+msgid "Monitoring stops for a moment while the files are replaced."
+msgstr ""
+
+msgid "Restored: %s. The page reloads."
+msgstr ""
+
+msgid "settings"
+msgstr ""
+
+msgid "data"
+msgstr ""
+
+msgid "Restore"
+msgstr ""
+
+msgid "Backup and restore"
+msgstr ""
+
+msgid "One .tar.gz with the settings of the tester and, if you want, its data (timeline, history, the archive on USB, channel names) – to keep it, or to move the monitoring to another router (e.g. from M477 to M477S). Restoring checks the archive first: only files this page writes are accepted."
+msgstr ""
+
+msgid "Download settings + data"
+msgstr ""
+
+msgid "Download settings only"
+msgstr ""
+
+msgid "Restore from a file…"
+msgstr ""
+
+msgid "Watch IPv6"
+msgstr ""
+
+msgid "Often IPv4 works and only IPv6 breaks – then pages hang for a while, because the browser tries IPv6 first. Logged from what odhcp6c reports to netifd: the DHCPv6 session, the delegated prefix (lost or changed) and the default route from the ISP's router advertisement. For the ping over IPv6 add one or two IPv6 hosts (e.g. <code>2606:4700:4700::1111</code>, <code>2001:4860:4860::8888</code>) to the collectd Ping plugin: when all of them fail while IPv4 targets answer, “IPv6 down” is logged."
+msgstr ""
+
+msgid "IPv6 interface"
+msgstr ""
+
+msgid "The DHCPv6 interface. Empty = <code>wan6</code>, or <code>wan_6</code> when IPv6 is set to automatic on the WAN interface."
+msgstr ""
+
+msgid "No router advertisement after (s)"
+msgstr ""
+
+msgid "How long the IPv6 default route may be missing before it is logged."
+msgstr ""
+
+msgid "Pages that do not open while ping works are often DNS. No own test: dnsmasq's statistics are read – over ubus every interval (queries sent upstream, answered from the cache, unanswered), and per upstream server from the statistics dnsmasq writes to the system log on SIGUSR1 (queries sent, retried = no answer in time, failed = SERVFAIL/REFUSED, average latency)."
+msgstr ""
+
+msgid "Watch DNS"
+msgstr ""
+
+msgid "Unanswered for a warning (%)"
+msgstr ""
+
+msgid "Share of the queries sent upstream within a minute that get no answer, and of retried/failed queries per server."
+msgstr ""
+
+msgid "At least (queries per minute)"
+msgstr ""
+
+msgid "Fewer queries sent upstream within a minute are not judged."
+msgstr ""
+
+msgid "Per-server statistics"
+msgstr ""
+
+msgid "How often dnsmasq is asked (SIGUSR1) to write its per-server statistics to the system log; each time adds a few lines to the log. Needs “Read the system log”."
+msgstr ""
+
+msgid "every 5 min"
+msgstr ""
+
+msgid "every 15 min"
+msgstr ""
+
+msgid "every hour"
+msgstr ""
+
+msgid "DHCP of the decoders"
+msgstr ""
+
+msgid "Lease renewals and address changes from the operator. In a bridged IPTV VLAN the lease is not in the router, so the measuring helper (isp-tester-tsmon) also notes the operator's DHCP replies on that VLAN; when the router gives the decoders their address, dnsmasq's messages in the system log are used for the decoders named below."
+msgstr ""

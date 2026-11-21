@@ -40,6 +40,8 @@ import * as fs from 'fs';
 import * as uloop from 'uloop';
 
 const RUNDIR = getenv('ISP_TESTER_RUNDIR') || '/tmp/isp-tester';
+/* testing with a JSON config: no ubus unless ISP_TESTER_UBUS is set */
+const NO_UBUS = !!getenv('ISP_TESTER_CONFIG') && !getenv('ISP_TESTER_UBUS');
 const VARDIR = getenv('ISP_TESTER_VARDIR') || '/var/run/isp-tester';
 const SYSNET = getenv('ISP_TESTER_SYSNET') || '/sys/class/net';
 const ROUTE = getenv('ISP_TESTER_ROUTE') || '/proc/net/route';
@@ -63,6 +65,7 @@ const TSMON = find_bin('ISP_TESTER_TSMON', [ '/usr/sbin/isp-tester-tsmon' ]);
 /* snapshot of the path at a loss: mtr when installed, else busybox traceroute */
 const MTR = find_bin('ISP_TESTER_MTR', [ '/usr/sbin/mtr', '/usr/bin/mtr' ]);
 const TRACEROUTE = find_bin('ISP_TESTER_TRACEROUTE', [ '/usr/bin/traceroute', '/bin/traceroute', '/usr/sbin/traceroute' ]);
+const TRACEROUTE6 = find_bin('ISP_TESTER_TRACEROUTE6', [ '/usr/bin/traceroute6', '/bin/traceroute6', '/usr/sbin/traceroute6' ]);
 
 const STAT_KEYS = [
 	'rx_bytes', 'tx_bytes', 'rx_packets', 'tx_packets',
@@ -129,6 +132,8 @@ function round(v, digits) {
 	return int(v * m + (v >= 0 ? 0.5 : -0.5)) / (m * 1.0);
 }
 
+function absf(v) { return (v < 0) ? -v : v; }
+
 function worst(a, b) {
 	return (LEVEL[b] > LEVEL[a]) ? b : a;
 }
@@ -153,7 +158,9 @@ function default_config() {
 			/* one traceroute/mtr when a loss starts, at most every trace_cooldown s */
 			trace: true, trace_cooldown: 600,
 			/* bufferbloat: ping vs. WAN load; down/up_mbit 0 = learn the line's speed */
-			bloat: true, bloat_ms: 30, bloat_load: 70, down_mbit: 0, up_mbit: 0
+			bloat: true, bloat_ms: 30, bloat_load: 70, down_mbit: 0, up_mbit: 0,
+			/* IPv6: netifd status of the DHCPv6 interface (odhcp6c), '' = wan6 / <wan>_6 */
+			ipv6: true, interface6: '', ra_after: 60
 		},
 		iptv: {
 			enabled: true, vlan: 0, upstream: '', device: '', direction: 'rx', bridge: '',
@@ -163,11 +170,16 @@ function default_config() {
 			quality: false, q_warn: 1, q_fail: 30, q_gap: 500,
 			names: true, channels: {},
 			/* decoder restarts: bridge MAC table (bridged VLAN) + port link; decoders = { mac: label } */
-			decoders: true, dec_silence: 40, dec_off: 600, dec_labels: {}
+			decoders: true, dec_silence: 40, dec_off: 600, dec_labels: {},
+			/* DHCP of the decoders: the operator's replies seen by tsmon */
+			dhcp: true
 		},
 		system: {
 			enabled: true, cpu_warn: 90, mem_warn: 10, conntrack_warn: 90
 		},
+		/* DNS of the router (dnsmasq): ubus metrics every tick, per-server
+		 * statistics from its SIGUSR1 dump in the system log every dump s */
+		dns: { enabled: true, warn_pct: 10, min_queries: 5, dump: 300 },
 		notify: {
 			enabled: false, service: 'ntfy', url: '', token: '', chat_id: '',
 			min_level: 'err', cooldown: 300, lang: 'en'
@@ -205,6 +217,12 @@ function load_config() {
 		let n = cur.get_all('isp_tester', 'notify') || {};
 		let pr = cur.get_all('isp_tester', 'peer') || {};
 		let wf = cur.get_all('isp_tester', 'wifi') || {};
+		let dn = cur.get_all('isp_tester', 'dns') || {};
+
+		c.dns.enabled     = bool(dn.enabled, true);
+		c.dns.warn_pct    = num(dn.warn_pct, c.dns.warn_pct);
+		c.dns.min_queries = num(dn.min_queries, c.dns.min_queries);
+		c.dns.dump        = num(dn.dump, c.dns.dump);
 
 		c.wifi.enabled     = bool(wf.enabled, true);
 		c.wifi.signal_warn = num(wf.signal_warn, c.wifi.signal_warn);
@@ -229,6 +247,9 @@ function load_config() {
 		c.wan.bloat_load     = num(w.bloat_load, c.wan.bloat_load);
 		c.wan.down_mbit      = num(w.down_mbit, c.wan.down_mbit);
 		c.wan.up_mbit        = num(w.up_mbit, c.wan.up_mbit);
+		c.wan.ipv6           = bool(w.ipv6, true);
+		c.wan.interface6     = w.interface6 ?? '';
+		c.wan.ra_after       = num(w.ra_after, c.wan.ra_after);
 
 		/* where luci-app-statistics keeps collectd's data */
 		let us = cur.get_all('luci_statistics', 'collectd_unixsock') || {};
@@ -240,6 +261,7 @@ function load_config() {
 		c.wan.ping_hosts = aslist(pg.Hosts);
 
 		c.iptv.decoders    = bool(t.decoders, true);
+		c.iptv.dhcp        = bool(t.dhcp, true);
 		c.iptv.dec_silence = num(t.dec_silence, c.iptv.dec_silence);
 		c.iptv.dec_off     = num(t.dec_off, c.iptv.dec_off);
 		cur.foreach('isp_tester', 'decoder', (s) => {
@@ -364,6 +386,12 @@ function load_config() {
 	if (c.wifi.reconnect_s < 5) c.wifi.reconnect_s = 5;
 
 	if (c.wan.trace_cooldown < 60) c.wan.trace_cooldown = 60;
+	if (c.wan.interface6 && !match(c.wan.interface6, /^[A-Za-z0-9_]{1,15}$/)) c.wan.interface6 = '';
+	if (c.wan.ra_after < 10) c.wan.ra_after = 10;
+	if (c.dns.warn_pct < 1 || c.dns.warn_pct > 100) c.dns.warn_pct = 10;
+	if (c.dns.min_queries < 1) c.dns.min_queries = 1;
+	c.dns.dump = int(c.dns.dump);
+	if (c.dns.dump != 0 && c.dns.dump < 60) c.dns.dump = 60;
 	let dl = {};
 	for (let mac, l in (type(c.iptv.dec_labels) == 'object' ? c.iptv.dec_labels : {})) {
 		mac = lc(mac);
@@ -408,10 +436,20 @@ let iptv = {
 	acc: null                               /* per-tick aggregate of the fast samples */
 };
 let csv_rows = 0;
+let ubus_conn = null;     /* one ubus connection, (re)opened on demand */
+
+/* names of the ubus objects matching re; list() with a pattern would return
+ * their method signatures, not their names */
+function ubus_objects(re) {
+	return filter(ubus_conn?.list() ?? [], (n) => type(n) == 'string' && match(n, re) != null);
+}
 let csv_header = null;
 let last_mono = null;
 let started = now();
 let wansess = { up: null, uptime: null, seen: null, ip: null, since: now(), reconnects: 0 };
+/* IPv6 of the WAN (see v6_session): found = a DHCPv6 interface exists */
+let v6s = { iface: null, found: false, up: null, since: now(), prefixes: null, addr: null, route: null,
+	pd_seen: false, route_seen: false, pd_lost: null, route_lost: null, nr_logged: false, reconnects: 0 };
 /* bridged IPTV VLAN (see vlan_sample) */
 let vl = { bridge: null, upstream: null, ports: [], stats: null, mdb: null, error: null, cnt: null };
 /* joined = group -> when it was joined (0 = already there at start) */
@@ -464,7 +502,21 @@ const MSG = {
 		decoder_on: 'Decoder %s is back after %s',
 		bufferbloat: 'Bufferbloat: ping +%s ms with the link %d%% full (%s)', bufferbloat_ok: 'Bufferbloat over after %s (up to +%s ms)',
 		wifi_reconnect: 'Wi-Fi: %s dropped and reconnected after %s (%s)', wifi_leave: 'Wi-Fi: %s disconnected (%s)',
-		wifi_join: 'Wi-Fi: %s connected again after %s', wifi_roam: 'Wi-Fi: %s moved %s -> %s', wifi_weak: 'Wi-Fi: %s weak signal %d dBm', wifi_weak_ok: 'Wi-Fi: %s signal OK again after %s'
+		wifi_join: 'Wi-Fi: %s connected again after %s', wifi_roam: 'Wi-Fi: %s moved %s -> %s', wifi_weak: 'Wi-Fi: %s weak signal %d dBm', wifi_weak_ok: 'Wi-Fi: %s signal OK again after %s',
+		v6_down: 'IPv6 DOWN - no IPv6 target responds (IPv4 works)', v6_up: 'IPv6 back after %s',
+		v6_if_down: 'IPv6 interface %s went down', v6_if_up: 'IPv6 interface %s up again after %s',
+		v6_pd_lost: 'IPv6 prefix lost (%s)', v6_pd_back: 'IPv6 prefix back after %s: %s', v6_pd_change: 'IPv6 prefix changed %s -> %s',
+		v6_no_route: 'No IPv6 default route (no router advertisement) on %s', v6_route_back: 'IPv6 default route back after %s',
+		dns_fail: 'DNS: %d%% of the queries sent upstream unanswered (%d of %d in %ss)', dns_ok: 'DNS OK again after %s (at worst %d%% unanswered)',
+		dns_server_bad: 'DNS server %s: %d of %d queries retried or failed in %s', dns_server_ok: 'DNS server %s OK again',
+		router_reboot: 'Router restarted (up since %s)', data_gap: 'No measurements from %s to %s (%s): %s',
+		collector_restart: 'Monitor restarted after it %s',
+		ntp_sync: 'Clock synchronized (NTP stratum %s)', ntp_unsync: 'Clock NOT synchronized - times in the log may be wrong',
+		ntp_off: 'No NTP client running - times in the log may be wrong', clock_step: 'Clock set by %ss',
+		maint_start: 'Maintenance until %s: not counted, no notifications (%s)', maint_end: 'Maintenance over after %s',
+		dhcp_lease: 'Decoder %s: address %s from the operator (lease %s)', dhcp_new: 'Decoder %s asked for an address anew: %s',
+		dhcp_ip_change: 'Decoder %s: address CHANGED %s -> %s', dhcp_nak: 'Decoder %s: operator REFUSED the lease (DHCPNAK)',
+		dhcp_expired: 'Decoder %s: lease of %s expired without renewal', dhcp_late: 'Decoder %s renewed its lease %s too late'
 	},
 	pl: {
 		link_down: '%s: BRAK ŁĄCZA', link_up: '%s: łącze wróciło po %s', link_flap: '%s: łącze mrugnęło',
@@ -487,9 +539,28 @@ const MSG = {
 		decoder_on: 'Dekoder %s wrócił po %s',
 		bufferbloat: 'Bufferbloat: ping +%s ms przy łączu zajętym w %d%% (%s)', bufferbloat_ok: 'Bufferbloat minął po %s (do +%s ms)',
 		wifi_reconnect: 'Wi-Fi: %s rozłączył się i wrócił po %s (%s)', wifi_leave: 'Wi-Fi: %s rozłączony (%s)',
-		wifi_join: 'Wi-Fi: %s znów połączony po %s', wifi_roam: 'Wi-Fi: %s przeszedł %s -> %s', wifi_weak: 'Wi-Fi: %s słaby sygnał %d dBm', wifi_weak_ok: 'Wi-Fi: %s sygnał znów OK po %s'
+		wifi_join: 'Wi-Fi: %s znów połączony po %s', wifi_roam: 'Wi-Fi: %s przeszedł %s -> %s', wifi_weak: 'Wi-Fi: %s słaby sygnał %d dBm', wifi_weak_ok: 'Wi-Fi: %s sygnał znów OK po %s',
+		v6_down: 'IPv6 NIE DZIAŁA - żaden cel IPv6 nie odpowiada (IPv4 działa)', v6_up: 'IPv6 wróciło po %s',
+		v6_if_down: 'Interfejs IPv6 %s rozłączony', v6_if_up: 'Interfejs IPv6 %s znów działa po %s',
+		v6_pd_lost: 'Utrata prefiksu IPv6 (%s)', v6_pd_back: 'Prefiks IPv6 wrócił po %s: %s', v6_pd_change: 'Zmiana prefiksu IPv6 %s -> %s',
+		v6_no_route: 'Brak domyślnej trasy IPv6 (brak RA) na %s', v6_route_back: 'Domyślna trasa IPv6 wróciła po %s',
+		dns_fail: 'DNS: %d%% zapytań wysłanych dalej bez odpowiedzi (%d z %d w %ss)', dns_ok: 'DNS znów OK po %s (najgorzej %d%% bez odpowiedzi)',
+		dns_server_bad: 'Serwer DNS %s: %d z %d zapytań ponowionych lub nieudanych w %s', dns_server_ok: 'Serwer DNS %s znów OK',
+		router_reboot: 'Router uruchomiony ponownie (działa od %s)', data_gap: 'Brak pomiarów od %s do %s (%s): %s',
+		collector_restart: 'Monitor uruchomiony ponownie, bo %s',
+		ntp_sync: 'Zegar zsynchronizowany (NTP stratum %s)', ntp_unsync: 'Zegar NIE jest zsynchronizowany - czasy w logu mogą być błędne',
+		ntp_off: 'Brak klienta NTP - czasy w logu mogą być błędne', clock_step: 'Zegar przestawiony o %ss',
+		maint_start: 'Prace serwisowe do %s: bez liczenia i powiadomień (%s)', maint_end: 'Prace serwisowe zakończone po %s',
+		dhcp_lease: 'Dekoder %s: adres %s od operatora (dzierżawa %s)', dhcp_new: 'Dekoder %s poprosił o adres od nowa: %s',
+		dhcp_ip_change: 'Dekoder %s: ZMIANA adresu %s -> %s', dhcp_nak: 'Dekoder %s: operator ODMÓWIŁ dzierżawy (DHCPNAK)',
+		dhcp_expired: 'Dekoder %s: dzierżawa %s wygasła bez odnowienia', dhcp_late: 'Dekoder %s odnowił dzierżawę %s za późno'
 	}
 };
+
+const GAP_WHY_EN = { reboot: 'router restarted', stopped: 'monitoring was off', crash: 'the collector stopped unexpectedly',
+	hung: 'the collector hung (restarted by the watchdog)', stall: 'the collector was blocked' };
+const GAP_WHY_PL = { reboot: 'restart routera', stopped: 'monitorowanie wyłączone', crash: 'collector nieoczekiwanie się zatrzymał',
+	hung: 'collector się zawiesił (zrestartowany przez watchdog)', stall: 'collector był zablokowany' };
 
 function dur_txt(s) {
 	s = int(s ?? 0);
@@ -540,6 +611,32 @@ function event_text(e, lang) {
 	case 'wifi_roam': return sprintf(f, e.src, d.from ?? '?', d.iface ?? '?');
 	case 'wifi_weak': return sprintf(f, e.src, d.signal);
 	case 'wifi_weak_ok': return sprintf(f, e.src, dur_txt(d.dur));
+	case 'v6_up': case 'v6_route_back': return sprintf(f, dur_txt(d.dur));
+	case 'v6_if_down': case 'v6_no_route': return sprintf(f, d.iface);
+	case 'v6_if_up': return sprintf(f, d.iface, dur_txt(d.dur));
+	case 'v6_pd_lost': return sprintf(f, join(' ', d.prev ?? []) || '-');
+	case 'v6_pd_back': return sprintf(f, dur_txt(d.dur), join(' ', d.prefix ?? []));
+	case 'v6_pd_change': return sprintf(f, join(' ', d.from ?? []), join(' ', d.to ?? []));
+	case 'dns_fail': return sprintf(f, d.pct, d.unans, d.fwd, d.win);
+	case 'dns_ok': return sprintf(f, dur_txt(d.dur), d.max_pct);
+	case 'dns_server_bad': return sprintf(f, e.src, d.bad, d.sent, dur_txt(d.win));
+	case 'dns_server_ok': return sprintf(f, e.src);
+	case 'router_reboot': return sprintf(f, tstamp(d.boot));
+	case 'collector_restart': return sprintf(f, d.why == 'hung'
+		? (lang == 'pl' ? 'się zawiesił (watchdog)' : 'hung (watchdog)')
+		: (lang == 'pl' ? 'nieoczekiwanie się zatrzymał' : 'stopped unexpectedly'));
+	case 'ntp_sync': return sprintf(f, d.stratum ?? '?');
+	case 'clock_step': return sprintf(f, (d.by > 0 ? '+' : '') + d.by);
+	case 'maint_start': return sprintf(f, substr(tstamp(d.until), 11, 5), d.note || '-');
+	case 'maint_end': return sprintf(f, dur_txt(d.dur));
+	case 'dhcp_lease': return sprintf(f, e.src, d.ip, d.lease ? dur_txt(d.lease) : '?');
+	case 'dhcp_new': return sprintf(f, e.src, d.ip);
+	case 'dhcp_ip_change': return sprintf(f, e.src, d.from, d.to);
+	case 'dhcp_nak': return sprintf(f, e.src);
+	case 'dhcp_expired': return sprintf(f, e.src, d.ip);
+	case 'dhcp_late': return sprintf(f, e.src, dur_txt(d.late));
+	case 'data_gap': return sprintf(f, d.from ? tstamp(d.from) : '?', tstamp(d.to), dur_txt(d.len),
+		(lang == 'pl' ? GAP_WHY_PL : GAP_WHY_EN)[d.why] ?? d.why);
 	default: return f;
 	}
 }
@@ -560,7 +657,7 @@ function event_msg(e, lang) {
  * port coming up or a target recovering from an unsent warning stays quiet */
 const RECOVERY = { wan_up: true, stream_resume: true, stream_lost: true, stream_off: true, link_up: true,
 	wan_if_up: true, proxy_up: true, target_ok: true, dev_present: true, peer_back: true, wifi_weak_ok: true,
-	bufferbloat_ok: true };
+	bufferbloat_ok: true, v6_up: true, v6_if_up: true, v6_pd_back: true, v6_route_back: true, dns_ok: true, dns_server_ok: true };
 
 function urlenc(s) {
 	let out = '';
@@ -577,6 +674,8 @@ function urlenc(s) {
 function notify_queue(e) {
 	let n = cfg.notify;
 	if (!n.enabled) return;
+	/* during maintenance (the user works on the network): nothing */
+	if (e.m) return;
 	let key = `${e.host ?? ''}|${e.area}|${e.src}`;
 	let want;
 	if (RECOVERY[e.type]) {
@@ -757,9 +856,49 @@ function arch_check() {
 	arch.info = { days: cfg.archive_days, have: length(keys(days)), oldest, size };
 }
 
+/* ------------------------------------------------------------- the clock */
+
+/*
+ * Times in the log are only worth something with a synchronized clock.
+ * After a reboot the router starts with the time of its newest file
+ * (sysfixtime) until NTP sets it, so the first events of a boot can carry
+ * a wrong time. Two sources:
+ *   - the NTP client's own reports: /etc/hotplug.d/ntp/90-isp-tester notes
+ *     every hotplug "ntp" event (busybox ntpd: stratum / step / unsync /
+ *     periodic, chrony: stratum) in VARDIR/ntp.last and ntp.pending
+ *   - a step of the clock itself: wall time minus monotonic time changes
+ * Events logged by this run while the clock was not confirmed (shortly
+ * after boot) are marked (_fix); when the clock is stepped they are moved by
+ * the step, with the charts' points of this run, and only then written to
+ * the archive. After an hour without a step they are kept as they are.
+ */
+let clk = { on: false, off: null, steps: 0, last: null, hold: [], run_hist: 0, run_min: 0, m0: 0 };
+let ntp = { state: 'unknown', client: null, checked: 0, sync_ts: null, stratum: null, offset: null, poll: null, action: null };
+
+function clk_fields(typ) {
+	if (typ == 'data_gap') return [ 'd.to' ];
+	if (typ == 'router_reboot') return [ 'ts', 'd.boot' ];
+	return [ 'ts' ];
+}
+
+/*
+ * Maintenance ("I am working on the network for 30 min"): events logged
+ * meanwhile are kept but flagged (m: 1) - left out of the analysis, the
+ * report's counts, the cards' "problems in the last minutes" and the
+ * notifications, so re-plugging cables is not an outage. Kept in VARDIR, so
+ * a collector restart (saving settings) does not end it.
+ */
+let maint = { until: null, since: null, note: '' };
+
+function maint_on() {
+	return maint.until != null && now() < maint.until;
+}
+
 /* store one event (own or received from the second router) */
 function store_event(e) {
-	arch_append('ev', e.ts, e);
+	if (maint_on() && e.type != 'maint_start' && e.type != 'maint_end') e.m = 1;
+	if (e._fix) push(clk.hold, e);
+	else arch_append('ev', e.ts, e);
 	push(events, e);
 	if (length(events) > cfg.max_events)
 		events = slice(events, length(events) - cfg.max_events);
@@ -768,9 +907,95 @@ function store_event(e) {
 
 function emit(lvl, area, src, typ, data, ts) {
 	let e = { ts: ts ?? now(), lvl, area, src, type: typ, d: data ?? {} };
+	if (clk.on) e._fix = clk_fields(typ);
 	store_event(e);
+
 	save_events();
 	peer_queue(e);
+}
+
+/* ----------------------------------------------------- reboots and gaps */
+
+/*
+ * "The router did not measure from X to Y": without it the ISP can say the
+ * report is incomplete. The collector notes that it is alive once a minute
+ * (alive.json in RUNDIR, so on USB it survives a reboot) with the kernel's
+ * boot id. At start:
+ *   - another boot id: the router restarted -> router_reboot (boot time from
+ *     /proc/uptime) and data_gap from the last sign of life to now
+ *   - same boot, a gap longer than a few intervals -> data_gap: monitoring
+ *     was off (the init script marks a clean stop), or the collector died
+ *   - data in RAM after a reboot: nothing survived, only router_reboot
+ * While running: a tick that came far too late (blocked) -> data_gap.
+ */
+const ALIVE = `${RUNDIR}/alive.json`;
+const STOPPED = `${VARDIR}/stopped`;
+const BOOT_ID = trim(fs.readfile(`${PROC}/sys/kernel/random/boot_id`) ?? '') || null;
+/* procd's watchdog timeout (set by the init script) */
+const WATCHDOG = num(getenv('ISP_TESTER_WATCHDOG'), 60);
+let alive_ts = 0;
+
+function uptime_s() {
+	return num(split(trim(fs.readfile(`${PROC}/uptime`) ?? ''), ' ')[0], null);
+}
+
+function alive_save(t) {
+	alive_ts = t;
+	write_atomic(ALIVE, sprintf('%J', { ts: t, boot_id: BOOT_ID, started, host: HOSTNAME }));
+}
+
+function gap_check() {
+	let t = now(), up = uptime_s(), a;
+	try { a = json(fs.readfile(ALIVE) || 'null'); } catch (e) { a = null; }
+	let st;
+	try { st = json(fs.readfile(`${VARDIR}/state.json`) || 'null'); } catch (e) { st = null; }
+	let stop = num(trim(fs.readfile(STOPPED) ?? ''), null);
+	fs.unlink(STOPPED);
+
+	/* last sign of life: alive.json, the state of the same boot, own events */
+	let last = (type(a?.ts) == 'int') ? a.ts : null;
+	if (type(st?.ts) == 'int' && (last == null || st.ts > last)) last = st.ts;
+	for (let i = length(events) - 1; i >= 0 && i >= length(events) - 50; i--)
+		if (!events[i].host && events[i].ts <= t && (last == null || events[i].ts > last)) last = events[i].ts;
+
+	let boot = (up != null) ? int(t - up) : null;
+	let rebooted = (a?.boot_id && BOOT_ID) ? a.boot_id != BOOT_ID : (up != null && up < 900 && st == null);
+
+	if (rebooted) {
+		emit('warn', 'system', 'router', 'router_reboot', { boot, uptime: int(up ?? 0), last, ram: a == null }, boot ?? t);
+		if (last != null)
+			emit('info', 'system', 'collector', 'data_gap', { from: last, to: t, len: t - last, why: 'reboot', boot }, last);
+	}
+	else if (last != null) {
+		/* same boot: stopped cleanly, or ended by itself / by the watchdog */
+		let clean = stop != null && stop >= last - 5;
+		/* the watchdog kills it WATCHDOG s after its last report */
+		let why = clean ? 'stopped' : (st != null && t - st.ts >= WATCHDOG * 0.8) ? 'hung' : 'crash';
+		if (!clean && st != null)
+			emit('warn', 'system', 'collector', 'collector_restart', { why, last: st.ts, after: t - st.ts });
+		if (t - last > cfg.interval * 3 + 30)
+			emit('info', 'system', 'collector', 'data_gap', { from: last, to: t, len: t - last, why }, last);
+	}
+	alive_save(t);
+}
+
+/* procd's instance watchdog: report every tick; when the reports stop
+ * (hung in a command), procd kills the collector and starts it again */
+let wd = { err: null, last: 0, mode: null };
+
+function watchdog_ping() {
+	if (NO_UBUS || !getenv('ISP_TESTER_WATCHDOG')) return;
+	try {
+		ubus_conn ??= require('ubus').connect();
+		let r = ubus_conn?.call('service', 'watchdog', { name: 'isp_tester', instance: 'instance1' });
+		wd.mode = r?.mode;
+		wd.last = now();
+		wd.err = (r == null) ? 'no_answer' : null;
+	}
+	catch (e) {
+		ubus_conn = null;
+		wd.err = 'ubus';
+	}
 }
 
 /* the cards show this router only: events of the second router (e.host)
@@ -779,7 +1004,7 @@ function recent_level(area, src) {
 	let lvl = 'ok', cutoff = now() - cfg.warn_window;
 	for (let i = length(events) - 1; i >= 0; i--) {
 		let e = events[i];
-		if (e.host) continue;
+		if (e.host || e.m) continue;
 		if (e.ts < cutoff) break;
 		if (e.area != area || (src != null && e.src != src)) continue;
 		if (e.lvl == 'warn' || e.lvl == 'err') lvl = 'warn';
@@ -791,7 +1016,7 @@ function count_events(since) {
 	let n = { warn: 0, err: 0 };
 	for (let i = length(events) - 1; i >= 0; i--) {
 		let e = events[i];
-		if (e.host) continue;
+		if (e.host || e.m) continue;
 		if (e.ts < since) break;
 		if (e.lvl == 'warn') n.warn++;
 		else if (e.lvl == 'err') n.err++;
@@ -828,7 +1053,7 @@ function hist_add(h, t, vals, max) {
 
 /* 1-minute aggregates for the long (24 h) history */
 const AGG_MODE = { rtt: 'avg', rttmax: 'max', loss: 'max', jit: 'max',
-	'iptv:kbps': 'avg', 'iptv:min': 'min', 'iptv:cc': 'sum', err: 'sum', drop: 'sum', lvl: 'max' };
+	'iptv:kbps': 'avg', 'iptv:min': 'min', 'iptv:cc': 'sum', err: 'sum', drop: 'sum', lvl: 'max', maint: 'max', 'self:cpu': 'max' };
 
 let agg = null;
 let agg10 = null;     /* 10-minute aggregates for the archive */
@@ -863,6 +1088,7 @@ function agg_put(a, vals) {
 
 function agg_flush() {
 	if (!agg) return;
+	if (clk.on) clk.run_min++;
 	hist_add(history_min, agg.t, agg_vals(agg), cfg.long_history);
 	write_atomic(`${RUNDIR}/history.json`, sprintf('%J', history_min));
 	agg = null;
@@ -882,6 +1108,141 @@ function agg_add(t, vals) {
 	}
 	agg10 ??= { t: m10, v: {} };
 	agg_put(agg10, vals);
+}
+
+/* ------------------------------------------------------- the clock (2/2) */
+
+function clk_shift_hist(h, n, by) {
+	let len = length(h.t);
+	for (let i = max(0, len - n); i < len; i++) h.t[i] += by;
+}
+
+/* the clock was stepped by `by` seconds: move what this run logged before */
+function clk_fix(by) {
+	let n = 0;
+	for (let e in events) {
+		if (!e._fix) continue;
+		for (let k in e._fix) {
+			if (k == 'ts') e.ts += by;
+			else { let f = substr(k, 2); if (type(e.d[f]) == 'int') e.d[f] += by; }
+		}
+		if (e.type == 'data_gap') e.d.len = e.d.to - (e.d.from ?? e.d.to);
+		e.d.clock_fixed = by;
+		delete e._fix;
+		n++;
+	}
+	clk_shift_hist(history, clk.run_hist, by);
+	clk_shift_hist(history_min, clk.run_min, by);
+	if (agg) agg.t += by;
+	agg10 = null;
+	started += by;
+	alive_ts = 0;
+	return n;
+}
+
+/* stop marking: write what was held back to the archive */
+function clk_release() {
+	for (let e in events) delete e._fix;
+	for (let e in clk.hold) arch_append('ev', e.ts, e);
+	clk.hold = [];
+	clk.on = false;
+	save_events();
+	write_atomic(`${RUNDIR}/history.json`, sprintf('%J', history_min));
+}
+
+/* every tick, before anything is measured */
+function clk_check() {
+	let off = time() - mono();
+	if (clk.off != null && absf(off - clk.off) >= 2.5) {
+		let by = int(round(off - clk.off, 0));
+		let n = clk.on ? clk_fix(by) : 0;
+		clk.steps++;
+		clk.last = { ts: now(), by };
+		if (clk.on) clk_release();
+		emit(absf(by) >= 60 ? 'warn' : 'info', 'system', 'clock', 'clock_step', { by, fixed: n, ntp: ntp.state });
+	}
+	clk.off = off;
+	if (clk.on && mono() - clk.m0 > 3600) clk_release();
+}
+
+function ntp_apply(j, quiet) {
+	if (type(j) != 'object' || !match(`${j.action ?? ''}`, /^(stratum|step|unsync|periodic)$/)) return;
+	let was = ntp.state;
+	ntp.action = j.action;
+	if (j.action == 'unsync' || j.stratum == 16) {
+		ntp.state = 'unsynced';
+		if (!quiet && was == 'synced') emit('warn', 'system', 'clock', 'ntp_unsync', { stratum: j.stratum });
+		return;
+	}
+	ntp.state = 'synced';
+	ntp.sync_ts = (type(j.ts) == 'int') ? j.ts : now();
+	ntp.stratum = j.stratum;
+	ntp.offset = j.offset;
+	ntp.poll = j.poll;
+	if (!quiet && was != 'synced')
+		emit('info', 'system', 'clock', 'ntp_sync', { stratum: j.stratum, offset: j.offset, after: int(uptime_s() ?? 0) });
+	/* confirmed without a step: the times were right */
+	if (clk.on) clk_release();
+}
+
+function ntp_lines(text, quiet) {
+	for (let l in split(trim(text ?? ''), '\n')) {
+		let j;
+		try { j = json(l); } catch (e) { continue; }
+		ntp_apply(j, quiet);
+	}
+}
+
+/* is there an NTP client at all (once a minute) */
+function ntp_client() {
+	let t = now();
+	if (t - ntp.checked < 60) return;
+	ntp.checked = t;
+	let c = null;
+	for (let pid in (fs.lsdir(PROC) ?? [])) {
+		if (!match(pid, /^[0-9]+$/)) continue;
+		let n = trim(fs.readfile(`${PROC}/${pid}/comm`) ?? '');
+		if (n == 'ntpd' || n == 'chronyd') { c = n; break; }
+	}
+	let was = ntp.client;
+	ntp.client = c;
+	if (!c && was !== null && !getenv('ISP_TESTER_CONFIG')) {
+		if (ntp.state != 'off') emit('warn', 'system', 'clock', 'ntp_off', {});
+		ntp.state = 'off';
+	}
+	else if (c && ntp.state == 'off') ntp.state = 'unknown';
+}
+
+function ntp_poll() {
+	let f = `${VARDIR}/ntp.pending`, w = `${VARDIR}/ntp.work`;
+	if (fs.stat(f) && fs.rename(f, w)) {
+		ntp_lines(fs.readfile(w), false);
+		fs.unlink(w);
+	}
+	ntp_client();
+}
+
+function ntp_out() {
+	let up = uptime_s() ?? 0;
+	let st = ntp.state;
+	/* nothing heard since boot, shortly after a reboot: not confirmed */
+	if (st == 'unknown' && up < 1800 && mono() - clk.m0 > 300) st = 'unsynced';
+	return { state: st, raw: ntp.state, client: ntp.client, sync_ts: ntp.sync_ts, stratum: ntp.stratum, offset: ntp.offset,
+		poll: ntp.poll, untrusted: clk.on, steps: clk.steps, last_step: clk.last, uptime: int(up) };
+}
+
+/* at start: what the NTP client reported this boot (RAM) */
+function clk_init() {
+	clk.m0 = mono();
+	clk.off = time() - mono();
+	ntp_lines(fs.readfile(`${VARDIR}/ntp.last`), true);
+	fs.unlink(`${VARDIR}/ntp.pending`);
+	ntp.checked = 0;
+	ntp_client();
+	let up = uptime_s();
+	/* shortly after boot and not confirmed yet: the clock may still be set */
+	clk.on = ntp.state != 'synced' && up != null && up < 3600 && !getenv('ISP_TESTER_CONFIG') ||
+		getenv('ISP_TESTER_CLOCKFIX') == '1';
 }
 
 /* --------------------------------------------------------------- devices */
@@ -1147,9 +1508,13 @@ function trace_request(host, label, trig, trig_ts) {
 	if (!cfg.wan.trace || trace.proc || (!MTR && !TRACEROUTE)) return;
 	if (now() - trace.last < cfg.wan.trace_cooldown) return;
 	if (!valid_host(host) || substr(host, 0, 1) == '-') return;
+	/* IPv6: mtr handles it; busybox traceroute only as traceroute6 */
+	let v6 = index(host, ':') >= 0;
+	if (v6 && !MTR && !TRACEROUTE6) return;
 	let tool = MTR ? 'mtr' : 'traceroute';
 	/* valid_host() keeps the host free of shell characters */
-	let cmd = MTR ? `exec ${MTR} -n -r -c 10 -i 0.5 ${host}` : `exec ${TRACEROUTE} -n -q 3 -w 1 -m 20 ${host}`;
+	let cmd = MTR ? `exec ${MTR} -n -r -c 10 -i 0.5 ${host}`
+		: `exec ${v6 ? TRACEROUTE6 : TRACEROUTE} -n -q 3 -w 1 -m 20 ${host}`;
 	let t0 = now();
 	trace.last = t0;
 	trace.n++;
@@ -1180,11 +1545,13 @@ function trace_request(host, label, trig, trig_ts) {
 }
 
 /* the target to trace: the gateway itself shows nothing beyond hop 1, so a
- * far target is traced when the gateway (or everything) loses */
-function trace_target(t) {
+ * far target (of the same address family) is traced when the gateway (or
+ * everything) loses */
+function trace_target(t, fam) {
 	if (t && t.label != 'gateway') return t;
+	fam ??= t?.fam ?? 4;
 	for (let k, x in targets)
-		if (x.active && x.label != 'gateway') return x;
+		if (x.active && x.label != 'gateway' && x.fam == fam) return x;
 	return t;
 }
 
@@ -1220,13 +1587,14 @@ function median(a) {
 	return (n % 2) ? s[n >> 1] : (s[n / 2 - 1] + s[n / 2]) / 2;
 }
 
-/* the target whose ping is used: the gateway (the first buffer on the way) */
+/* the target whose ping is used: the gateway (the first buffer on the way),
+ * else an IPv4 one (IPv6 may be broken on its own) */
 function bloat_target() {
 	let best = null;
 	for (let k, t in targets) {
 		if (!t.active || !t.res) continue;
 		if (t.label == 'gateway') return t;
-		best ??= t;
+		if (best == null || (best.fam == 6 && t.fam == 4)) best = t;
 	}
 	return best;
 }
@@ -1326,24 +1694,56 @@ function bloat_out() {
 	};
 }
 
-function check_wan_down() {
+/* responding / all targets of one address family */
+function fam_count(fam) {
 	let all = 0, failed = 0;
 	for (let k, t in targets) {
-		if (!t.active || t.res == null) continue;
+		if (!t.active || t.res == null || t.fam != fam) continue;
 		all++;
 		if (t.res.loss >= 100) failed++;
 	}
-	if (all == 0) return;
+	return { all, failed };
+}
 
-	if (failed == all && wan_down_since == null) {
-		wan_down_since = now();
-		emit('err', 'wan', 'wan', 'wan_down', {});
-		let tt = trace_target(null);
-		if (tt) trace_request(tt.host, tt.label, 'wan_down', wan_down_since);
+/*
+ * Internet down = every IPv4 target lost (only IPv6 targets: those). IPv6
+ * is judged on its own: all IPv6 targets lost while IPv4 still answers is
+ * "IPv6 down" - the case where pages load slowly because the browser tries
+ * IPv6 first and falls back after a delay.
+ */
+let v6_down_since = null;
+
+function check_wan_down() {
+	let c4 = fam_count(4), c6 = fam_count(6);
+	let c = c4.all ? c4 : c6;
+	if (c.all) {
+		if (c.failed == c.all && wan_down_since == null) {
+			wan_down_since = now();
+			emit('err', 'wan', 'wan', 'wan_down', {});
+			let tt = trace_target(null, c4.all ? 4 : 6);
+			if (tt) trace_request(tt.host, tt.label, 'wan_down', wan_down_since);
+		}
+		else if (c.failed < c.all && wan_down_since != null) {
+			emit('warn', 'wan', 'wan', 'wan_up', { dur: now() - wan_down_since });
+			wan_down_since = null;
+		}
 	}
-	else if (failed < all && wan_down_since != null) {
-		emit('warn', 'wan', 'wan', 'wan_up', { dur: now() - wan_down_since });
-		wan_down_since = null;
+
+	/* IPv6 alone: needs IPv4 targets that still answer */
+	let v6bad = cfg.wan.ipv6 && c6.all > 0 && c6.failed == c6.all && c4.all > 0 && c4.failed < c4.all;
+	if (v6bad && v6_down_since == null) {
+		v6_down_since = now();
+		emit('err', 'wan', 'ipv6', 'v6_down', { n: c6.all, pd: v6s.prefixes, route: v6s.route != null });
+		let tt = trace_target(null, 6);
+		if (tt) trace_request(tt.host, tt.label, 'v6_down', v6_down_since);
+	}
+	else if (!v6bad && v6_down_since != null && (c6.failed < c6.all || !c6.all)) {
+		emit('warn', 'wan', 'ipv6', 'v6_up', { dur: now() - v6_down_since });
+		v6_down_since = null;
+	}
+	else if (!v6bad && v6_down_since != null && c4.failed == c4.all) {
+		/* now everything is down: that is the Internet outage, not IPv6 */
+		v6_down_since = null;
 	}
 }
 
@@ -1483,7 +1883,8 @@ function sample_pings() {
 	for (let host, v in r.hosts) {
 		if (!valid_host(host)) continue;
 		seen[host] = true;
-		let t = targets[host] ??= { host, state: 'ok', since: t_now, res: null, last_ts: null };
+		let t = targets[host] ??= { host, state: 'ok', since: t_now, res: null, last_ts: null,
+			fam: (index(host, ':') >= 0) ? 6 : 4 };
 		t.active = true;
 		t.label = (host == gw) ? 'gateway' : host;
 
@@ -1501,11 +1902,12 @@ function sample_pings() {
 
 		let lvl = target_level(res);
 		if (lvl != t.state) {
+			let fam = (t.fam == 6) ? 6 : null;
 			if (lvl == 'ok')
-				emit('info', 'wan', t.label, 'target_ok', { host, dur: t_now - t.since, loss: res.loss, rtt: res.rtt });
+				emit('info', 'wan', t.label, 'target_ok', { host, dur: t_now - t.since, loss: res.loss, rtt: res.rtt, fam });
 			else
 				emit(lvl == 'fail' ? 'err' : 'warn', 'wan', t.label, lvl == 'fail' ? 'target_fail' : 'target_degraded',
-					{ host, loss: res.loss, rtt: res.rtt, jitter: res.jitter, why: target_why(res) }, v.ts);
+					{ host, loss: res.loss, rtt: res.rtt, jitter: res.jitter, why: target_why(res), fam }, v.ts);
 			/* a loss started: one snapshot of the path */
 			if (lvl != 'ok' && target_why(res) == 'loss') {
 				let tt = trace_target(t);
@@ -1552,6 +1954,166 @@ function wan_session(st) {
 	wansess.uptime = up ? upt : null;
 	wansess.proto = st.proto;
 	if (ip) wansess.ip = ip;
+}
+
+/* ------------------------------------------------- the tester's own load */
+
+/*
+ * Proof that measuring does not load the router (and is not what breaks
+ * IPTV): CPU and RAM of the collector (with the commands it runs: logread,
+ * bridge, rrdtool... - their time is added to it when they end) and of
+ * tsmon, from /proc/<pid>/stat and status. CPU in % of the whole router
+ * (all cores); USER_HZ is 100 on Linux.
+ */
+let selfu = { prev: null, tsm: null, start: null, cpu: null, max: 0, ncpu: null };
+
+function pid_usage(pid, children) {
+	let st = fs.readfile(`${PROC}/${pid}/stat`);
+	if (!st) return null;
+	let f = split(trim(substr(st, rindex(st, ')') + 2)), ' ');
+	let ticks = int(f[11]) + int(f[12]) + (children ? int(f[13]) + int(f[14]) : 0);
+	let rss = null;
+	for (let l in split(fs.readfile(`${PROC}/${pid}/status`) ?? '', '\n')) {
+		let m = match(l, /^VmRSS:\s+([0-9]+) kB/);
+		if (m) { rss = int(m[1]); break; }
+	}
+	return { ticks, rss, m: mono() };
+}
+
+function cpu_pct(cur, prev) {
+	if (!cur || !prev || cur.m <= prev.m || cur.ticks < prev.ticks) return null;
+	return round((cur.ticks - prev.ticks) / (cur.m - prev.m) / (selfu.ncpu || 1), 2);
+}
+
+function sample_self() {
+	if (selfu.ncpu == null) {
+		let n = 0;
+		for (let l in split(fs.readfile(`${PROC}/stat`) ?? '', '\n'))
+			if (match(l, /^cpu[0-9]+ /)) n++;
+		selfu.ncpu = n || 1;
+	}
+	let me = pid_usage('self', true);
+	let c = cpu_pct(me, selfu.prev);
+	selfu.prev = me;
+	selfu.start ??= me;
+	if (c != null) { selfu.cpu = c; if (c > selfu.max) selfu.max = c; }
+
+	let tsm = null;
+	if (tsq.proc) {
+		let pid = int(tsq.proc.pid());
+		let u = pid_usage(pid, false);
+		if (u) {
+			let p = (selfu.tsm?.pid == pid) ? selfu.tsm : null;
+			let tc = cpu_pct(u, p);
+			selfu.tsm = { ...u, pid, cpu: tc ?? p?.cpu, max: max(p?.max ?? 0, tc ?? 0) };
+			tsm = { cpu: selfu.tsm.cpu, max: selfu.tsm.max, rss: u.rss };
+		}
+	}
+	else selfu.tsm = null;
+
+	let avg = cpu_pct(me, selfu.start);
+	let total = (selfu.cpu ?? 0) + (tsm?.cpu ?? 0);
+	return { cpu: selfu.cpu, avg, max: selfu.max, rss: me?.rss, tsmon: tsm, total: round(total, 2),
+		rss_total: (me?.rss ?? 0) + (tsm?.rss ?? 0), ncpu: selfu.ncpu };
+}
+
+/* ------------------------------------------------------------ IPv6 (WAN) */
+
+/*
+ * odhcp6c reports to netifd, so the DHCPv6 interface (wan6, or wan_6 when
+ * IPv6 is set to "auto" on wan) shows what it got: the delegated prefix
+ * (ipv6-prefix, what the LAN addresses come from) and the default route,
+ * which comes from the ISP's router advertisement. Logged:
+ *   v6_if_down / v6_if_up   - the interface (DHCPv6 session) went down
+ *   v6_pd_lost / v6_pd_back - the delegated prefix vanished (LAN has no IPv6)
+ *   v6_pd_change            - a new prefix: LAN devices renumber, open
+ *                             connections over IPv6 break
+ *   v6_no_route / v6_route_back - no default route for ra_after s: the
+ *                             ISP's router advertisements stopped
+ * Only what was seen once is missed: an ISP without IPv6 is not a fault.
+ */
+
+function v6_prefixes(st) {
+	let out = [];
+	for (let p in (st['ipv6-prefix'] ?? []))
+		if (p?.address && p.mask != null) push(out, `${p.address}/${p.mask}`);
+	return sort(out);
+}
+
+function v6_session(st) {
+	let t = now(), iface = v6s.iface;
+	let up = st.up === true;
+	let pd = up ? v6_prefixes(st) : [];
+	let addr = st['ipv6-address']?.[0];
+	let gw = null;
+	for (let r in (st.route ?? []))
+		if ((r.target == '::' || r.target == '::/0') && r.mask == 0) { gw = r.nexthop ?? '::'; break; }
+
+	if (v6s.up != null) {
+		if (v6s.up && !up) {
+			emit('warn', 'wan', 'ipv6', 'v6_if_down', { iface, prev: v6s.prefixes });
+		}
+		else if (!v6s.up && up) {
+			v6s.reconnects++;
+			emit('info', 'wan', 'ipv6', 'v6_if_up', { iface, dur: t - v6s.since });
+		}
+	}
+	if (up != v6s.up) v6s.since = t;
+
+	if (up && v6s.up != null) {
+		let had = v6s.prefixes ?? [];
+		if (length(pd) && length(had) && join(' ', pd) != join(' ', had))
+			emit('warn', 'wan', 'ipv6', 'v6_pd_change', { iface, from: had, to: pd });
+		else if (!length(pd) && length(had) && v6s.pd_lost == null) {
+			v6s.pd_lost = t;
+			v6s.pd_prev = had;
+			emit('warn', 'wan', 'ipv6', 'v6_pd_lost', { iface, prev: had });
+		}
+		if (length(pd) && v6s.pd_lost != null) {
+			emit('info', 'wan', 'ipv6', 'v6_pd_back', { iface, dur: t - v6s.pd_lost, prefix: pd,
+				same: join(' ', pd) == join(' ', v6s.pd_prev ?? []) });
+			v6s.pd_lost = null;
+		}
+	}
+	if (length(pd)) { v6s.pd_seen = true; v6s.prefixes = pd; }
+	else if (!up) v6s.pd_lost = null;
+	else if (v6s.pd_lost == null) v6s.prefixes = pd;
+
+	/* default route from the router advertisement */
+	if (up && v6s.route_seen && gw == null) {
+		v6s.route_lost ??= t;
+		if (!v6s.nr_logged && t - v6s.route_lost >= cfg.wan.ra_after) {
+			v6s.nr_logged = true;
+			emit('warn', 'wan', 'ipv6', 'v6_no_route', { iface, after: t - v6s.route_lost }, v6s.route_lost);
+		}
+	}
+	if (gw != null) {
+		if (v6s.nr_logged) emit('info', 'wan', 'ipv6', 'v6_route_back', { iface, dur: t - v6s.route_lost, gw });
+		v6s.route_lost = null;
+		v6s.nr_logged = false;
+		v6s.route_seen = true;
+	}
+	if (!up) { v6s.route_lost = null; v6s.nr_logged = false; }
+
+	v6s.up = up;
+	v6s.route = gw;
+	v6s.addr = addr ? `${addr.address}/${addr.mask}` : null;
+	v6s.proto = st.proto;
+	v6s.uptime = up ? st.uptime : null;
+}
+
+function v6_out() {
+	if (!cfg.wan.ipv6) return null;
+	let c6 = fam_count(6), c4 = fam_count(4);
+	let o = { iface: v6s.iface, found: v6s.found, up: v6s.up, since: v6s.since, uptime: v6s.uptime, proto: v6s.proto,
+		prefixes: v6s.prefixes, addr: v6s.addr, route: v6s.route, pd_seen: v6s.pd_seen, route_seen: v6s.route_seen,
+		pd_lost: v6s.pd_lost, route_lost: v6s.nr_logged ? v6s.route_lost : null, down: v6_down_since,
+		targets: c6.all, targets_ok: c6.all - c6.failed, v4_targets: c4.all, reasons: [] };
+	if (v6_down_since != null) push(o.reasons, { c: 'v6_down', since: v6_down_since });
+	if (v6s.found && v6s.up === false && v6s.pd_seen) push(o.reasons, { c: 'v6_if_down', iface: v6s.iface, since: v6s.since });
+	if (v6s.pd_lost != null) push(o.reasons, { c: 'v6_pd_lost', since: v6s.pd_lost });
+	if (v6s.nr_logged) push(o.reasons, { c: 'v6_no_route', since: v6s.route_lost });
+	return o;
 }
 
 /* ------------------------------------------------------------------ IGMP */
@@ -1805,6 +2367,151 @@ function sample_system() {
 	return o;
 }
 
+/* -------------------------------------------------------------------- DNS */
+
+/*
+ * DNS of the router, from dnsmasq itself - no own resolver test:
+ *   - ubus "dnsmasq metrics" every tick: queries forwarded upstream,
+ *     answered from the cache / locally, and dns_unanswered (forwarded,
+ *     but no server answered: timeout). A share of unanswered queries of
+ *     warn_pct % or more within a minute (at least min_queries forwarded)
+ *     is "DNS failing"; it ends when the share stays below half of it.
+ *   - per upstream server: SIGUSR1 makes dnsmasq write its statistics to
+ *     the system log ("server 1.1.1.1#53: queries sent 120, retried 3,
+ *     failed 0, nxdomain replies 4, avg. latency 18ms"); sent every dump s
+ *     (5 lines or so in the log), read by read_log. Retried = no answer in
+ *     time, failed = SERVFAIL / REFUSED.
+ */
+const DNS_WIN = 60;
+let dns = { ok: null, err: null, prev: null, win: [], bad: false, since: null, max_pct: 0, last: null,
+	srv: {}, srv_prev: {}, srv_bad: {}, dump_ts: 0, dump_got: null, pids: [] };
+
+function dnsmasq_metrics() {
+	let f = getenv('ISP_TESTER_DNSMASQ');
+	if (f) {
+		let j;
+		try { j = json(fs.readfile(f) || 'null'); } catch (e) { j = null; }
+		return (type(j) == 'object') ? j : null;
+	}
+	if (NO_UBUS) return null;
+	try {
+		ubus_conn ??= require('ubus').connect();
+		let sum = null;
+		/* one object per dnsmasq instance */
+		for (let o in ubus_objects(/^dnsmasq(\.|$)/)) {
+			let r = ubus_conn.call(o, 'metrics');
+			r = r?.metrics ?? r;
+			if (type(r) != 'object') continue;
+			sum ??= {};
+			for (let k, v in r) if (type(v) == 'int') sum[k] = (sum[k] ?? 0) + v;
+		}
+		return sum;
+	}
+	catch (e) {
+		return null;
+	}
+}
+
+function dnsmasq_pids() {
+	let out = [];
+	for (let pid in (fs.lsdir(PROC) ?? []))
+		if (match(pid, /^[0-9]+$/) && trim(fs.readfile(`${PROC}/${pid}/comm`) ?? '') == 'dnsmasq') push(out, int(pid));
+	return out;
+}
+
+/* the dump in the log, one line per upstream server (read_log) */
+function dns_log_line(l) {
+	let m = match(l.msg, /^server ([0-9A-Fa-f.:]+)#([0-9]+): queries sent ([0-9]+), retried ([0-9]+), failed ([0-9]+)(, nxdomain replies ([0-9]+))?(, avg\. latency ([0-9]+)ms)?/);
+	let old = m ? null : match(l.msg, /^server ([0-9A-Fa-f.:]+)#([0-9]+): queries sent ([0-9]+), retried or failed ([0-9]+)/);
+	if (!m && !old) return false;
+	let k = (m ?? old)[1];
+	dns.srv[k] = m
+		? { sent: +m[3], retried: +m[4], failed: +m[5], nx: m[7] != null ? +m[7] : null, lat: m[9] != null ? +m[9] : null, ts: l.ts }
+		: { sent: +old[3], retried: +old[4], failed: 0, nx: null, lat: null, ts: l.ts };
+	dns.dump_got = now();
+	return true;
+}
+
+/* after a dump: what each server did since the previous one */
+function dns_judge_servers() {
+	if (dns.dump_got == null) return;
+	dns.dump_got = null;
+	for (let k, s in dns.srv) {
+		let p = dns.srv_prev[k];
+		dns.srv_prev[k] = s;
+		if (!p || s.sent < p.sent) continue;          /* first dump, or dnsmasq restarted */
+		let sent = s.sent - p.sent, bad = max(0, s.retried - p.retried) + max(0, s.failed - p.failed);
+		s.d = { sent, bad, retried: max(0, s.retried - p.retried), failed: max(0, s.failed - p.failed), win: s.ts - p.ts };
+		let worse = sent >= 10 && bad * 100 >= sent * cfg.dns.warn_pct;
+		if (worse && !dns.srv_bad[k]) {
+			dns.srv_bad[k] = true;
+			emit('warn', 'wan', k, 'dns_server_bad', { server: k, ...s.d, lat: s.lat });
+		}
+		else if (!worse && dns.srv_bad[k] && sent >= 5) {
+			delete dns.srv_bad[k];
+			emit('info', 'wan', k, 'dns_server_ok', { server: k, ...s.d, lat: s.lat });
+		}
+	}
+}
+
+function sample_dns() {
+	if (!cfg.dns.enabled) return null;
+	let t = now(), m = dnsmasq_metrics();
+	if (m == null) {
+		dns.err = 'no_metrics';
+		dns.prev = null;
+	}
+	else {
+		dns.err = null;
+		let cur = { fwd: m.dns_queries_forwarded ?? 0, local: (m.dns_local_answered ?? 0) + (m.dns_auth_answered ?? 0),
+			stale: m.dns_stale_answered ?? 0, unans: m.dns_unanswered, cache: m.dns_cache_inserted ?? 0 };
+		let p = dns.prev;
+		if (p && cur.fwd >= p.fwd && cur.local >= p.local)
+			push(dns.win, { ts: t, fwd: cur.fwd - p.fwd, local: cur.local - p.local, stale: max(0, cur.stale - p.stale),
+				unans: (cur.unans != null && p.unans != null) ? max(0, cur.unans - p.unans) : null });
+		dns.prev = cur;
+		dns.has_unans = cur.unans != null;
+	}
+	dns.win = filter(dns.win, (x) => t - x.ts < DNS_WIN);
+
+	let s = { fwd: 0, local: 0, stale: 0, unans: 0, n: length(dns.win) };
+	for (let x in dns.win) { s.fwd += x.fwd; s.local += x.local; s.stale += x.stale; s.unans += x.unans ?? 0; }
+	let pct = (s.fwd > 0) ? round(s.unans * 100 / s.fwd, 0) : 0;
+	dns.last = { ...s, pct, q: s.fwd + s.local };
+
+	if (dns.has_unans && s.n) {
+		if (!dns.bad && s.fwd >= cfg.dns.min_queries && pct >= cfg.dns.warn_pct) {
+			dns.bad = true;
+			/* from the first interval with unanswered queries */
+			dns.since = (filter(dns.win, (x) => x.unans > 0)[0] ?? dns.win[0]).ts - cfg.interval;
+
+			dns.max_pct = pct;
+			emit('warn', 'wan', 'dns', 'dns_fail', { pct, fwd: s.fwd, unans: s.unans, win: DNS_WIN }, dns.since);
+		}
+		else if (dns.bad) {
+			if (pct > dns.max_pct) dns.max_pct = pct;
+			if (pct * 2 < cfg.dns.warn_pct || s.fwd == 0) {
+				dns.bad = false;
+				emit('info', 'wan', 'dns', 'dns_ok', { dur: t - dns.since, max_pct: dns.max_pct });
+			}
+		}
+	}
+
+	/* the per-server dump: needs the system log */
+	if (cfg.logread && LOGREAD && cfg.dns.dump > 0 && t - dns.dump_ts >= cfg.dns.dump) {
+		dns.dump_ts = t;
+		dns.pids = dnsmasq_pids();
+		for (let pid in dns.pids)
+			system([ '/bin/sh', '-c', `kill -USR1 ${pid} 2>/dev/null` ]);
+	}
+
+	let srv = [];
+	for (let k, x in dns.srv)
+		push(srv, { server: k, sent: x.sent, retried: x.retried, failed: x.failed, lat: x.lat, ts: x.ts, d: x.d, bad: !!dns.srv_bad[k] });
+	return { err: dns.err, unans: dns.has_unans, bad: dns.bad, since: dns.since, last: dns.last, servers: srv,
+		dump: (cfg.logread && LOGREAD) ? cfg.dns.dump : 0, warn_pct: cfg.dns.warn_pct };
+}
+
 /* ------------------------------------------------------------ user marks */
 
 /* "problem now" reports from the web UI (appended by rpcd) */
@@ -1826,6 +2533,48 @@ function handle_marks() {
 	}
 }
 
+function maint_save() {
+	write_atomic(`${VARDIR}/maint.json`, sprintf('%J', maint));
+}
+
+/* request from the web UI: start, extend or end the maintenance */
+function handle_maint() {
+	let t = now();
+	if (maint.until != null && t >= maint.until) {
+		emit('info', 'system', 'user', 'maint_end', { dur: maint.until - maint.since, note: maint.note });
+		maint = { until: null, since: null, note: '' };
+		maint_save();
+	}
+	let f = `${VARDIR}/maint.pending`;
+	if (!fs.stat(f)) return;
+	let r;
+	try { r = json(fs.readfile(f) || 'null'); } catch (e) { r = null; }
+	fs.unlink(f);
+	if (type(r) != 'object') return;
+	let min = int(+r.minutes || 0), note = substr(replace(`${r.note ?? ''}`, /[[:cntrl:]]+/g, ' '), 0, 120);
+	if (min <= 0) {
+		if (maint.until != null)
+			emit('info', 'system', 'user', 'maint_end', { dur: t - maint.since, note: maint.note, early: true });
+		maint = { until: null, since: null, note: '' };
+	}
+	else if (maint.until != null) {
+		maint.until = t + min * 60;
+		if (note) maint.note = note;
+		emit('info', 'system', 'user', 'maint_start', { until: maint.until, note: maint.note, min, extend: true });
+	}
+	else {
+		maint = { until: t + min * 60, since: t, note };
+		emit('info', 'system', 'user', 'maint_start', { until: maint.until, note, min });
+	}
+	maint_save();
+}
+
+function maint_load() {
+	let j;
+	try { j = json(fs.readfile(`${VARDIR}/maint.json`) || 'null'); } catch (e) { j = null; }
+	if (type(j?.until) == 'int' && type(j?.since) == 'int') maint = { until: j.until, since: j.since, note: `${j.note ?? ''}` };
+}
+
 function handle_notify_test() {
 	let f = `${VARDIR}/notify_test`;
 	if (!fs.stat(f)) return;
@@ -1834,6 +2583,107 @@ function handle_notify_test() {
 	if (!cfg.notify.enabled) return;
 	push(notif.pending, (MSG[cfg.notify.lang] ?? MSG.en).test);
 	notify_flush(true);
+}
+
+/* ------------------------------------------------------- decoder DHCP */
+
+/*
+ * The decoders get their address from the operator: in the IPTV VLAN the
+ * router only bridges, so their lease is nowhere in the router (no dnsmasq
+ * lease, nothing in the system log). tsmon, which listens on that VLAN
+ * anyway, notes the operator's DHCP replies (-D: OFFER, ACK, NAK; ACK with
+ * the address, lease time, server). When the router itself gives the
+ * decoders their address (routed IPTV), dnsmasq-dhcp's DHCPACK / DHCPNAK
+ * lines in the system log are used for the decoders named in the settings.
+ *   dhcp_lease      first lease seen (info)
+ *   (renewal)       counted, not logged
+ *   dhcp_new        an OFFER before the ACK: the decoder asked for an address
+ *                   from scratch (restarted, or lost its lease)
+ *   dhcp_ip_change  another address than before (warn)
+ *   dhcp_nak        the server refused (warn)
+ *   dhcp_late       renewed after the lease had run out (warn)
+ *   dhcp_expired    lease ran out, no renewal seen, decoder still there (warn)
+ */
+let dhl = { pid: null, seq: 0, mac: {} };
+/* decoders seen in the IPTV VLAN (see dec_poll) */
+let dec = { list: {}, err: null, t: 0 };
+
+function dhcp_src(mac) {
+	return cfg.iptv.dec_labels[mac] || mac;
+}
+
+function dhcp_seen(x, via) {
+	let mac = lc(`${x.mac ?? ''}`);
+	if (!match(mac, /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/)) return;
+	let t = (type(x.t) == 'int' && x.t > 0) ? x.t : now();
+	let s = dhl.mac[mac] ??= { mac, ip: null, acks: 0, renew: 0, changes: 0, naks: 0, offer_t: null, last_ack: null,
+		lease: null, server: null, expired: false, via };
+	let src = dhcp_src(mac);
+	s.via = via;
+	if (x.type == 2) { s.offer_t = t; return; }
+	if (x.type == 6) {
+		s.naks++;
+		emit('warn', 'iptv', src, 'dhcp_nak', { mac, ip: s.ip, server: x.server, via });
+		return;
+	}
+	if (x.type != 5 || !match(`${x.ip ?? ''}`, /^[0-9.]+$/) || x.ip == '0.0.0.0') return;
+	let fresh = s.offer_t != null && t - s.offer_t <= 15;
+	s.offer_t = null;
+	if (s.ip == null)
+		emit('info', 'iptv', src, 'dhcp_lease', { mac, ip: x.ip, lease: x.lease, server: x.server, router: x.router, via });
+	else if (x.ip != s.ip) {
+		s.changes++;
+		emit('warn', 'iptv', src, 'dhcp_ip_change', { mac, from: s.ip, to: x.ip, lease: x.lease, server: x.server, via });
+	}
+	else if (s.lease && s.last_ack != null && t - s.last_ack > s.lease + 5) {
+		s.renew++;
+		emit('warn', 'iptv', src, 'dhcp_late', { mac, ip: x.ip, late: t - s.last_ack - s.lease, lease: s.lease, via });
+	}
+	else if (fresh)
+		emit('info', 'iptv', src, 'dhcp_new', { mac, ip: x.ip, lease: x.lease, via });
+	else s.renew++;
+	s.acks++;
+	s.ip = x.ip;
+	s.last_ack = t;
+	s.lease = (x.lease > 0) ? x.lease : null;
+	s.server = x.server ?? s.server;
+	s.expired = false;
+}
+
+/* new entries of tsmon's DHCP ring (numbered per helper process) */
+function dhcp_ingest(r) {
+	if (!cfg.iptv.dhcp || type(r?.dhcp) != 'array') return;
+	if (r.pid != dhl.pid) { dhl.pid = r.pid; dhl.seq = 0; }
+	for (let x in r.dhcp) {
+		if (type(x?.seq) != 'int' || x.seq <= dhl.seq) continue;
+		dhl.seq = x.seq;
+		dhcp_seen(x, 'vlan');
+	}
+}
+
+/* routed IPTV: "DHCPACK(br-iptv) 10.1.2.3 aa:bb:cc:dd:ee:ff name" */
+function dhcp_log_line(l) {
+	let m = match(l.msg, /^DHCP(ACK|NAK)\([^)]*\) ([0-9.]+) ([0-9a-fA-F:]{17})/);
+	if (!m) return false;
+	let mac = lc(m[3]);
+	if (cfg.iptv.dec_labels[mac] == null) return true;
+	dhcp_seen({ t: l.ts, type: m[1] == 'ACK' ? 5 : 6, mac, ip: m[2] }, 'dnsmasq');
+	return true;
+}
+
+function dhcp_tick() {
+	if (!cfg.iptv.dhcp) return null;
+	let t = now(), out = [];
+	for (let mac, s in dhl.mac) {
+		let d = dec.list[mac];
+		if (s.lease && s.last_ack != null && !s.expired && t - s.last_ack > s.lease + 30 && d?.present !== false) {
+			s.expired = true;
+			emit('warn', 'iptv', dhcp_src(mac), 'dhcp_expired', { mac, ip: s.ip, lease: s.lease, last: s.last_ack });
+		}
+		push(out, { mac, label: cfg.iptv.dec_labels[mac] ?? '', ip: s.ip, lease: s.lease, server: s.server, last_ack: s.last_ack,
+			acks: s.acks, renew: s.renew, changes: s.changes, naks: s.naks, expired: s.expired, via: s.via });
+	}
+	return out;
 }
 
 /* ------------------------------------------------------------ system log */
@@ -1848,7 +2698,7 @@ const LOG_RULES = [
 	[ /^pppd$/, /Timeout waiting for PAD[OS]|Unable to complete PPPoE Discovery/, 'ppp_discovery', 'err', 'wan' ],
 	[ /^pppd$/, /LCP terminated by peer|Modem hangup|Connection terminated/, 'ppp_down', 'warn', 'wan' ],
 	[ /^udhcpc$/, /no lease, failing|lease lost/, 'dhcp_fail', 'warn', 'wan' ],
-	[ /^odhcp6c$/, /Failed to send|timed out/, 'dhcp_fail', 'warn', 'wan' ],
+	[ /^odhcp6c$/, /Failed to send|timed out|[Nn]o (prefix|address)|NoPrefixAvail|NoAddrsAvail/, 'dhcp6_fail', 'warn', 'wan' ],
 	[ /^(igmpproxy|mcproxy|omcproxy|improxy)$/, /(error|fail|cannot|unable|invalid)/i, 'proxy_log', 'warn', 'iptv' ],
 	[ /^kernel$/, /NETDEV WATCHDOG|transmit queue [0-9]+ timed out|[Tt][Xx] timeout/, 'nic_timeout', 'err', 'system' ],
 	[ /^kernel$/, /nf_conntrack: table full/, 'conntrack_drop', 'warn', 'system' ],
@@ -1898,8 +2748,11 @@ function read_log() {
 		/* on start only remember where the log ends; old lines are history */
 		if (first) continue;
 
+		if (l.prog == 'dnsmasq' && cfg.dns.enabled && dns_log_line(l)) continue;
+		if (l.prog == 'dnsmasq-dhcp' && cfg.iptv.dhcp && dhcp_log_line(l)) continue;
 		for (let r in LOG_RULES) {
 			if (!match(l.prog, r[0]) || !match(l.msg, r[1])) continue;
+
 			let k = r[2];
 			let st = logst.kinds[k] ??= { n: 0, last: 0 };
 			if (st.n == 0) {
@@ -2031,7 +2884,6 @@ function vlan_sample() {
  *           stopped, then frames again (behind a switch the port stays up)
  * Back within dec_off s: decoder_restart; longer: decoder_off / decoder_on.
  */
-let dec = { list: {}, err: null, t: 0 };
 
 /* MAC -> { port, age } of the decoders in the IPTV VLAN */
 function dec_fdb() {
@@ -2609,12 +3461,13 @@ function sample_iptv(devres) {
  */
 
 function tsm_want() {
-	return iptv_on() && (cfg.iptv.quality || cfg.iptv.names);
+	return iptv_on() && (cfg.iptv.quality || cfg.iptv.names || (cfg.iptv.dhcp && cfg.iptv.vlan));
 }
 
 function tsm_args(tg) {
 	let a = [ '-i', tg.dev, '-d', tg.dir, '-g', `${max(0, cfg.iptv.q_gap)}`, '-o', TSQ_STATE ];
 	if (tg.vid) push(a, '-v', `${int(tg.vid)}`);
+	if (cfg.iptv.dhcp) push(a, '-D');
 	return join(' ', a);
 }
 
@@ -2687,6 +3540,7 @@ function tsm_read() {
 	if (!ours || age > 30) return;
 	tsq.err = null;
 	if (t - tsq.started > 120) tsq.fails = 0;
+	dhcp_ingest(r);
 
 	/* the socket overflowed: this router could not keep up, so lost packets
 	 * in this interval may be its own, not the ISP's */
@@ -2885,6 +3739,8 @@ function peer_event(x, host, off) {
 	let d = (type(x.d) == 'object' && length(sprintf('%J', x.d)) <= PEER_MAXPKT) ? x.d : {};
 	let e = { ts: int(+x.ts || now()) + off, lvl, area, src: substr(`${x.src ?? ''}`, 0, 64), type: typ, d, host };
 	if (off) e.skew = off;
+	/* logged during maintenance on the second router */
+	if (x.m) e.m = 1;
 	return e;
 }
 
@@ -2991,6 +3847,7 @@ function peer_start() {
 /* sender: short status of this router for the receiver's view */
 function peer_hb(overall, iptv_res, ports, wifi_res) {
 	let hb = { lvl: overall, up: started };
+	if (maint_on()) hb.maint = maint.until;
 	if (iptv_res) hb.iptv = { state: iptv_res.state, kbps: iptv_res.kbps, lvl: iptv_res.level,
 		dec: map(slice(iptv_res.decoders ?? [], 0, 4), (x) => ({ label: x.label || x.mac, port: x.port, up: x.present })) };
 	hb.ports = map(slice(ports, 0, 8), (x) => ({ dev: x.dev, label: substr(x.label ?? '', 0, 24), up: x.up, speed: x.speed, lvl: x.level }));
@@ -3091,22 +3948,47 @@ function csv_append(row) {
 
 /* ------------------------------------------------------------------ tick */
 
-let ubus_conn = null;
-
-function wan_status() {
-	let f = getenv('ISP_TESTER_WANSTATUS');      /* testing: JSON file instead of ubus */
+/* netifd status of a logical interface (testing: a JSON file in env) */
+function iface_status(name, env) {
+	let f = getenv(env);
 	if (f) {
 		try { return json(fs.readfile(f) || 'null'); } catch (e) { return null; }
 	}
-	if (getenv('ISP_TESTER_CONFIG')) return null;
+	if (NO_UBUS) return null;
 	try {
 		ubus_conn ??= require('ubus').connect();
-		return ubus_conn?.call(`network.interface.${cfg.wan.interface}`, 'status');
+		return ubus_conn?.call(`network.interface.${name}`, 'status');
 	}
 	catch (e) {
 		ubus_conn = null;
 		return null;
 	}
+}
+
+function wan_status() {
+	return iface_status(cfg.wan.interface, 'ISP_TESTER_WANSTATUS');
+}
+
+function uniq_list(a) {
+	let out = [];
+	for (let x in a) if (x != null && index(out, x) < 0) push(out, x);
+	return out;
+}
+
+/* the DHCPv6 interface: as set, else wan6 or <wan>_6 (IPv6 "auto" on wan) */
+function refresh_wan6() {
+	if (!cfg.wan.enabled || !cfg.wan.ipv6) return;
+	let names = cfg.wan.interface6 ? [ cfg.wan.interface6 ] : uniq_list([ v6s.iface, 'wan6', `${cfg.wan.interface}_6` ]);
+	for (let n in names) {
+		if (!n) continue;
+		let st = iface_status(n, 'ISP_TESTER_WAN6STATUS');
+		if (type(st) != 'object') continue;
+		v6s.iface = n;
+		v6s.found = true;
+		v6_session(st);
+		return;
+	}
+	v6s.found = false;
 }
 
 function refresh_wan_device() {
@@ -3153,11 +4035,11 @@ function hostapd_read() {
 		try { j = json(fs.readfile(f) || 'null'); } catch (e) { j = null; }
 		return (type(j) == 'object') ? j : null;
 	}
-	if (getenv('ISP_TESTER_CONFIG')) return null;
+	if (NO_UBUS) return null;
 	try {
 		ubus_conn ??= require('ubus').connect();
 		let out = {};
-		for (let o in (ubus_conn?.list('hostapd.*') ?? [])) {
+		for (let o in ubus_objects(/^hostapd\./)) {
 			let r = ubus_conn.call(o, 'get_clients');
 			if (type(r) == 'object') out[o] = r;
 		}
@@ -3172,7 +4054,7 @@ function hostapd_read() {
 /* signal from iwinfo for an interface (only when hostapd has none) */
 function iwinfo_signals(ifn) {
 	let out = {};
-	if (getenv('ISP_TESTER_CONFIG') || !ubus_conn) return out;
+	if (NO_UBUS || !ubus_conn) return out;
 	try {
 		let r = ubus_conn.call('iwinfo', 'assoclist', { device: ifn });
 		for (let x in (r?.results ?? []))
@@ -3209,7 +4091,7 @@ function wifi_notify(ev) {
 }
 
 function wifi_subscribe(objs) {
-	if (getenv('ISP_TESTER_CONFIG') || !ubus_conn || !length(cfg.wifi.stations)) return;
+	if (NO_UBUS || !ubus_conn || !length(cfg.wifi.stations)) return;
 	try {
 		wifi.sub ??= ubus_conn.subscriber((ev) => {
 			try { wifi_notify(ev); } catch (e) {}
@@ -3363,21 +4245,32 @@ function handle_clear_request() {
 }
 
 function tick() {
+	watchdog_ping();
+	clk_check();
+	ntp_poll();
+	if (now() - alive_ts >= 60) alive_save(now());
 	arch_check();
 	handle_clear_request();
 	handle_marks();
+	handle_maint();
 	handle_notify_test();
 	handle_chn_forget();
 	refresh_wan_device();
+	refresh_wan6();
 	sample_proxy();
 	if (!iptv_fast()) igmp_poll();
 	sample_system();
 	read_log();
+	dns_judge_servers();
+	let dns_res = sample_dns();
 	sample_pings();
 
 	let m = mono();
 	let dt = (last_mono != null) ? m - last_mono : 0;
 	last_mono = m;
+	/* this tick came far too late: nothing was measured in between */
+	if (dt > cfg.interval * 3 + 10)
+		emit('info', 'system', 'collector', 'data_gap', { from: int(now() - dt), to: now(), len: int(dt), why: 'stall' }, int(now() - dt));
 
 	let devs = monitored_devices();
 	let res = {};
@@ -3423,6 +4316,18 @@ function tick() {
 			level = worst(level, wd.level);
 			for (let r in wd.reasons) push(reasons, r);
 		}
+		/* IPv6 trouble while IPv4 works: yellow (pages are slow, not gone) */
+		if (dns_res?.bad) {
+			level = worst(level, 'warn');
+			push(reasons, { c: 'dns_fail_now', pct: dns_res.last?.pct, since: dns_res.since });
+		}
+		for (let x in (dns_res?.servers ?? []))
+			if (x.bad) { level = worst(level, 'warn'); push(reasons, { c: 'dns_server_bad', server: x.server }); }
+		let v6 = v6_out();
+		if (v6 && length(v6.reasons)) {
+			level = worst(level, 'warn');
+			for (let r in v6.reasons) push(reasons, r);
+		}
 		if (level == 'ok' && recent_level('wan') != 'ok') {
 			level = 'warn';
 			push(reasons, { c: 'recent_events' });
@@ -3432,6 +4337,8 @@ function tick() {
 			trace: cfg.wan.trace ? { tool: MTR ? 'mtr' : (TRACEROUTE ? 'traceroute' : null), running: !!trace.proc, last: trace.last || null,
 				n: trace.n, cooldown: cfg.wan.trace_cooldown } : null,
 			bloat: bloat_out(),
+			v6,
+			dns: dns_res,
 			rx_kbps: wd?.delta ? round(wd.delta.rx_bps / 1000, 0) : null,
 			tx_kbps: wd?.delta ? round(wd.delta.tx_bps / 1000, 0) : null,
 			source: { type: source.type, error: source.error, sock_error: source.sock_error, ping_plugin: source.ping_plugin, gateway: gateway_ip() },
@@ -3442,6 +4349,8 @@ function tick() {
 	let iptv_dev = cfg.iptv.vlan ? vl.upstream : cfg.iptv.device;
 	let iptv_res = sample_iptv(iptv_dev ? res[iptv_dev] : null);
 	tsm_poll();
+	let dhcp_res = dhcp_tick();
+	if (iptv_res && dhcp_res != null) iptv_res.dhcp = dhcp_res;
 	let decs = dec_poll();
 	if (iptv_res && decs != null) {
 		iptv_res.decoders = decs;
@@ -3482,8 +4391,11 @@ function tick() {
 
 	/* ---- history (skip the baseline tick without deltas) */
 	let t = now();
+	let me = sample_self();
 	if (dt > 0) {
 		let hv = { lvl: LEVEL[overall] };
+		if (maint_on()) hv.maint = 1;
+		if (me.cpu != null) hv['self:cpu'] = me.total;
 		if (wan?.rx_kbps != null) {
 			hv['wan:rx'] = wan.rx_kbps;
 			hv['wan:tx'] = wan.tx_kbps;
@@ -3509,6 +4421,7 @@ function tick() {
 			hv[`drop:${d.dev}`] = r.delta ? r.delta.drop : null;
 		}
 		hist_add(history, t, hv, cfg.history);
+		if (clk.on) clk.run_hist++;
 
 		let mv = { ...hv };
 		for (let x in (wan?.targets ?? [])) mv[`rttmax:${x.label}`] = x.rtt;
@@ -3557,6 +4470,10 @@ function tick() {
 		history,
 		csv_rows,
 		data: { dir: RUNDIR, link: (fs.lstat(RUNDIR)?.type == 'link') ? fs.readlink(RUNDIR) : null, archive: arch.info },
+		ntp: ntp_out(),
+		self: me,
+		watchdog: { timeout: WATCHDOG, mode: wd.mode, last: wd.last || null, err: wd.err },
+		maint: maint.until != null ? { until: maint.until, since: maint.since, note: maint.note, active: maint_on() } : null,
 		notify: cfg.notify.enabled ? { service: cfg.notify.service, pending: length(notif.pending),
 			last_ok: notif.last_ok, last_fail: notif.last_fail, last_err: notif.last_err, fetch: FETCH != null } : null
 	};
@@ -3589,12 +4506,17 @@ let load_hist = (name, max) => {
 	}
 	return h;
 };
+maint_load();
 history = load_hist('state.json', cfg.history);
 chn_load();
 history_min = load_hist('history.json', cfg.long_history);
 
 arch_check();
-emit('info', 'system', 'collector', 'monitor_start', { interval: cfg.interval, iptv_interval: iptv_fast() ? cfg.iptv.sample_interval : null });
+clk_init();
+gap_check();
+
+emit('info', 'system', 'collector', 'monitor_start', { interval: cfg.interval, iptv_interval: iptv_fast() ? cfg.iptv.sample_interval : null,
+	uptime: int(uptime_s() ?? 0) });
 
 uloop.init();
 peer_start();
