@@ -388,8 +388,9 @@ function dec_fdb() {
 
 /* did the stream stop (freeze, lost, off) between from and to? */
 function dec_stream_hit(from, to) {
-	for (let i = length(C.events()) - 1; i >= 0; i--) {
-		let e = C.events()[i];
+	let evs = C.events();
+	for (let i = length(evs) - 1; i >= 0; i--) {
+		let e = evs[i];
 		if (e.host) continue;
 		if (e.ts < from - 60) break;
 		if (e.area == 'iptv' && e.ts >= from - 10 && e.ts <= to + 5 &&
@@ -1145,7 +1146,8 @@ function tsm_read() {
 		(g) => ({ grp: g.grp, kbps: g.kbps, idle: g.idle })) };
 
 	let seen = {}, list = [], fresh = [], named = [];
-	tsq.win = filter(tsq.win, (e) => t - e.ts < TSQ_WIN);
+	/* (an entry "from the future" after the clock was set back is dropped too) */
+	tsq.win = filter(tsq.win, (e) => t - e.ts < TSQ_WIN && e.ts <= t);
 	for (let g in r.groups) {
 		if (!valid_group(g?.grp)) continue;
 		let key = `${r.pid}:${g.id}`;
@@ -1211,7 +1213,8 @@ function tsm_read() {
 		p.kbps = g.kbps;
 	}
 	for (let grp, p in tsq.pend) {
-		if (t - (tsq.last_ev[grp] ?? 0) < C.cfg.err_cooldown && LEVEL[p.lvl] <= LEVEL[tsq.last_lvl[grp] ?? 'ok'])
+		let le = tsq.last_ev[grp] ?? 0;
+		if (t - le < C.cfg.err_cooldown && t >= le && LEVEL[p.lvl] <= LEVEL[tsq.last_lvl[grp] ?? 'ok'])
 			continue;
 		/* the event's own level comes from what it reports (the minute's
 		 * level only decides when it is written) */
@@ -1223,7 +1226,7 @@ function tsm_read() {
 	}
 	/* a level reached long ago does not hold back the next event */
 	for (let grp in keys(tsq.last_lvl))
-		if (t - tsq.last_ev[grp] >= C.cfg.err_cooldown) { delete tsq.last_lvl[grp]; delete tsq.last_ev[grp]; }
+		if (t - tsq.last_ev[grp] >= C.cfg.err_cooldown || t < tsq.last_ev[grp]) { delete tsq.last_lvl[grp]; delete tsq.last_ev[grp]; }
 }
 
 /* every tick: keep the helper running where it should, and read it */

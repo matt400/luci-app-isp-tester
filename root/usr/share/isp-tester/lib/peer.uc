@@ -5,7 +5,7 @@
 
 import * as uloop from 'uloop';
 import * as fs from 'fs';
-import { VARDIR, LEVEL, now, write_atomic, round, worst } from './common.uc';
+import { VARDIR, LEVEL, now, write_atomic, worst } from './common.uc';
 
 let C = null;
 
@@ -119,9 +119,14 @@ function peer_flush(hb) {
 	while (pkts < 8) {
 		let o = { ...base, ev: [] };
 		if (hb && pkts == 0) o.hb = hb;
+		/* the size is added up per event (its JSON plus ", ") instead of
+		 * printing the whole packet again after each one */
+		let size = length(sprintf('%J', o));
 		while (i < length(peer.out)) {
-			push(o.ev, peer_fit(peer.out[i]));
-			if (length(o.ev) > 1 && length(sprintf('%J', o)) > PEER_MAXPKT) { pop(o.ev); break; }
+			let x = peer_fit(peer.out[i]), xl = length(sprintf('%J', x)) + 2;
+			if (length(o.ev) && size + xl > PEER_MAXPKT) break;
+			push(o.ev, x);
+			size += xl;
 			i++;
 		}
 		if (!length(o.ev) && !o.hb) break;

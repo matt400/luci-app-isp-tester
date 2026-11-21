@@ -6,7 +6,7 @@
 
 import * as fs from 'fs';
 import * as uloop from 'uloop';
-import { RUNDIR, VARDIR, NO_UBUS, LOGREAD, MTR, TRACEROUTE, TRACEROUTE6, ETHTOOL, now, mono, round, valid_dev, valid_host, write_atomic, kill_pids, worst } from './common.uc';
+import { RUNDIR, VARDIR, NO_UBUS, LOGREAD, MTR, TRACEROUTE, TRACEROUTE6, ETHTOOL, now, mono, round, valid_dev, valid_host, write_atomic, kill_pids } from './common.uc';
 import { trace_parse_mtr, trace_parse_tr, trace_judge, median, sfp_median, uniq_list } from './parsers.uc';
 import { default_gateway, sfp_read, cd_unixsock, cd_rrd, dnsmasq_pids } from './sysinfo.uc';
 
@@ -53,7 +53,7 @@ function trace_file() { return `${VARDIR}/trace.out`; }
 
 function trace_request(host, label, trig, trig_ts) {
 	if (!C.cfg.wan.trace || trace.proc || (!MTR && !TRACEROUTE)) return;
-	if (now() - trace.last < C.cfg.wan.trace_cooldown) return;
+	if (now() - trace.last < C.cfg.wan.trace_cooldown && now() >= trace.last) return;
 	if (!valid_host(host) || substr(host, 0, 1) == '-') return;
 	/* IPv6: mtr handles it; busybox traceroute only as traceroute6 */
 	let v6 = index(host, ':') >= 0;
@@ -666,6 +666,8 @@ function dnsmasq_metrics() {
 		return sum;
 	}
 	catch (e) {
+		/* a broken connection is opened again next time, as in iface_status */
+		C.ubus_drop();
 		return null;
 	}
 }
@@ -723,7 +725,7 @@ function sample_dns() {
 		dns.prev = cur;
 		dns.has_unans = cur.unans != null;
 	}
-	dns.win = filter(dns.win, (x) => t - x.ts < DNS_WIN);
+	dns.win = filter(dns.win, (x) => t - x.ts < DNS_WIN && x.ts <= t);
 
 	let s = { fwd: 0, local: 0, stale: 0, unans: 0, n: length(dns.win) };
 	for (let x in dns.win) { s.fwd += x.fwd; s.local += x.local; s.stale += x.stale; s.unans += x.unans ?? 0; }
@@ -749,7 +751,7 @@ function sample_dns() {
 	}
 
 	/* the per-server dump: needs the system log */
-	if (C.cfg.logread && LOGREAD && C.cfg.dns.dump > 0 && t - dns.dump_ts >= C.cfg.dns.dump) {
+	if (C.cfg.logread && LOGREAD && C.cfg.dns.dump > 0 && (t - dns.dump_ts >= C.cfg.dns.dump || t < dns.dump_ts)) {
 		dns.dump_ts = t;
 		dns.pids = dnsmasq_pids();
 		kill_pids('USR1', dns.pids);

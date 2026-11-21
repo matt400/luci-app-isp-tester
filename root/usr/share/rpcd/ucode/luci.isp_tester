@@ -1,7 +1,7 @@
 // luci-app-isp-tester - rpcd ucode plugin
 'use strict';
 
-import { readfile, writefile, stat, mkdir, open, popen } from 'fs';
+import { readfile, writefile, stat, mkdir, open, popen, rename } from 'fs';
 import { cursor } from 'uci';
 
 const RUNDIR = '/tmp/isp-tester';           /* timeline, history, CSV (may link to USB) */
@@ -126,7 +126,10 @@ return {
 				if (!(min >= 0 && min <= 1440)) return { result: false, error: 'bad_minutes' };
 				let note = substr(`${req.args.note ?? ''}`, 0, 120);
 				mkdir(VARDIR);
-				writefile(`${VARDIR}/maint.pending`, sprintf('%J', { ts: time(), minutes: min, note }));
+				/* written aside and renamed: the collector never reads half of it */
+				let f = `${VARDIR}/maint.pending`;
+				if (writefile(`${f}.tmp`, sprintf('%J', { ts: time(), minutes: min, note })) == null || !rename(`${f}.tmp`, f))
+					return { result: false, error: 'write' };
 				return { result: true, running: service_running() };
 			}
 		},

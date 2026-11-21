@@ -2,7 +2,6 @@
 /*
  * luci-app-isp-tester - collector daemon
  *
- * Periodically samples:
  * Takes its data from what OpenWrt already provides and does not measure
  * anything itself that the system measures already:
  *   - ping loss / latency / jitter: collectd ping plugin (luci-app-statistics),
@@ -38,14 +37,14 @@
 
 import * as fs from 'fs';
 import * as uloop from 'uloop';
-import { RUNDIR, NO_UBUS, VARDIR, SYSNET, PROC, FETCH, LOGREAD, BRIDGE, PROXIES, TSMON, MTR, TRACEROUTE, TRACEROUTE6, LEVEL, now, mono, num, valid_host, valid_dev, valid_group, write_atomic, round, absf, kill_pids, worst, ETHTOOL } from './lib/common.uc';
-import { trace_parse_mtr, trace_parse_tr, trace_judge, median, sfp_median, parse_log_line, uniq_list } from './lib/parsers.uc';
-import { rd, read_dev, default_gateway, sfp_read, cd_unixsock, cd_rrd, pid_usage, bridge_mdb, read_cpus, meminfo, dnsmasq_pids, base, is_uplink, bridge_json } from './lib/sysinfo.uc';
+import { RUNDIR, NO_UBUS, VARDIR, PROC, LOGREAD, MTR, TRACEROUTE, LEVEL, now, mono, num, write_atomic, round, worst } from './lib/common.uc';
+import { parse_log_line } from './lib/parsers.uc';
+import { read_dev, pid_usage, read_cpus, meminfo } from './lib/sysinfo.uc';
 import { load_config } from './lib/config.uc';
-import { tstamp, MSG } from './lib/messages.uc';
-import { iptv_init, iptv, vl, igmp, igq, tsq, chn, dhl, dec, IGQ_RING, TSQ_STATE, TSQ_WIN, TSQ_DROP_SHOW, CHN_MAX, igmp_groups, igmp_poll, igmp_classify, proxy_process, sample_proxy, dhcp_src, dhcp_seen, dhcp_ingest, dhcp_log_line, dhcp_tick, vlan_sample, dec_fdb, dec_stream_hit, dec_poll, tsq_out, iptv_on, iptv_fast, tsq_target, chn_load, chn_save, chn_name, chn_now, chn_current, chn_learn, chn_missing, chn_out, handle_chn_forget, igmpq_ingest, igmpq_expected, igmpq_limit, igmpq_check, igmpq_out, iptv_out, nobody_subscribed, iptv_flag_stall, iptv_update, iptv_counters, iptv_fast_sample, sample_iptv, tsm_stream, igq_want, tsm_want, tsm_args, tsm_stop, tsm_start, tsq_level, tsm_read, tsm_poll } from './lib/iptv.uc';
-import { wan_init, targets, source, wansess, v6s, wanst, trace, bloat, sfp, dns, target_why, target_level, trace_file, trace_request, trace_target, bloat_load_peak, bloat_target, bloat_tick, bloat_out, sfp_device, sample_sfp, sfp_out, fam_count, check_wan_down, collectd_ping, gateway_ip, sample_pings, wan_session, v6_prefixes, v6_session, v6_out, dnsmasq_metrics, dns_log_line, dns_judge_servers, sample_dns, iface_status, wan_status, refresh_wan6, refresh_wan_device } from './lib/wan.uc';
-import { clock_init, clk, ntp, clk_fields, clk_check, ntp_poll, ntp_out, clk_init } from './lib/clock.uc';
+import { tstamp } from './lib/messages.uc';
+import { iptv_init, vl, tsq, dec, igmp_poll, sample_proxy, dhcp_log_line, dhcp_tick, dec_poll, iptv_on, iptv_fast, chn_load, chn_now, handle_chn_forget, iptv_fast_sample, sample_iptv, tsm_poll } from './lib/iptv.uc';
+import { wan_init, targets, source, wansess, wanst, trace, bloat, sfp, target_why, target_level, bloat_load_peak, bloat_tick, bloat_out, sample_sfp, sfp_out, gateway_ip, sample_pings, v6_out, dns_log_line, dns_judge_servers, sample_dns, refresh_wan6, refresh_wan_device } from './lib/wan.uc';
+import { clock_init, clk, clk_fields, clk_check, ntp_poll, ntp_out, clk_init } from './lib/clock.uc';
 import { peer_init, peer_queue, peer_start, peer_hb, peer_tick, peer_out } from './lib/peer.uc';
 import { notify_init, notify_queue, notify_flush, notify_test, notify_status } from './lib/notify.uc';
 
@@ -64,11 +63,19 @@ let ubus_conn = null;     /* one ubus connection, (re)opened on demand */
 function ubus_objects(re) {
 	return filter(ubus_conn?.list() ?? [], (n) => type(n) == 'string' && match(n, re) != null);
 }
+/* a cooldown since `last` is over; also when the clock was set back
+ * before `last`, which would otherwise keep the events away until the
+ * clock catches up (an hour back = an hour without events) */
+function due(t, last, cd) {
+	return t - last >= cd || t < last;
+}
 let csv_header = null;
 let last_mono = null;
 let started = now();
 let sys = { prev: null, cpu_n: 0, cpu: false, mem: false, ct: false, cpu_since: 0, mem_since: 0, ct_since: 0 };
-let logst = { last_ts: null, last_lines: {}, kinds: {} };
+/* tail = the last lines of the previous read (where it ended), null before
+ * the first read; min_ts = with nothing to anchor on, older lines are skipped */
+let logst = { tail: null, min_ts: null, kinds: {} };
 const HOSTNAME = trim(fs.readfile(`${PROC}/sys/kernel/hostname`) ?? '') || 'OpenWrt';
 notify_init({ cfg, hostname: HOSTNAME });
 
@@ -119,11 +126,18 @@ function maint_on() {
 	return maint.until != null && now() < maint.until;
 }
 
-/* store one event (own or received from the second router) */
+/* store one event (own or received from the second router). The list is
+ * kept in time order: events dated back (data_gap, router_reboot, a stall
+ * dated to when the data stopped, a user mark, the second router's) go to
+ * their place, so the readers that stop at the first old event
+ * (recent_level, count_events, dec_stream_hit, rpcd "newest first") see
+ * everything that is newer. */
 function store_event(e) {
 	if (maint_on() && e.type != 'maint_start' && e.type != 'maint_end') e.m = 1;
-	if (e._fix) push(clk.hold, e);
-	push(events, e);
+	let n = length(events), i = n;
+	while (i > 0 && events[i - 1].ts > e.ts) i--;
+	if (i == n) push(events, e);
+	else splice(events, i, 0, e);
 	if (length(events) > cfg.max_events)
 		events = slice(events, length(events) - cfg.max_events);
 	notify_queue(e);
@@ -131,7 +145,7 @@ function store_event(e) {
 
 function emit(lvl, area, src, typ, data, ts) {
 	let e = { ts: ts ?? now(), lvl, area, src, type: typ, d: data ?? {} };
-	if (clk.on) e._fix = clk_fields(typ);
+	if (clk.on) e._fix = clk_fields(typ, e.d);
 	store_event(e);
 
 	save_events();
@@ -186,6 +200,10 @@ function gap_check() {
 	let rebooted = (a?.boot_id && BOOT_ID) ? a.boot_id != BOOT_ID : (up != null && up < 900 && st == null);
 
 	if (rebooted) {
+		/* a run of an earlier boot that ended before its clock was confirmed
+		 * left its events marked (_fix): a step of this boot's clock says
+		 * nothing about them, they must not be moved by it */
+		for (let e in events) delete e._fix;
 		emit('warn', 'system', 'router', 'router_reboot', { boot, uptime: int(up ?? 0), last, ram: a == null }, boot ?? t);
 		if (last != null)
 			emit('info', 'system', 'collector', 'data_gap', { from: last, to: t, len: t - last, why: 'reboot', boot }, last);
@@ -420,7 +438,7 @@ function sample_device(m, dt) {
 			ds.err_acc.err += d.err;
 			ds.err_acc.crc += d.crc;
 		}
-		if (ds.err_acc && t - ds.last_err_ev >= cfg.err_cooldown) {
+		if (ds.err_acc && due(t, ds.last_err_ev, cfg.err_cooldown)) {
 			emit('warn', m.area, m.dev, 'errors', { dev: m.dev, err: ds.err_acc.err, crc: ds.err_acc.crc, from: ds.err_acc.from });
 			ds.err_acc = null;
 			ds.last_err_ev = t;
@@ -430,7 +448,7 @@ function sample_device(m, dt) {
 			ds.drop_acc ??= { n: 0, from: t };
 			ds.drop_acc.n += d.drop;
 		}
-		if (ds.drop_acc && t - ds.last_drop_ev >= cfg.err_cooldown) {
+		if (ds.drop_acc && due(t, ds.last_drop_ev, cfg.err_cooldown)) {
 			emit('warn', m.area, m.dev, 'drops', { dev: m.dev, n: ds.drop_acc.n, from: ds.drop_acc.from });
 			ds.drop_acc = null;
 			ds.last_drop_ev = t;
@@ -629,11 +647,13 @@ function handle_maint() {
 		maint = { until: null, since: null, note: '' };
 		maint_save();
 	}
-	let f = `${VARDIR}/maint.pending`;
-	if (!fs.stat(f)) return;
+	/* taken away first (as the marks): a request written while this one is
+	 * read is not deleted unread */
+	let f = `${VARDIR}/maint.pending`, work = `${VARDIR}/maint.work`;
+	if (!fs.stat(f) || !fs.rename(f, work)) return;
 	let r;
-	try { r = json(fs.readfile(f) || 'null'); } catch (e) { r = null; }
-	fs.unlink(f);
+	try { r = json(fs.readfile(work) || 'null'); } catch (e) { r = null; }
+	fs.unlink(work);
 	if (type(r) != 'object') return;
 	let min = int(+r.minutes || 0), note = substr(replace(`${r.note ?? ''}`, /[[:cntrl:]]+/g, ' '), 0, 120);
 	if (min <= 0) {
@@ -686,6 +706,25 @@ function log_emit(k) {
 	st.last = now();
 }
 
+const LOG_TAIL = 5;
+
+/* the lines after the end of the previous read. Found by the text of its
+ * last lines, not by the time stamps: after the clock is set back (NTP after
+ * a boot with a wrong time) every new line looks "older" than the last one
+ * seen, and the time stamps would hide the log until the clock caught up.
+ * Not found: more than the whole buffer was logged in one tick, or logd
+ * restarted with an empty buffer - either way all of it is new. */
+function log_new_lines(lines) {
+	let tl = logst.tail, k = length(tl);
+	if (!k) return lines;
+	for (let i = length(lines) - 1; i >= k - 1; i--) {
+		let j = 0;
+		while (j < k && lines[i - j] == tl[k - 1 - j]) j++;
+		if (j == k) return slice(lines, i + 1);
+	}
+	return lines;
+}
+
 function read_log() {
 	if (!cfg.logread || !LOGREAD) return;
 	let f = fs.popen(`${LOGREAD} -l 300 2>/dev/null`, 'r');
@@ -693,21 +732,20 @@ function read_log() {
 	let data = f.read('all') ?? '';
 	f.close();
 
-	let first = (logst.last_ts == null);
-	let prev_ts = logst.last_ts ?? 0, prev_lines = logst.last_lines;
-	let max_ts = prev_ts, last_lines = {};
-	if (first) last_lines = {};
-	else for (let k in keys(prev_lines)) last_lines[k] = true;
+	let lines = filter(split(data, '\n'), (l) => l != '');
+	let first = (logst.tail == null);
+	let fresh = first ? [] : log_new_lines(lines), min_ts = logst.min_ts;
+	/* on start only remember where the log ends; old lines are history.
+	 * Nothing readable then (logd not up yet): later only lines from now on */
+	if (length(lines)) { logst.tail = slice(lines, -LOG_TAIL); logst.min_ts = null; }
+	else if (first) { logst.tail = []; logst.min_ts = now(); }
 
-	for (let line in split(data, '\n')) {
+	/* only the new lines are parsed (the regex and timelocal were the
+	 * costly part, done for all 300 lines every tick) */
+	for (let line in fresh) {
 		let l = parse_log_line(line);
 		if (!l) continue;
-		/* skip lines already seen: older seconds, or the same text in the last second */
-		if (!first && (l.ts < prev_ts || (l.ts == prev_ts && prev_lines[line]))) continue;
-		if (l.ts > max_ts) { max_ts = l.ts; last_lines = {}; }
-		if (l.ts == max_ts) last_lines[line] = true;
-		/* on start only remember where the log ends; old lines are history */
-		if (first) continue;
+		if (min_ts != null && l.ts < min_ts - 1) continue;
 
 		if (l.prog == 'dnsmasq' && cfg.dns.enabled && dns_log_line(l)) continue;
 		if (l.prog == 'dnsmasq-dhcp' && cfg.iptv.dhcp && dhcp_log_line(l)) continue;
@@ -725,18 +763,13 @@ function read_log() {
 			}
 			st.n++;
 			/* repeated messages: at most one event per cooldown, with a count */
-			if (now() - st.last >= cfg.err_cooldown) log_emit(k);
+			if (due(now(), st.last, cfg.err_cooldown)) log_emit(k);
 			break;
 		}
 	}
-	/* nothing readable at start (logd not up yet): only lines from now on are
-	 * new, otherwise the next read would replay the whole buffer */
-	if (first && max_ts == 0) max_ts = now();
-	logst.last_ts = max_ts;
-	logst.last_lines = last_lines;
 
 	for (let k, st in logst.kinds)
-		if (st.n > 0 && now() - st.last >= cfg.err_cooldown) log_emit(k);
+		if (st.n > 0 && due(now(), st.last, cfg.err_cooldown)) log_emit(k);
 }
 
 /* ------------------------------------------------------------------- CSV */
@@ -891,8 +924,8 @@ function tick() {
 		if (!source.type)
 			push(reasons, { c: 'no_ping_source', error: source.error, plugin: source.ping_plugin });
 
-		let wd = cfg.wan.device ? res[cfg.wan.device] : null;
-		if (wd?.delta) bloat_tick(now(), wd.delta.rx_bps, wd.delta.tx_bps);
+		let wdev = cfg.wan.device ? res[cfg.wan.device] : null;
+		if (wdev?.delta) bloat_tick(now(), wdev.delta.rx_bps, wdev.delta.tx_bps);
 		sample_sfp();
 		let sfp_res = sfp_out();
 		if (sfp_res?.los) { level = worst(level, 'warn'); push(reasons, { c: 'sfp_los', since: sfp.los_since }); }
@@ -902,9 +935,9 @@ function tick() {
 			level = worst(level, 'warn');
 			push(reasons, { c: 'bufferbloat_now', add: bloat.max_add, load: bloat.last?.load, dir: bloat.last?.dir });
 		}
-		if (wd && wd.level != 'ok') {
-			level = worst(level, wd.level);
-			for (let r in wd.reasons) push(reasons, r);
+		if (wdev && wdev.level != 'ok') {
+			level = worst(level, wdev.level);
+			for (let r in wdev.reasons) push(reasons, r);
 		}
 		/* IPv6 trouble while IPv4 works: yellow (pages are slow, not gone) */
 		if (dns_res?.bad) {
@@ -930,8 +963,8 @@ function tick() {
 			sfp: sfp_res,
 			v6,
 			dns: dns_res,
-			rx_kbps: wd?.delta ? round(wd.delta.rx_bps / 1000, 0) : null,
-			tx_kbps: wd?.delta ? round(wd.delta.tx_bps / 1000, 0) : null,
+			rx_kbps: wdev?.delta ? round(wdev.delta.rx_bps / 1000, 0) : null,
+			tx_kbps: wdev?.delta ? round(wdev.delta.tx_bps / 1000, 0) : null,
 			source: { type: source.type, error: source.error, sock_error: source.sock_error, ping_plugin: source.ping_plugin, gateway: gateway_ip() },
 			session: (wansess.up != null) ? { up: wansess.up, uptime: wansess.uptime, ip: wansess.ip, proto: wansess.proto, reconnects: wansess.reconnects, since: wansess.since } : null };
 	}
