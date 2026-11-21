@@ -40,6 +40,7 @@ Target: **OpenWrt 24.10 and 25.12** (ucode + rpcd + LuCI JS). No compiled code, 
 | **Ports** | `/sys/class/net/<dev>` counters and link state | link down/up, link flapping between samples, speed change (e.g. 1 Gbit → 100 Mbit), RX/TX/CRC errors, drops |
 | **Router** | `/proc`: CPU per core (incl. softirq), RAM, connection tracking table. Only read to explain problems; for graphs use *Status → Realtime Graphs* or luci-app-statistics | router overloaded, low RAM, connection table full |
 | **You** | **⚑ Problem now** button | your report with the time of the click and an optional note |
+| **Decoders** (bridged IPTV VLAN) | bridge MAC table (`bridge -s fdb`: which MAC behind which port, seconds since its last frame) + link of that port | *decoder restarted* (away N s; port link down / vanished from the MAC table / silent while the stream stopped), *switched off*, *back* – freezes during a restart are not counted against the ISP |
 | **Path snapshot** | one `mtr -r` (when installed) or busybox `traceroute` when a loss starts or the WAN is down, at most every 10 min | *loss starts at hop N (IP) and carries on to the destination* – the hops fold out on the timeline and are in the report |
 | **Bufferbloat** | collectd's ping matched with the WAN traffic of the same interval (device counters); line speed = highest 30 s rate seen or set | *bufferbloat: ping +N ms with the link X % full* / *over*; WAN traffic chart with the periods marked; card: ping idle vs. full link |
 | **Wi-Fi** | hostapd over ubus (`get_clients` every interval + its disassoc/deauth/assoc notifications), signal from hostapd or iwinfo | a watched device (phone, TV) *dropped and reconnected* after N s (fault) or *left* (info), *moved to another band*, *weak signal* (two checks below the limit, default −75 dBm) |
@@ -125,6 +126,22 @@ With the data on USB, **Settings → General → Archive on USB** (default 30 da
 | `h-YYYYMMDD.jsonl` | the chart data as 10-minute summaries (average / max / min as on the 24 h charts) |
 
 The files are only appended to – one line per event and one per 10 minutes, never rewritten – which is easy on the stick; days older than the limit are deleted once an hour. The overview then offers **7 d** and **30 d**, and ◀ ▶ go back beyond 24 h: the page reads the day files it needs. The charts use the 10-minute summaries there, the timeline and the analysis use the archived events, and **Report for the ISP** covers the selected period – choose *7 d* for a weekly report. *Download timeline (CSV)* exports the selected period. In RAM the archive stays off (30 days would not fit); *Clear logs* deletes it too.
+
+## Decoder restarts
+
+A decoder that restarts makes the picture stop just like a stream the ISP stopped sending. To tell them apart, the collector watches the decoders themselves. In a bridged IPTV VLAN the decoders get their address from the ISP, so the router has no neighbour (ARP) entry for them; it reads the bridge's MAC table instead: every MAC learned in the IPTV VLAN on a port other than the one towards the ISP is a decoder (found automatically; names can be set in *Settings → Decoders*).
+
+| Signal | When it works |
+|---|---|
+| **Port link down** | decoder plugged directly into this router's port |
+| **Vanished from the MAC table** and came back | the entry is flushed on a link change and ages out after 5 min of silence |
+| **Silent** for *Silent for* (40 s) **while the stream stopped**, then frames again | decoder behind a switch: its port on this router stays up |
+
+Back within *Switched off after* (10 min): **decoder restarted**, with how long it was away and which signal saw it. Longer: *switched off or unplugged*, then *back*. The IPTV card lists the decoders with their port and state.
+
+The analysis and the report put IPTV freezes during a decoder restart aside (*N freezes happened while decoder X restarted*), so they do not count against the ISP; repeated restarts point at the decoder (power supply, firmware, heat).
+
+With a second router: a decoder plugged into the second router is best watched there (its port link is the clearest signal) – its restarts reach the main router's timeline and analysis.
 
 ## Path snapshot at a loss
 

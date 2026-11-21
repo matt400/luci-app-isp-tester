@@ -481,6 +481,41 @@ return view.extend({
 		o.datatype = 'range(0,100)';
 		o.placeholder = '90';
 
+		/* ---- decoders */
+		s = m.section(form.NamedSection, 'iptv', 'iptv', _('Decoders'),
+			_('Tells “the decoder restarted” from “the stream vanished”. In a bridged IPTV VLAN the decoders get their address from the ISP, so the router has no neighbour entry for them; it uses the bridge\'s MAC table instead: every device in the IPTV VLAN on a port other than the one to the ISP is a decoder. A restart is seen when the port\'s link goes down (decoder directly on the port), when it vanishes from the MAC table and comes back, or when it is silent while the stream stops. Behind a switch the port stays up – install the package on the router the decoder is plugged into and let it send its events here. Needs the IPTV VLAN set above and the <code>ip-bridge</code> package.'));
+
+		o = s.option(form.Flag, 'decoders', _('Detect decoder restarts'));
+		o.default = '1';
+		o.rmempty = false;
+
+		o = s.option(form.Value, 'dec_silence', _('Silent for (s)'),
+			_('No frame from the decoder for this long while the stream stopped counts as a restart.'));
+		o.datatype = 'range(15,600)';
+		o.placeholder = '40';
+		o.depends('decoders', '1');
+
+		o = s.option(form.Value, 'dec_off', _('Switched off after (s)'),
+			_('Away longer than this: switched off or unplugged, not a restart.'));
+		o.datatype = 'range(60,86400)';
+		o.placeholder = '600';
+		o.depends('decoders', '1');
+
+		s = m.section(form.GridSection, 'decoder', _('Decoder names'),
+			_('Optional: a name per decoder MAC address, shown instead of the address. The decoders found now are offered in the list.'));
+		s.addremove = true;
+		s.anonymous = true;
+
+		o = s.option(form.Value, 'mac', _('MAC address'));
+		o.datatype = 'macaddr';
+		o.rmempty = false;
+		((state.iptv && state.iptv.decoders) || []).forEach(function(d) {
+			o.value(d.mac, '%s (%s)'.format(d.mac, d.port));
+		});
+
+		o = s.option(form.Value, 'label', _('Name'));
+		o.placeholder = _('e.g. Living room');
+
 		/* ---- Wi-Fi */
 		s = m.section(form.NamedSection, 'wifi', 'wifi', _('Wi-Fi'),
 			_('Watches the Wi-Fi clients of this router\'s access points (hostapd over ubus): when a watched device (phone, TV) drops and comes back, and when its signal gets weak. Then a “Problem now” report with nothing measured on the line has proof: it was Wi-Fi – or, when its Wi-Fi was fine, it was not. On a second router behind this one, set it up there and let it send its events here.'));

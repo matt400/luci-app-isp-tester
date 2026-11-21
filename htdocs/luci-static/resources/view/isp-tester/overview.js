@@ -217,6 +217,7 @@ function reasonText(r) {
 	case 'ts_helper_stalled': return _('Picture quality: the measuring helper (isp-tester-tsmon) stopped, it is restarted automatically – see the system log.');
 	case 'ts_no_target':    return _('Picture quality: no IPTV interface to listen on (check the VLAN or device in Settings).');
 	case 'ts_drops':        return _('The router was too busy to count every IPTV packet in the last minutes, so some errors may be its own (see the IPTV card).');
+	case 'dec_fdb_failed':  return _('Decoders: cannot read the bridge MAC table (bridge fdb)');
 	case 'bufferbloat_now': return _('Ping is up by %d ms while the link is %d%% full (%s) – bufferbloat, not an outage').format(r.add, r.load, r.dir === 'up' ? _('upload') : _('download'));
 	case 'wifi_weak_now':   return _('%s: weak Wi-Fi signal (%d dBm)').format(r.name, r.signal);
 	case 'wifi_no_ubus':    return _('Wi-Fi: cannot reach ubus');
@@ -280,6 +281,11 @@ function eventText(e) {
 	case 'user_mark':       return _('You reported: %s').format(markText(d.what)) + (d.note ? ' – „' + d.note + '”' : '');
 	case 'log':             return logText(d.kind) + ' – ' + d.prog + ': „' + d.msg + '”' + (d.n > 1 ? ' (%d×)'.format(d.n) : '');
 	case 'trace':           return traceText(e);
+	case 'decoder_restart': return _('Decoder %s RESTARTED – away for %s on %s (%s)').format(e.src, fmtDur(d.dur), d.port,
+		{ link: _('port link went down'), fdb: _('vanished from the MAC table'), quiet: _('silent while the stream stopped') }[d.via] || d.via) +
+		(d.stream ? ' – ' + _('the stream stopped because of it, not at the ISP') : '');
+	case 'decoder_off':     return _('Decoder %s switched off or unplugged (%s)').format(e.src, d.port);
+	case 'decoder_on':      return _('Decoder %s is back after %s').format(e.src, fmtDur(d.dur));
 	case 'bufferbloat':     return _('BUFFERBLOAT: ping %s → %s (+%d ms) with the link %d%% full (%s %s of %s Mbit/s)').format(
 		fmtMs(d.base), fmtMs(d.rtt), d.add, d.load, d.dir === 'up' ? _('upload') : _('download'),
 		d.dir === 'up' ? d.tx_mbit : d.rx_mbit, d.dir === 'up' ? d.cap_tx_mbit : d.cap_rx_mbit);
@@ -825,7 +831,8 @@ return view.extend({
 				]),
 				E('div', { 'class': 'ispt-muted', 'style': 'font-size:.85em;margin-top:.3em' },
 					diagnose.confidenceText(r.confidence) + ' · ' + _('%d problems, %d IPTV freezes').format(r.problems, r.stalls) +
-					(r.zaps ? ' · ' + _('%d channel changes ignored').format(r.zaps) : ''))
+					(r.zaps ? ' · ' + _('%d channel changes ignored').format(r.zaps) : '') +
+					(r.decoder_stalls ? ' · ' + _('%d during decoder restarts').format(r.decoder_stalls) : ''))
 			]) : E('div', { 'class': 'ispt-muted', 'style': 'font-size:.9em' }, _('Nothing was logged that points at a fault.'))
 		]);
 
@@ -1039,6 +1046,16 @@ return view.extend({
 		if (wv)
 			kv.push(E('span', { 'class': 'k' }, _('Watching')), E('span', {}, wv));
 
+		/* decoders found in the bridge MAC table of the IPTV VLAN */
+		(t.decoders || []).forEach(function(x) {
+			kv.push(E('span', { 'class': 'k' }, _('Decoder %s').format(x.label || x.mac)), E('span', { 'class': x.present ? '' : 'ispt-warn-text' },
+				x.present
+					? [ dot(x.quiet ? 'warn' : 'ok'), _('on %s, for %s').format(x.port, fmtDur(Date.now() / 1000 - x.since)) +
+						(x.quiet ? ' · ' + _('silent for %s').format(fmtDur(Date.now() / 1000 - x.active)) : '') ]
+					: [ dot(x.off ? 'unknown' : 'fail'), (x.off ? _('off / unplugged since %s') : _('not visible for %s')).format(
+						x.off ? hhmm(x.since) : fmtDur(Date.now() / 1000 - x.since)) + ' (' + x.port + ')' ]));
+		});
+
 		if (t.quality) {
 			var q = t.quality, qe = {
 				no_helper: _('needs the isp-tester-tsmon package'),
@@ -1180,6 +1197,10 @@ return view.extend({
 				kv.push(E('span', { 'class': 'k' }, _('IPTV')), E('span', {}, [ dot(hb.iptv.lvl),
 					({ playing: _('Stream running'), stalled: _('STREAM STOPPED'), idle: _('No stream (decoder off?)') }[hb.iptv.state] || hb.iptv.state) +
 					(hb.iptv.kbps ? ' · ' + fmtRate(hb.iptv.kbps) : '') ]));
+			((hb.iptv && hb.iptv.dec) || []).forEach(function(x) {
+				kv.push(E('span', { 'class': 'k' }, _('Decoder %s').format(x.label)), E('span', {}, [ dot(x.up ? 'ok' : 'fail'),
+					x.up ? _('on %s').format(x.port) : _('not visible (%s)').format(x.port) ]));
+			});
 			(hb.ports || []).forEach(function(x) {
 				kv.push(E('span', { 'class': 'k' }, x.label ? '%s (%s)'.format(x.label, x.dev) : x.dev),
 					E('span', {}, [ dot(x.lvl), x.up ? fmtSpeed(x.speed) : _('down') ]));
@@ -1362,11 +1383,18 @@ return view.extend({
 		var evs = this.events().filter(function(e) { return e.ts >= w.from && e.ts <= w.to; }).sort(function(a, b) { return a.ts - b.ts; });
 		var own = evs.filter(function(e) { return !e.host; });
 
+		/* a freeze while a decoder restarted (on either router) is not the ISP's */
+		var decR = evs.filter(function(e) { return e.type === 'decoder_restart'; });
+		var byDecoder = function(s) {
+			return decR.some(function(r) { return s.ts >= r.ts - 15 && s.ts <= r.ts + ((r.d && r.d.dur) || 0) + 10; });
+		};
+
 		/* outage / freeze durations from start/end pairs (this router's measurements) */
 		var sum = function(startType, endTypes) {
 			var n = 0, total = 0, longest = 0;
 			own.forEach(function(e, i) {
 				if (e.type !== startType) return;
+				if (startType === 'stream_stall' && byDecoder(e)) return;
 				for (var j = i + 1; j < own.length; j++)
 					if (endTypes.indexOf(own[j].type) >= 0) {
 						/* a channel change is not a freeze */
@@ -1414,6 +1442,7 @@ return view.extend({
 			row(_('WAN port link drops'), _('%d×').format(count(function(e) { return e.type === 'link_down' && e.area === 'wan'; }))) +
 			row(_('Related messages in the system log'), _('%d×').format(count(function(e) { return e.type === 'log'; }))) +
 			row(_('IPTV freezes'), _('%d, total %s, longest %s').format(tv.n, fmtDur(tv.total), fmtDur(tv.longest)) + (r.zaps ? ' · ' + _('%d channel changes not counted').format(r.zaps) : '')) +
+			row(_('Decoder restarts'), _('%d×').format(evs.filter(function(e) { return e.type === 'decoder_restart'; }).length)) +
 			row(_('Wi-Fi drops of watched devices'), _('%d×').format(evs.filter(function(e) { return e.type === 'wifi_reconnect' && e.lvl !== 'info'; }).length)) +
 			row(_('Router overloaded'), _('%d×').format(count(function(e) { return e.type === 'cpu_high' || e.type === 'mem_low' || e.type === 'conntrack_full'; }))) +
 			row(_('Problems reported by the user'), _('%d×').format(count(function(e) { return e.type === 'user_mark'; }))) +

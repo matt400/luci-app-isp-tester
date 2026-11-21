@@ -1885,3 +1885,90 @@ msgstr ""
 
 msgid "90 days"
 msgstr ""
+
+msgid "%d of %d IPTV freezes happened while a decoder (%s) restarted – the decoder, not a lost stream; not counted against the ISP."
+msgstr ""
+
+msgid "Decoder %s restarted %d× – power supply, firmware update or overheating (or someone switched it off and on)."
+msgstr ""
+
+msgid "Decoders: cannot read the bridge MAC table (bridge fdb)"
+msgstr ""
+
+msgid "Decoder %s RESTARTED – away for %s on %s (%s)"
+msgstr ""
+
+msgid "port link went down"
+msgstr ""
+
+msgid "vanished from the MAC table"
+msgstr ""
+
+msgid "silent while the stream stopped"
+msgstr ""
+
+msgid "the stream stopped because of it, not at the ISP"
+msgstr ""
+
+msgid "Decoder %s switched off or unplugged (%s)"
+msgstr ""
+
+msgid "Decoder %s is back after %s"
+msgstr ""
+
+msgid "%d during decoder restarts"
+msgstr ""
+
+msgid "Decoder %s"
+msgstr ""
+
+msgid "on %s, for %s"
+msgstr ""
+
+msgid "silent for %s"
+msgstr ""
+
+msgid "off / unplugged since %s"
+msgstr ""
+
+msgid "not visible for %s"
+msgstr ""
+
+msgid "on %s"
+msgstr ""
+
+msgid "not visible (%s)"
+msgstr ""
+
+msgid "Decoder restarts"
+msgstr ""
+
+msgid "Decoders"
+msgstr ""
+
+msgid "Tells “the decoder restarted” from “the stream vanished”. In a bridged IPTV VLAN the decoders get their address from the ISP, so the router has no neighbour entry for them; it uses the bridge's MAC table instead: every device in the IPTV VLAN on a port other than the one to the ISP is a decoder. A restart is seen when the port's link goes down (decoder directly on the port), when it vanishes from the MAC table and comes back, or when it is silent while the stream stops. Behind a switch the port stays up – install the package on the router the decoder is plugged into and let it send its events here. Needs the IPTV VLAN set above and the <code>ip-bridge</code> package."
+msgstr ""
+
+msgid "Detect decoder restarts"
+msgstr ""
+
+msgid "Silent for (s)"
+msgstr ""
+
+msgid "No frame from the decoder for this long while the stream stopped counts as a restart."
+msgstr ""
+
+msgid "Switched off after (s)"
+msgstr ""
+
+msgid "Away longer than this: switched off or unplugged, not a restart."
+msgstr ""
+
+msgid "Decoder names"
+msgstr ""
+
+msgid "Optional: a name per decoder MAC address, shown instead of the address. The decoders found now are offered in the list."
+msgstr ""
+
+msgid "e.g. Living room"
+msgstr ""

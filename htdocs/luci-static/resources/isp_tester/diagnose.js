@@ -174,10 +174,16 @@ return baseclass.extend({
 			var r = nextOf(sorted, s.ts, function(e) { return e.type === 'stream_resume' || e.type === 'stream_lost' || e.type === 'monitor_start'; });
 			return (r && r.type === 'stream_resume' && r.d) ? r.d.igmp : null;
 		};
-		var zaps = [], stalls = [], igmpLeft = [], igmpJoined = [];
+		/* decoder restarts (both routers): a freeze while a decoder was away is the decoder, not the stream */
+		var decRestarts = byAll(function(e) { return e.type === 'decoder_restart'; });
+		var duringRestart = function(s) {
+			return decRestarts.some(function(r) { return s.ts >= r.ts - 15 && s.ts <= r.ts + ((r.d && r.d.dur) || 0) + 10; });
+		};
+		var zaps = [], stalls = [], igmpLeft = [], igmpJoined = [], decStalls = [];
 		allStalls.forEach(function(s) {
 			var ig = igmpOf(s);
 			if (ig === 'zap') { zaps.push(s); return; }
+			if (duringRestart(s)) { decStalls.push(s); return; }
 			stalls.push(s);
 			if (ig === 'left') igmpLeft.push(s);
 			else if (ig === 'joined') igmpJoined.push(s);
@@ -253,6 +259,10 @@ return baseclass.extend({
 		lonely = lonely.filter(function(s) { return igmpLeft.indexOf(s) < 0; });
 
 		add('info', 0, 'stall_zap', zaps, { total: allStalls.length });
+		add('info', 0, 'stall_decoder', decStalls, { total: allStalls.length,
+			devs: uniq(decRestarts.filter(function(r) { return decStalls.some(function(s) { return s.ts >= r.ts - 15 && s.ts <= r.ts + ((r.d && r.d.dur) || 0) + 10; }); }), 'src').join(', ') });
+		/* a decoder that restarts by itself: power supply, firmware, overheating */
+		add('home', 1, 'decoder_restarts', decRestarts, { devs: uniq(decRestarts, 'src').join(', ') });
 		var proxyStop = proxyBad.filter(function(e) { return e.type !== 'log'; });
 		add('home', 3, 'proxy_down', proxyStop, { name: proxyStop[0] && proxyStop[0].d && proxyStop[0].d.name });
 		add('home', 1, 'log_proxy', proxyBad.filter(function(e) { return e.type === 'log'; }));
@@ -357,6 +367,7 @@ return baseclass.extend({
 			home: home,
 			stalls: stalls.length,
 			zaps: zaps.length,
+			decoder_stalls: decStalls.length,
 			marks: marks.length,
 			problems: evAll.filter(function(e) { return e.lvl !== 'info' && e.type !== 'trace'; }).length,
 			findings: findings
@@ -426,6 +437,8 @@ return baseclass.extend({
 		case 'bufferbloat':     return _('Bufferbloat %d×: the ping went up by as much as %d ms only while the link was full (%s) – your own traffic fills a buffer in the modem or at the ISP. Not an outage and not the ISP\'s fault: SQM (luci-app-sqm, cake) set a bit below the line speed fixes it.').format(f.n, a.add,
 			a.dir === 'up' ? _('upload') : a.dir === 'down' ? _('download') : _('download and upload')) +
 			(a.lags ? ' ' + _('%d high-ping warnings at those times are not counted against the ISP.').format(a.lags) : '');
+		case 'stall_decoder':   return _('%d of %d IPTV freezes happened while a decoder (%s) restarted – the decoder, not a lost stream; not counted against the ISP.').format(f.n, a.total, a.devs);
+		case 'decoder_restarts': return _('Decoder %s restarted %d× – power supply, firmware update or overheating (or someone switched it off and on).').format(a.devs, f.n);
 		case 'trace_hop':       return _('Path snapshots (%d): the loss started at hop %d (%s) and carried on to the destination (%d× there) – inside the ISP\'s network or beyond; the hops before it were fine. Show this to the ISP.').format(f.n, a.hop, a.ip, a.same);
 		case 'trace_first_hop': return _('Path snapshots (%d): the loss started already at the first hop (%s) – the access line or the ISP\'s first router.').format(f.n, a.ip);
 		case 'marks_wifi':      return _('%d of %d of your reports came with a Wi-Fi drop or weak signal of %s, and nothing on the line – the cause is Wi-Fi.').format(f.n, a.total, a.devs);

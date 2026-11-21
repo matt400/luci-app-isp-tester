@@ -161,7 +161,9 @@ function default_config() {
 			sample_interval: 1, stall_after: 2,
 			igmp: true, igmp_device: '',
 			quality: false, q_warn: 1, q_fail: 30, q_gap: 500,
-			names: true, channels: {}
+			names: true, channels: {},
+			/* decoder restarts: bridge MAC table (bridged VLAN) + port link; decoders = { mac: label } */
+			decoders: true, dec_silence: 40, dec_off: 600, dec_labels: {}
 		},
 		system: {
 			enabled: true, cpu_warn: 90, mem_warn: 10, conntrack_warn: 90
@@ -237,6 +239,12 @@ function load_config() {
 		c.wan.ping_plugin = bool(pg.enable, false);
 		c.wan.ping_hosts = aslist(pg.Hosts);
 
+		c.iptv.decoders    = bool(t.decoders, true);
+		c.iptv.dec_silence = num(t.dec_silence, c.iptv.dec_silence);
+		c.iptv.dec_off     = num(t.dec_off, c.iptv.dec_off);
+		cur.foreach('isp_tester', 'decoder', (s) => {
+			if (s.mac) c.iptv.dec_labels[lc(trim(s.mac))] = s.label ?? '';
+		});
 		c.iptv.igmp        = bool(t.igmp, true);
 		c.iptv.igmp_device = t.igmp_device ?? '';
 
@@ -356,6 +364,14 @@ function load_config() {
 	if (c.wifi.reconnect_s < 5) c.wifi.reconnect_s = 5;
 
 	if (c.wan.trace_cooldown < 60) c.wan.trace_cooldown = 60;
+	let dl = {};
+	for (let mac, l in (type(c.iptv.dec_labels) == 'object' ? c.iptv.dec_labels : {})) {
+		mac = lc(mac);
+		if (match(mac, /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/)) dl[mac] = substr(trim(replace(`${l ?? ''}`, /[[:cntrl:]]+/g, ' ')), 0, 32);
+	}
+	c.iptv.dec_labels = dl;
+	if (c.iptv.dec_silence < 15) c.iptv.dec_silence = 15;
+	if (c.iptv.dec_off < c.iptv.dec_silence + 30) c.iptv.dec_off = c.iptv.dec_silence + 30;
 	c.archive_days = int(c.archive_days);
 	if (c.archive_days < 0) c.archive_days = 0;
 	if (c.archive_days > 366) c.archive_days = 366;
@@ -444,6 +460,8 @@ const MSG = {
 		user_mark: 'Problem reported by user: %s', test: 'Test message - notifications work.',
 		peer_lost: 'Router %s does not report any more', peer_back: 'Router %s reports again after %s',
 		trace: 'Traceroute to %s: %s',
+		decoder_restart: 'Decoder %s restarted (gone %s, %s)', decoder_off: 'Decoder %s switched off or unplugged (%s)',
+		decoder_on: 'Decoder %s is back after %s',
 		bufferbloat: 'Bufferbloat: ping +%s ms with the link %d%% full (%s)', bufferbloat_ok: 'Bufferbloat over after %s (up to +%s ms)',
 		wifi_reconnect: 'Wi-Fi: %s dropped and reconnected after %s (%s)', wifi_leave: 'Wi-Fi: %s disconnected (%s)',
 		wifi_join: 'Wi-Fi: %s connected again after %s', wifi_roam: 'Wi-Fi: %s moved %s -> %s', wifi_weak: 'Wi-Fi: %s weak signal %d dBm', wifi_weak_ok: 'Wi-Fi: %s signal OK again after %s'
@@ -465,6 +483,8 @@ const MSG = {
 		user_mark: 'Problem zgłoszony ręcznie: %s', test: 'Wiadomość testowa - powiadomienia działają.',
 		peer_lost: 'Router %s przestał się zgłaszać', peer_back: 'Router %s znów się zgłasza po %s',
 		trace: 'Traceroute do %s: %s',
+		decoder_restart: 'Dekoder %s zrestartował się (nie było go %s, %s)', decoder_off: 'Dekoder %s wyłączony lub odłączony (%s)',
+		decoder_on: 'Dekoder %s wrócił po %s',
 		bufferbloat: 'Bufferbloat: ping +%s ms przy łączu zajętym w %d%% (%s)', bufferbloat_ok: 'Bufferbloat minął po %s (do +%s ms)',
 		wifi_reconnect: 'Wi-Fi: %s rozłączył się i wrócił po %s (%s)', wifi_leave: 'Wi-Fi: %s rozłączony (%s)',
 		wifi_join: 'Wi-Fi: %s znów połączony po %s', wifi_roam: 'Wi-Fi: %s przeszedł %s -> %s', wifi_weak: 'Wi-Fi: %s słaby sygnał %d dBm', wifi_weak_ok: 'Wi-Fi: %s sygnał znów OK po %s'
@@ -509,6 +529,9 @@ function event_text(e, lang) {
 	case 'trace': return sprintf(f, d.host, d.first_bad
 		? sprintf(lang == 'pl' ? 'straty od hopa %d (%s)' : 'loss starts at hop %d (%s)', d.first_bad, d.bad_ip ?? '?')
 		: (lang == 'pl' ? 'bez strat do celu' : 'no loss to the destination'));
+	case 'decoder_restart': return sprintf(f, e.src, dur_txt(d.dur), d.port ?? '?');
+	case 'decoder_off': return sprintf(f, e.src, d.port ?? '?');
+	case 'decoder_on': return sprintf(f, e.src, dur_txt(d.dur));
 	case 'bufferbloat': return sprintf(f, d.add, d.load, d.dir == 'up' ? (lang == 'pl' ? 'wysyłanie' : 'upload') : (lang == 'pl' ? 'pobieranie' : 'download'));
 	case 'bufferbloat_ok': return sprintf(f, dur_txt(d.dur), d.max_add);
 	case 'wifi_reconnect': return sprintf(f, e.src, dur_txt(d.away), d.iface ?? '?');
@@ -1992,6 +2015,122 @@ function vlan_sample() {
 		: null;
 }
 
+/* ------------------------------------------------------------- decoders */
+
+/*
+ * Decoder restarts, so "the decoder restarted" is not taken for "the
+ * stream vanished". In a bridged IPTV VLAN the decoders get their address
+ * from the ISP, so the router has no neighbour entry for them; what it has
+ * is the bridge's MAC table (bridge -s fdb: which MAC is behind which port,
+ * and how many seconds ago a frame came from it). Every MAC learned in the
+ * IPTV VLAN on a port other than the one to the ISP is a decoder; names
+ * come from the settings. Signals, strongest first:
+ *   link  - the port it is on went down (decoder directly on the port)
+ *   fdb   - its entry vanished from the table and came back
+ *   quiet - nothing from it for dec_silence s while the stream it watched
+ *           stopped, then frames again (behind a switch the port stays up)
+ * Back within dec_off s: decoder_restart; longer: decoder_off / decoder_on.
+ */
+let dec = { list: {}, err: null, t: 0 };
+
+/* MAC -> { port, age } of the decoders in the IPTV VLAN */
+function dec_fdb() {
+	let j = bridge_json(`-s fdb show br ${vl.bridge}`);
+	if (j == null) return null;
+	let out = {};
+	for (let e in j) {
+		let mac = lc(`${e?.mac ?? ''}`);
+		if (!match(mac, /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/)) continue;
+		/* multicast / local entries, other VLANs, the ISP side */
+		if (hex(substr(mac, 0, 2)) & 1) continue;
+		if (e.state == 'permanent' || e.state == 'static' || index(e.flags ?? [], 'self') >= 0) continue;
+		if (e.master && e.master != vl.bridge) continue;
+		if (e.vlan != null && e.vlan != cfg.iptv.vlan) continue;
+		if (!valid_dev(e.ifname) || e.ifname == vl.upstream || index(vl.ports, e.ifname) < 0) continue;
+		out[mac] = { port: e.ifname, age: (type(e.updated) == 'int') ? e.updated : null };
+	}
+	return out;
+}
+
+/* did the stream stop (freeze, lost, off) between from and to? */
+function dec_stream_hit(from, to) {
+	for (let i = length(events) - 1; i >= 0; i--) {
+		let e = events[i];
+		if (e.host) continue;
+		if (e.ts < from - 60) break;
+		if (e.area == 'iptv' && e.ts >= from - 10 && e.ts <= to + 5 &&
+		    (e.type == 'stream_stall' || e.type == 'stream_off' || e.type == 'stream_lost')) return true;
+	}
+	return false;
+}
+
+function dec_poll() {
+	if (!cfg.iptv.decoders || !cfg.iptv.vlan || !vl.bridge || !BRIDGE) { dec.err = null; return null; }
+	let fdb = dec_fdb(), t = now();
+	if (fdb == null) { dec.err = 'fdb_failed'; return null; }
+	dec.err = null;
+
+	for (let mac, x in fdb) {
+		let d = dec.list[mac] ??= { mac, present: true, since: t, port: x.port, gone_at: null, quiet_from: null, off: false };
+		d.port = x.port;
+		d.seen = t;
+	}
+	for (let mac, d in dec.list) {
+		let x = fdb[mac], src = cfg.iptv.dec_labels[mac] || mac;
+		let link = rd(d.port, 'carrier');
+		let here = x != null && link != '0';
+		let active = here ? t - (x.age ?? 0) : null;
+
+		if (!here) {
+			if (d.present) {
+				d.present = false;
+				/* the last frame, not the moment the entry aged out */
+				d.gone_at = (link == '0') ? t : (d.last_active ?? t);
+				d.via = (link == '0') ? 'link' : 'fdb';
+			}
+			if (!d.off && t - d.gone_at > cfg.iptv.dec_off) {
+				d.off = true;
+				emit('info', 'iptv', src, 'decoder_off', { mac, port: d.port, via: d.via }, d.gone_at);
+			}
+		}
+		else {
+			if (!d.present) {
+				let dur = max(1, t - d.gone_at);
+				if (d.off) emit('info', 'iptv', src, 'decoder_on', { mac, port: x.port, dur });
+				else emit('info', 'iptv', src, 'decoder_restart', { mac, port: x.port, dur, via: d.via,
+					stream: dec_stream_hit(d.gone_at, t) }, d.gone_at);
+				d.present = true;
+				d.off = false;
+				d.since = t;
+				d.quiet_from = null;
+			}
+			/* quiet: a restart behind a switch, only when the stream stopped meanwhile */
+			else if (x.age != null) {
+				if (x.age >= cfg.iptv.dec_silence) d.quiet_from ??= active;
+				else if (d.quiet_from != null) {
+					let dur = active - d.quiet_from;
+					if (dur >= cfg.iptv.dec_silence && dur <= cfg.iptv.dec_off && dec_stream_hit(d.quiet_from, active))
+						emit('info', 'iptv', src, 'decoder_restart', { mac, port: x.port, dur, via: 'quiet', stream: true }, d.quiet_from);
+					d.quiet_from = null;
+				}
+			}
+			d.last_active = active;
+		}
+		/* auto-found and gone for a day: forget it */
+		if (!here && cfg.iptv.dec_labels[mac] == null && t - (d.seen ?? t) > 86400) delete dec.list[mac];
+	}
+
+	let out = [];
+	for (let mac, d in dec.list) {
+		let chs = [];
+		for (let m in (vl.mdb ?? [])) if (m.port == d.port && index(chs, m.grp) < 0) push(chs, m.grp);
+		push(out, { mac, label: cfg.iptv.dec_labels[mac] ?? '', port: d.port, present: d.present, off: d.off,
+			since: d.present ? d.since : d.gone_at, active: d.last_active, quiet: d.quiet_from != null,
+			groups: slice(chs, 0, 4) });
+	}
+	return sort(out, (a, b) => (a.port < b.port) ? -1 : (a.port > b.port) ? 1 : 0);
+}
+
 /* ------------------------------------------------------------------ IPTV */
 
 const TSQ_STATE = `${VARDIR}/tsmon.json`;
@@ -2852,7 +2991,8 @@ function peer_start() {
 /* sender: short status of this router for the receiver's view */
 function peer_hb(overall, iptv_res, ports, wifi_res) {
 	let hb = { lvl: overall, up: started };
-	if (iptv_res) hb.iptv = { state: iptv_res.state, kbps: iptv_res.kbps, lvl: iptv_res.level };
+	if (iptv_res) hb.iptv = { state: iptv_res.state, kbps: iptv_res.kbps, lvl: iptv_res.level,
+		dec: map(slice(iptv_res.decoders ?? [], 0, 4), (x) => ({ label: x.label || x.mac, port: x.port, up: x.present })) };
 	hb.ports = map(slice(ports, 0, 8), (x) => ({ dev: x.dev, label: substr(x.label ?? '', 0, 24), up: x.up, speed: x.speed, lvl: x.level }));
 	if (wifi_res)
 		hb.wifi = { n: wifi_res.total, sta: map(slice(wifi_res.stations, 0, 6), (x) => ({ label: x.label || x.mac, up: x.connected,
@@ -3302,6 +3442,11 @@ function tick() {
 	let iptv_dev = cfg.iptv.vlan ? vl.upstream : cfg.iptv.device;
 	let iptv_res = sample_iptv(iptv_dev ? res[iptv_dev] : null);
 	tsm_poll();
+	let decs = dec_poll();
+	if (iptv_res && decs != null) {
+		iptv_res.decoders = decs;
+		if (dec.err) push(iptv_res.reasons, { c: 'dec_' + dec.err });
+	}
 
 	/* ---- Wi-Fi */
 	let wifi_res = wifi_poll();

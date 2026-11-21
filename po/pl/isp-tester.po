@@ -1887,3 +1887,90 @@ msgstr "30 dni"
 
 msgid "90 days"
 msgstr "90 dni"
+
+msgid "%d of %d IPTV freezes happened while a decoder (%s) restarted – the decoder, not a lost stream; not counted against the ISP."
+msgstr "%d z %d zamrożeń IPTV wystąpiło podczas restartu dekodera (%s) – to dekoder, nie zniknięcie streamu; nie liczy się przeciw operatorowi."
+
+msgid "Decoder %s restarted %d× – power supply, firmware update or overheating (or someone switched it off and on)."
+msgstr "Dekoder %s restartował się %d× – zasilacz, aktualizacja oprogramowania lub przegrzewanie (albo ktoś go wyłączył i włączył)."
+
+msgid "Decoders: cannot read the bridge MAC table (bridge fdb)"
+msgstr "Dekodery: nie można odczytać tablicy MAC mostu (bridge fdb)"
+
+msgid "Decoder %s RESTARTED – away for %s on %s (%s)"
+msgstr "Dekoder %s ZRESTARTOWAŁ SIĘ – nie było go %s na %s (%s)"
+
+msgid "port link went down"
+msgstr "zanik linku portu"
+
+msgid "vanished from the MAC table"
+msgstr "zniknął z tablicy MAC"
+
+msgid "silent while the stream stopped"
+msgstr "cisza, gdy stream stanął"
+
+msgid "the stream stopped because of it, not at the ISP"
+msgstr "stream stanął przez to, nie u operatora"
+
+msgid "Decoder %s switched off or unplugged (%s)"
+msgstr "Dekoder %s wyłączony lub odłączony (%s)"
+
+msgid "Decoder %s is back after %s"
+msgstr "Dekoder %s wrócił po %s"
+
+msgid "%d during decoder restarts"
+msgstr "%d podczas restartów dekodera"
+
+msgid "Decoder %s"
+msgstr "Dekoder %s"
+
+msgid "on %s, for %s"
+msgstr "na %s, od %s"
+
+msgid "silent for %s"
+msgstr "cisza od %s"
+
+msgid "off / unplugged since %s"
+msgstr "wyłączony / odłączony od %s"
+
+msgid "not visible for %s"
+msgstr "niewidoczny od %s"
+
+msgid "on %s"
+msgstr "na %s"
+
+msgid "not visible (%s)"
+msgstr "niewidoczny (%s)"
+
+msgid "Decoder restarts"
+msgstr "Restarty dekodera"
+
+msgid "Decoders"
+msgstr "Dekodery"
+
+msgid "Tells “the decoder restarted” from “the stream vanished”. In a bridged IPTV VLAN the decoders get their address from the ISP, so the router has no neighbour entry for them; it uses the bridge's MAC table instead: every device in the IPTV VLAN on a port other than the one to the ISP is a decoder. A restart is seen when the port's link goes down (decoder directly on the port), when it vanishes from the MAC table and comes back, or when it is silent while the stream stops. Behind a switch the port stays up – install the package on the router the decoder is plugged into and let it send its events here. Needs the IPTV VLAN set above and the <code>ip-bridge</code> package."
+msgstr "Odróżnia „dekoder się zrestartował” od „zniknął stream”. W mostkowanym VLAN-ie IPTV dekodery dostają adres od operatora, więc router nie ma ich w tablicy sąsiadów; korzysta zamiast tego z tablicy MAC mostu: każde urządzenie w VLAN-ie IPTV na porcie innym niż port do operatora to dekoder. Restart widać, gdy link portu zanika (dekoder wpięty bezpośrednio), gdy znika z tablicy MAC i wraca albo gdy milczy, gdy stream staje. Za switchem port pozostaje aktywny – zainstaluj pakiet na routerze, do którego wpięty jest dekoder, i niech wysyła zdarzenia tutaj. Wymaga ustawionego wyżej VLAN-u IPTV i pakietu <code>ip-bridge</code>."
+
+msgid "Detect decoder restarts"
+msgstr "Wykrywaj restarty dekodera"
+
+msgid "Silent for (s)"
+msgstr "Cisza przez (s)"
+
+msgid "No frame from the decoder for this long while the stream stopped counts as a restart."
+msgstr "Brak ramek od dekodera przez tyle czasu, gdy stream stanął, liczy się jako restart."
+
+msgid "Switched off after (s)"
+msgstr "Wyłączony po (s)"
+
+msgid "Away longer than this: switched off or unplugged, not a restart."
+msgstr "Nieobecny dłużej: wyłączony lub odłączony, nie restart."
+
+msgid "Decoder names"
+msgstr "Nazwy dekoderów"
+
+msgid "Optional: a name per decoder MAC address, shown instead of the address. The decoders found now are offered in the list."
+msgstr "Opcjonalnie: nazwa dla adresu MAC dekodera, wyświetlana zamiast adresu. Lista podpowiada dekodery znalezione teraz."
+
+msgid "e.g. Living room"
+msgstr "np. Salon"

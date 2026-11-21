@@ -54,6 +54,12 @@ config wan 'wan'
 
 config iptv 'iptv'
 	option enabled '1'
+	# decoder restarts from the bridge MAC table of the IPTV VLAN (+ port link)
+	option decoders '1'
+	# silent this long while the stream stops = restart
+	option dec_silence '40'
+	# away longer = switched off, not a restart
+	option dec_off '600'
 	# IPTV VLAN number (e.g. 236). Enough when the VLAN is only bridged to the
 	# decoders: bitrate from the bridge's per-VLAN counters, channels from the
 	# bridge's multicast table, ports detected. Empty = use 'device' below.
@@ -118,6 +124,11 @@ config wifi 'wifi'
 	option signal_warn '-75'
 	# back within this many seconds = dropped (fault); longer = it left
 	option reconnect_s '60'
+
+# a name for a decoder (MAC address as seen in the bridge MAC table)
+#config decoder
+#	option mac 'aa:bb:cc:dd:ee:01'
+#	option label 'Living room'
 
 # a Wi-Fi device to watch (only these are logged)
 #config station
