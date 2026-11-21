@@ -92,6 +92,17 @@ function valid_group(g) {
 	return !!m && +m[2] <= 255 && +m[3] <= 255 && +m[4] <= 255;
 }
 
+/* multicast groups that are no TV channel: link-local (224.0.0.x, IPv6
+ * ff0X::), SSDP / UPnP (239.255.255.250, which decoders and TVs join on
+ * their own, also in standby) and SLP (239.255.255.253). The bridge's
+ * multicast table (VLAN mode) lists them like channels: a decoder put in
+ * standby still "watched" one, so its switch-off was logged as a freeze, and
+ * the current channel / channel change were wrong. */
+function mc_ignored(g) {
+	g = `${g ?? ''}`;
+	return g == '' || match(g, /^(224\.0\.0\.|ff0[0-9a-f]:)/i) != null || g == '239.255.255.250' || g == '239.255.255.253';
+}
+
 /* plain IPv4 address (no names: nothing to resolve at boot) */
 function valid_ip(a) {
 	let m = match(`${a ?? ''}`, /^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$/);
@@ -142,4 +153,4 @@ function worst(a, b) {
  */
 const ETHTOOL = find_bin('ISP_TESTER_ETHTOOL', [ '/usr/sbin/ethtool', '/sbin/ethtool', '/usr/bin/ethtool' ]);
 
-export { RUNDIR, NO_UBUS, VARDIR, SYSNET, ROUTE, PROC, find_bin, FETCH, LOGREAD, RRDTOOL, BRIDGE, PROXIES, TSMON, MTR, TRACEROUTE, TRACEROUTE6, TIMEOUT, STAT_KEYS, LEVEL, now, mono, num, bool, aslist, valid_host, valid_dev, valid_group, valid_ip, write_atomic, round, absf, kill_pids, worst, ETHTOOL };
+export { RUNDIR, NO_UBUS, VARDIR, SYSNET, ROUTE, PROC, find_bin, FETCH, LOGREAD, RRDTOOL, BRIDGE, PROXIES, TSMON, MTR, TRACEROUTE, TRACEROUTE6, TIMEOUT, STAT_KEYS, LEVEL, now, mono, num, bool, aslist, valid_host, valid_dev, valid_group, valid_ip, mc_ignored, write_atomic, round, absf, kill_pids, worst, ETHTOOL };

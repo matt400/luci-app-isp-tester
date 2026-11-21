@@ -3,7 +3,7 @@
 /* luci-app-isp-tester: part of the collector (see ../collector.uc) */
 
 import * as fs from 'fs';
-import { SYSNET, ROUTE, PROC, RRDTOOL, BRIDGE, TIMEOUT, ETHTOOL, STAT_KEYS, mono, num, valid_host, round } from './common.uc';
+import { SYSNET, ROUTE, PROC, RRDTOOL, BRIDGE, TIMEOUT, ETHTOOL, STAT_KEYS, mono, num, valid_host, mc_ignored, round } from './common.uc';
 import { sfp_parse, cd_parse_val } from './parsers.uc';
 
 function rd(dev, f) {
@@ -191,7 +191,7 @@ function bridge_mdb(br) {
 	let list = [];
 	for (let blk in (type(j) == 'array' ? j : []))
 		for (let e in (blk?.mdb ?? [])) {
-			if (!e?.grp || match(e.grp, /^(224\.0\.0\.|ff0[0-9a-f]:)/)) continue;
+			if (type(e?.grp) != 'string' || mc_ignored(e.grp)) continue;
 			push(list, { grp: e.grp, port: e.port, state: e.state, vid: e.vid });
 		}
 	return list;
