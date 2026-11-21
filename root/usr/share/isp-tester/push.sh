@@ -79,7 +79,7 @@ pubkey() {
 ssh_run() {
 	# $1 = remote command; stdin goes to it
 	local t=
-	command -v timeout >/dev/null 2>&1 && t="timeout 300"
+	command -v timeout >/dev/null 2>&1 && t="timeout ${SSH_TMO:-300}"
 	$t "$DBCLIENT" -y -T -K 15 -I 60 -i "$KEY" -p "$PORT" -l "$USER" "$HOST" "$1" 2>&1
 }
 
@@ -92,6 +92,8 @@ test_login() {
 	load
 	ensure_key "$KEY"
 	local out
+	# called from the web UI (rpcd waits for it): do not hang for minutes
+	SSH_TMO=20
 	out=$(ssh_run "echo isp-tester-ok" < /dev/null)
 	case "$out" in
 		*isp-tester-ok*) printf '{"result":true}\n' ;;
