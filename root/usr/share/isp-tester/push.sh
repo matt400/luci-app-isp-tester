@@ -56,6 +56,11 @@ load() {
 	# a path on the other device: no spaces, no "..", nothing the shell would act on
 	printf '%s' "$DIR" | grep -Eq '^[A-Za-z0-9._/~-]{1,120}$' || fail bad_dir
 	case "$DIR" in *..*) fail bad_dir ;; esac
+	# a leading "-" would be taken as an option (by dbclient for the host and
+	# the user, by mkdir/cat/mv on the other device for the folder)
+	case "$HOST" in -*) fail bad_host ;; esac
+	case "$USER" in -*) fail bad_user ;; esac
+	case "$DIR" in -*) fail bad_dir ;; esac
 	printf '%s' "$KEY" | grep -Eq '^/[A-Za-z0-9._/-]{1,120}$' || fail bad_key
 	command -v "$DBCLIENT" >/dev/null 2>&1 || fail no_dbclient
 }
@@ -104,7 +109,8 @@ ssh_run() {
 
 # last lines of dbclient's output, only safe characters (it goes into JSON)
 clean() {
-	printf '%s' "$1" | tail -n "${2:-3}" | tr '\n' ' ' | tr -cd 'A-Za-z0-9 ._:,/@()<>=-' | cut -c1-200
+	# no < > & : the web UI shows it, and the text comes from the other device
+	printf '%s' "$1" | tail -n "${2:-3}" | tr '\n' ' ' | tr -cd 'A-Za-z0-9 ._:,/@()=-' | cut -c1-200
 }
 
 state() {

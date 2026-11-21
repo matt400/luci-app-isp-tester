@@ -47,10 +47,12 @@ function renderLearned(db) {
 	var rows = groups.map(function(g) {
 		var e = db[g];
 		return E('tr', { 'class': 'tr' }, [
-			E('td', { 'class': 'td', 'style': 'font-family:monospace' }, g),
-			E('td', { 'class': 'td' }, e.name ? e.name : E('em', {},
+			/* name and provider come from the stream itself: text nodes, a
+			 * plain string child would be put in as HTML */
+			E('td', { 'class': 'td', 'style': 'font-family:monospace' }, [ g ]),
+			E('td', { 'class': 'td' }, e.name ? [ e.name ] : E('em', {},
 				e.why === 'no_sdt' ? _('no name in the stream') : _('not found'))),
-			E('td', { 'class': 'td' }, e.provider || ''),
+			E('td', { 'class': 'td' }, [ e.provider || '' ]),
 			E('td', { 'class': 'td' }, e.sid != null ? String(e.sid) : '')
 		]);
 	});
@@ -163,7 +165,8 @@ function renderPush() {
 		return callPushStatus().then(function(st) { status.textContent = pushStatusText(st); },
 			function() { status.textContent = _('No answer from the router.'); });
 	};
-	var note = function(text, cls) { ui.addNotification(null, E('p', text), cls); };
+	/* the text may hold what the other device's SSH answered: a text node */
+	var note = function(text, cls) { ui.addNotification(null, E('p', {}, [ text ]), cls); };
 
 	refresh();
 

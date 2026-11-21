@@ -53,6 +53,9 @@ return {
 				return {
 					enabled: is_enabled(),
 					running: service_running(),
+					/* the router's clock: the web UI measures "how long ago"
+					 * against it, not against the browser's own clock */
+					now: time(),
 					state: st
 				};
 			}
