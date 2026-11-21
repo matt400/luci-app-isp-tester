@@ -261,12 +261,23 @@ return baseclass.extend({
 		add('isp', 1.5, 'dns_fail', dnsFail);
 		add('isp', 1, 'dns_server', dnsSrv, { servers: uniq(dnsSrv, 'src').join(', ') });
 
+		/* who filled the link (nlbwmon / conntrack): the host that was the heaviest most often */
+		var hogEv = by(function(e) { return e.type === 'link_hogs' && e.d && e.d.hosts && e.d.hosts.length; });
+		var hogTop = null, hogN = {}, hogShare = {};
+		hogEv.forEach(function(e) {
+			var h = e.d.hosts[0], k = h.name || h.id;
+			hogN[k] = (hogN[k] || 0) + 1;
+			hogShare[k] = Math.max(hogShare[k] || 0, h.share || 0);
+		});
+		Object.keys(hogN).forEach(function(k) { if (hogTop == null || hogN[k] > hogN[hogTop]) hogTop = k; });
+		add('info', 0, 'link_hogs', hogEv, { host: hogTop, n: hogTop ? hogN[hogTop] : 0, share: hogTop ? Math.round(hogShare[hogTop]) : 0 });
+
 		/* lags only with the link full: own traffic fills a buffer; SQM at home fixes it */
 		if (bloats.length) {
 			var maxAdd = 0, dirs = {};
 			bloats.forEach(function(e) { maxAdd = Math.max(maxAdd, e.d.add || 0); dirs[e.d.dir || 'down'] = true; });
 			add('home', 1, 'bufferbloat', bloats, { add: maxAdd, dir: Object.keys(dirs).join('+'),
-				lags: by(bloatLag).length });
+				lags: by(bloatLag).length, who: hogTop });
 		}
 
 		/* PPPoE/DHCP session dropped while the cable link stayed up */
@@ -509,6 +520,7 @@ return baseclass.extend({
 		case 'log_proxy':       return _('The multicast proxy logged errors (%d×) – check its configuration (upstream / downstream interfaces).').format(f.n);
 		case 'log_nic':         return _('Network driver / switch chip hung (%d×, kernel "transmit timed out") – router hardware or driver.').format(f.n);
 		case 'router_busy':     return _('%d problems happened while the router was overloaded (CPU / RAM / connection table) – the router itself may be dropping packets.').format(f.n);
+		case 'link_hogs':       return _('The link was full %d× – %s was the heaviest user in %d of them (up to %d%% of the traffic then). That traffic is your own, not an ISP fault.').format(f.n, a.host, a.n, a.share);
 		case 'router_hot':      return (a.throttled
 			? _('%d problems happened while the router was overheated and its CPU slowed down (up to %s °C) – the router itself loses packets; check ventilation, the heatsink, the case.')
 			: _('%d problems happened while the router was overheated (up to %s °C) – the router itself may lose packets; check ventilation, the heatsink, the case.')).format(f.n, a.temp);
@@ -520,6 +532,7 @@ return baseclass.extend({
 		case 'marks_unseen':    return _('%d of %d of your reports have nothing measured around them – the problem is not visible on this router: check the IPTV device setting, or the cause is the decoder, the TV or Wi-Fi.').format(f.n, a.total);
 		case 'bufferbloat':     return _('Bufferbloat %d×: the ping went up by as much as %d ms only while the link was full (%s) – your own traffic fills a buffer in the modem or at the ISP. Not an outage and not the ISP\'s fault: SQM (luci-app-sqm, cake) set a bit below the line speed fixes it.').format(f.n, a.add,
 			a.dir === 'up' ? _('upload') : a.dir === 'down' ? _('download') : _('download and upload')) +
+			(a.who ? ' ' + _('Heaviest at those times: %s.').format(a.who) : '') +
 			(a.lags ? ' ' + _('%d high-ping warnings at those times are not counted against the ISP.').format(a.lags) : '');
 		case 'stall_decoder':   return _('%d of %d IPTV freezes happened while a decoder (%s) restarted – the decoder, not a lost stream; not counted against the ISP.').format(f.n, a.total, a.devs);
 		case 'decoder_restarts': return _('Decoder %s restarted %d× – power supply, firmware update or overheating (or someone switched it off and on).').format(a.devs, f.n);

@@ -460,6 +460,17 @@ return view.extend({
 		o.placeholder = '70';
 		o.depends('bloat', '1');
 
+		o = s.option(form.Flag, 'hogs', _('Who fills the link'),
+			_('When the link stays full (the limit above) for a while, list the hosts with the most traffic in that time. Only reads: nlbwmon when it is installed and running, else the connection tracking table when its byte accounting is on.'));
+		o.default = '1';
+		o.rmempty = false;
+		o.depends('bloat', '1');
+
+		o = s.option(form.Value, 'hogs_cooldown', _('At most every (s)'));
+		o.datatype = 'range(60,86400)';
+		o.placeholder = '600';
+		o.depends('hogs', '1');
+
 		o = s.option(form.Value, 'down_mbit', _('Download speed (Mbit/s)'), _('Of your plan. Empty = the highest rate seen.'));
 		o.datatype = 'ufloat';
 		o.optional = true;

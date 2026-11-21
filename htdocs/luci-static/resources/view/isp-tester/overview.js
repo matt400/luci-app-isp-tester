@@ -301,6 +301,7 @@ function eventText(e) {
 	case 'user_mark':       return _('You reported: %s').format(markText(d.what)) + (d.note ? ' – „' + d.note + '”' : '');
 	case 'log':             return logText(d.kind) + ' – ' + d.prog + ': „' + d.msg + '”' + (d.n > 1 ? ' (%d×)'.format(d.n) : '');
 	case 'trace':           return traceText(e);
+	case 'link_hogs':       return hogsText(d);
 	case 'decoder_restart': return _('Decoder %s RESTARTED – away for %s on %s (%s)').format(e.src, fmtDur(d.dur), d.port,
 		{ link: _('port link went down'), fdb: _('vanished from the MAC table'), quiet: _('silent while the stream stopped') }[d.via] || d.via) +
 		(d.stream ? ' – ' + _('the stream stopped because of it, not at the ISP') : '');
@@ -358,6 +359,20 @@ function eventText(e) {
 
 function fmtPct(v) {
 	return v == null ? '–' : (v < 1 ? v.toFixed(2) : v.toFixed(1));
+}
+
+function fmtBytes(b) {
+	return b >= 1e9 ? _('%s GB').format((b / 1e9).toFixed(1)) : b >= 1e6 ? _('%s MB').format((b / 1e6).toFixed(b >= 1e8 ? 0 : 1)) : _('%d kB').format(Math.round(b / 1e3));
+}
+
+/* who filled the link: "laptop 88 %, 192.168.1.20 11 %" */
+function hogsHosts(d, n) {
+	return (d.hosts || []).slice(0, n || 3).map(function(h) { return '%s %d%%'.format(h.name || h.id, h.share); }).join(', ');
+}
+
+function hogsText(d) {
+	return _('LINK FULL (%s %d%%) for %s – heaviest: %s').format(d.dir === 'up' ? _('upload') : _('download'), d.load, fmtDur(d.win), hogsHosts(d, 5) || '–') +
+		' · ' + _('%s in that time, from %s').format(fmtBytes(d.total || 0), d.src === 'nlbwmon' ? 'nlbwmon' : _('the connection table'));
 }
 
 function fmtKB(kb) {
@@ -1316,6 +1331,21 @@ return view.extend({
 				E('span', { 'class': b.active ? 'ispt-warn-text' : '' }, bloatText(b)));
 		}
 
+		if (w.hogs) {
+			var hg = w.hogs, hv;
+			if (hg.last)
+				hv = E('span', { 'title': _('Traffic of the %s the link was %d%% full (%s), %s in total; read from %s at %s').format(
+					fmtDur(hg.last.win), hg.last.load, hg.last.dir === 'up' ? _('upload') : _('download'), fmtBytes(hg.last.total || 0),
+					hg.last.src === 'nlbwmon' ? 'nlbwmon' : _('the connection table'), fmtTime(hg.last.ts)) }, hogsHosts(hg.last, 4));
+			else if (hg.err === 'read_failed')
+				hv = E('span', { 'class': 'ispt-warn-text' }, _('could not read the traffic per host (%s)').format(hg.source || '–'));
+			else if (!hg.source)
+				hv = E('span', { 'class': 'ispt-muted' }, hg.nlbw ? _('nlbwmon is installed but not running') : _('needs nlbwmon (luci-app-nlbwmon) or the conntrack byte accounting'));
+			else
+				hv = E('span', { 'class': 'ispt-muted' }, _('ready (%s) – listed when the link has been full for a while').format(hg.source === 'nlbwmon' ? 'nlbwmon' : _('connection table')));
+			kv.push(E('span', { 'class': 'k', 'title': _('The hosts that used the most traffic while the link was full, the last time it was full for a while') }, _('Who fills the link')), hv);
+		}
+
 		return E('div', { 'class': 'ispt-card l-' + lvl(w.level) }, [
 			E('h3', {}, [ _('Internet'), chip(w.level) ]),
 			E('table', { 'class': 'ispt-mini' }, [
@@ -1930,6 +1960,8 @@ return view.extend({
 			row(_('Decoder restarts'), _('%d×').format(evs.filter(function(e) { return e.type === 'decoder_restart'; }).length)) +
 			row(_('Wi-Fi drops of watched devices'), _('%d×').format(evs.filter(function(e) { return e.type === 'wifi_reconnect' && e.lvl !== 'info'; }).length)) +
 			row(_('Router overloaded'), _('%d×').format(count(function(e) { return e.type === 'cpu_high' || e.type === 'mem_low' || e.type === 'conntrack_full'; }))) +
+			(st.thermal ? row(_('Router overheated / CPU throttled'), _('%d× / %d×').format(count(function(e) { return e.type === 'temp_high'; }), count(function(e) { return e.type === 'throttle'; })) +
+				(st.thermal.max_temp != null ? ' · ' + _('highest %s °C since %s').format(st.thermal.max_temp, fmtTime(st.started)) : '')) : '') +
 			row(_('Problems reported by the user'), _('%d×').format(count(function(e) { return e.type === 'user_mark'; }))) +
 			'</table><h2>' + x(_('Assessment')) + '</h2><p><b>' + x(diagnose.verdictText(r.verdict)) + '</b> (' + x(diagnose.confidenceText(r.confidence)) + ')</p><ul>' +
 			r.findings.map(function(f) { return '<li>[' + x(diagnose.sideText(f.side)) + '] ' + x(diagnose.findingText(f)) + '</li>'; }).join('') +
@@ -1949,6 +1981,17 @@ return view.extend({
 									'</td><td>' + h.loss + '%</td><td>' + (h.avg != null ? h.avg + ' ms' : '–') + '</td></tr>';
 							}).join('') + '</table>';
 					}).join('');
+			})() +
+			(function() {
+				var hg = own.filter(function(e) { return e.type === 'link_hogs' && e.d && (e.d.hosts || []).length; });
+				if (!hg.length) return '';
+				return '<h2>' + x(_('Who filled the link')) + '</h2><p class="muted">' +
+					x(_('Taken automatically while the link was full for a while: the hosts with the most traffic in that time. Full link with your own traffic is not an ISP fault.')) + '</p><table class="ev"><tr><th>' +
+					x(_('Time')) + '</th><th>' + x(_('Direction')) + '</th><th>' + x(_('Heaviest')) + '</th></tr>' +
+					hg.map(function(e) {
+						return '<tr><td>' + x(fmtTime(e.ts)) + '</td><td>' + x((e.d.dir === 'up' ? _('upload') : _('download')) + ' ' + e.d.load + '%, ' + fmtDur(e.d.win)) +
+							'</td><td>' + x(hogsHosts(e.d, 5)) + '</td></tr>';
+					}).join('') + '</table>';
 			})() +
 			'<h2>' + x(_('Event log (problems only)')) + '</h2><table class="ev">' +
 			evs.filter(function(e) { return e.lvl !== 'info'; }).map(function(e) {

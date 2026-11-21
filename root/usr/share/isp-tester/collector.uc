@@ -162,6 +162,8 @@ function default_config() {
 			trace: true, trace_cooldown: 600,
 			/* bufferbloat: ping vs. WAN load; down/up_mbit 0 = learn the line's speed */
 			bloat: true, bloat_ms: 30, bloat_load: 70, down_mbit: 0, up_mbit: 0,
+			/* who fills the link: hosts of the traffic while it is full (nlbwmon or the conntrack table) */
+			hogs: true, hogs_cooldown: 600,
 			/* IPv6: netifd status of the DHCPv6 interface (odhcp6c), '' = wan6 / <wan>_6 */
 			ipv6: true, interface6: '', ra_after: 60
 		},
@@ -253,6 +255,8 @@ function load_config() {
 		c.wan.bloat_load     = num(w.bloat_load, c.wan.bloat_load);
 		c.wan.down_mbit      = num(w.down_mbit, c.wan.down_mbit);
 		c.wan.up_mbit        = num(w.up_mbit, c.wan.up_mbit);
+		c.wan.hogs           = bool(w.hogs, true);
+		c.wan.hogs_cooldown  = num(w.hogs_cooldown, c.wan.hogs_cooldown);
 		c.wan.ipv6           = bool(w.ipv6, true);
 		c.wan.interface6     = w.interface6 ?? '';
 		c.wan.ra_after       = num(w.ra_after, c.wan.ra_after);
@@ -414,6 +418,7 @@ function load_config() {
 	if (c.wan.bloat_load < 30 || c.wan.bloat_load > 100) c.wan.bloat_load = 70;
 	if (!(c.wan.down_mbit >= 0)) c.wan.down_mbit = 0;
 	if (!(c.wan.up_mbit >= 0)) c.wan.up_mbit = 0;
+	if (c.wan.hogs_cooldown < 60) c.wan.hogs_cooldown = 60;
 
 	c.peer.port = int(c.peer.port);
 	if (c.peer.port < 1 || c.peer.port > 65535) c.peer.port = 51477;
@@ -503,6 +508,7 @@ const MSG = {
 		ts_errors: 'IPTV picture errors: %d lost-packet gaps (~%d packets) in %ss, channel %s',
 		proxy_down: 'Multicast proxy %s is not running', proxy_up: 'Multicast proxy %s running again', proxy_restart: 'Multicast proxy %s restarted',
 		cpu_high: 'Router CPU busy: %d%% (softirq %d%%)', mem_low: 'Router RAM low: %d%% free', conntrack_full: 'Connection table %d%% full',
+		link_hogs: 'Link %d%% full (%s) for %s, heaviest: %s',
 		temp_high: 'Router hot: %s %s C (limit %s C)', throttle: 'Router CPU throttled by heat: %s MHz instead of %s MHz (%s C)',
 		user_mark: 'Problem reported by user: %s', test: 'Test message - notifications work.',
 		peer_lost: 'Router %s does not report any more', peer_back: 'Router %s reports again after %s',
@@ -541,6 +547,7 @@ const MSG = {
 		ts_errors: 'Błędy obrazu IPTV: %d przerw w pakietach (~%d pakietów) w %ss, kanał %s',
 		proxy_down: 'Proxy multicast %s nie działa', proxy_up: 'Proxy multicast %s znów działa', proxy_restart: 'Proxy multicast %s zrestartowany',
 		cpu_high: 'Router przeciążony: CPU %d%% (softirq %d%%)', mem_low: 'Mało RAM: wolne %d%%', conntrack_full: 'Tablica połączeń zajęta w %d%%',
+		link_hogs: 'Łącze zajęte w %d%% (%s) przez %s, najwięcej: %s',
 		temp_high: 'Router przegrzany: %s %s C (próg %s C)', throttle: 'Procesor routera dławiony przez temperaturę: %s MHz zamiast %s MHz (%s C)',
 		user_mark: 'Problem zgłoszony ręcznie: %s', test: 'Wiadomość testowa - powiadomienia działają.',
 		peer_lost: 'Router %s przestał się zgłaszać', peer_back: 'Router %s znów się zgłasza po %s',
@@ -603,6 +610,8 @@ function event_text(e, lang) {
 	case 'proxy_down': case 'proxy_up': case 'proxy_restart': return sprintf(f, d.name);
 	case 'cpu_high': return sprintf(f, d.cpu, d.sirq);
 	case 'mem_low': return sprintf(f, d.pct);
+	case 'link_hogs': return sprintf(f, d.load, d.dir == 'up' ? (lang == 'pl' ? 'wysyłanie' : 'upload') : (lang == 'pl' ? 'pobieranie' : 'download'),
+		dur_txt(d.win), join(', ', map(slice(d.hosts ?? [], 0, 3), (h) => sprintf('%s %d%%', h.name ?? h.id, h.share))) || '-');
 	case 'temp_high': return sprintf(f, d.zone, d.temp, d.warn);
 	case 'throttle': return sprintf(f, d.mhz ?? '?', d.max_mhz ?? '?', d.temp ?? '?');
 	case 'conntrack_full': return sprintf(f, d.pct);
@@ -1704,6 +1713,214 @@ function bloat_out() {
 		learned: !(cfg.wan.down_mbit > 0 && cfg.wan.up_mbit > 0),
 		last: bloat.last, ms: cfg.wan.bloat_ms, load_pct: cfg.wan.bloat_load
 	};
+}
+
+/* ------------------------------------------------------ who fills the link */
+
+/*
+ * "Who clogged the link": while the WAN is full (the limit of the
+ * bufferbloat detection) for a while, the traffic per host of that stretch
+ * is read from what the router already counts: nlbwmon when it is installed
+ * and running (`nlbw -c csv -g mac`), else the connection tracking table
+ * (/proc/net/nf_conntrack, only when its byte accounting is already on).
+ * Two reads per episode - when the link gets full and when it has been for
+ * long enough - and the difference is the traffic of that stretch. Nothing
+ * is started, switched on or written. Without either source there is no
+ * list (the card says what is missing).
+ * nlbwmon refreshes its counters every 30 s by default, so with it the link
+ * must stay full for 40 s; the conntrack counters are live (15 s).
+ */
+const NLBW = find_bin('ISP_TESTER_NLBW', [ '/usr/sbin/nlbw' ]);
+const TIMEOUT = find_bin('ISP_TESTER_TIMEOUT', [ '/usr/bin/timeout', '/bin/timeout' ]);
+const LEASES = getenv('ISP_TESTER_LEASES') || '/tmp/dhcp.leases';
+const HOGS_MAX_FLOWS = 30000;
+let hogs = { full_n: 0, armed: true, snap: null, last_ev: 0, last: null, err: null, src: null, src_ts: 0,
+	peak: 0, dir: null, flows: 0 };
+
+function hogs_source() {
+	let t = mono();
+	if (hogs.src_ts && t - hogs.src_ts < 60) return hogs.src;
+	hogs.src_ts = t;
+	hogs.src = null;
+	if (NLBW) {
+		for (let pid in (fs.lsdir(PROC) ?? [])) {
+			if (!match(pid, /^[0-9]+$/)) continue;
+			if (trim(fs.readfile(`${PROC}/${pid}/comm`) ?? '') == 'nlbwmon') { hogs.src = 'nlbwmon'; break; }
+		}
+	}
+	if (!hogs.src && fs.stat(`${PROC}/net/nf_conntrack`) &&
+	    trim(fs.readfile(`${PROC}/sys/net/netfilter/nf_conntrack_acct`) ?? '') == '1')
+		hogs.src = 'conntrack';
+	return hogs.src;
+}
+
+/* names: your own labels, then the DHCP lease's host name */
+function hogs_names() {
+	let by_ip = {}, by_mac = {};
+	for (let l in split(fs.readfile(LEASES) ?? '', '\n')) {
+		let f = split(trim(l), /\s+/);
+		if (length(f) < 4 || !match(f[1], /^[0-9a-fA-F:]{17}$/)) continue;
+		let mac = lc(f[1]), name = (f[3] != '*') ? f[3] : null;
+		by_ip[f[2]] = { mac, name };
+		by_mac[mac] = { ip: f[2], name };
+	}
+	return { by_ip, by_mac };
+}
+
+function hogs_label(h, nm) {
+	let mac = h.mac ?? (h.ip ? nm.by_ip[h.ip]?.mac : null);
+	let ip = h.ip ?? (mac ? nm.by_mac[mac]?.ip : null);
+	let name = (mac ? (cfg.wifi.stations[mac] || cfg.iptv.dec_labels[mac]) : null) || null;
+	name ??= (mac ? nm.by_mac[mac]?.name : null) ?? (h.ip ? nm.by_ip[h.ip]?.name : null);
+	return { id: mac ?? ip, mac, ip, name: name || ip || mac };
+}
+
+/* bytes per MAC from nlbwmon: { mac: [ rx, tx ] }; null when it did not answer */
+function hogs_read_nlbw() {
+	let f = fs.popen(`${TIMEOUT ? TIMEOUT + ' 5 ' : ''}${NLBW} -c csv -g mac 2>/dev/null`, 'r');
+	if (!f) return null;
+	let out = f.read('all');
+	f.close();
+	if (!out) return null;
+	/* the header names the columns; without one the documented order is used */
+	let col = { mac: 0, rx: 2, tx: 4 }, res = {}, rows = 0;
+	for (let l in split(out, '\n')) {
+		let c = split(replace(trim(l), /"/g, ''), /[,;\t]/);
+		if (length(c) < 5) continue;
+		if (index(l, 'rx_bytes') >= 0) {
+			col = { mac: index(c, 'mac'), rx: index(c, 'rx_bytes'), tx: index(c, 'tx_bytes') };
+			continue;
+		}
+		if (col.mac < 0 || col.rx < 0 || col.tx < 0) return null;
+		let mac = lc(c[col.mac]);
+		if (!match(mac, /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/)) continue;
+		res[mac] = [ num(c[col.rx], 0), num(c[col.tx], 0) ];
+		rows++;
+	}
+	return rows ? res : null;
+}
+
+function is_local_ip(a, nm) {
+	if (nm.by_ip[a]) return true;
+	return !!(match(a, /^(10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2[0-9]|3[01])\.)/) || match(a, /^(f[cd][0-9a-f]{2}:|fe80:)/i));
+}
+
+/* flows of the conntrack table: { key: [ host_ip, bytes_from_host, bytes_to_host ] } */
+function hogs_read_ct(nm) {
+	let f = fs.open(`${PROC}/net/nf_conntrack`, 'r');
+	if (!f) return null;
+	let flows = {}, n = 0, l;
+	while ((l = f.read('line')) != null) {
+		if (++n > HOGS_MAX_FLOWS) break;
+		let t = split(trim(l), /\s+/), proto = t[2], o = {}, r = {}, cur = o;
+		/* original tuple first, then the reply's: the second "src=" starts it */
+		for (let x in t) {
+			let k = index(x, '=');
+			if (k < 0) continue;
+			let key = substr(x, 0, k), v = substr(x, k + 1);
+			if (key == 'src' && o.src != null) cur = r;
+			if (key == 'src' || key == 'dst' || key == 'sport' || key == 'dport' || key == 'bytes') cur[key] = v;
+		}
+		if (o.src == null || o.dst == null || o.bytes == null) continue;
+		let ob = num(o.bytes, 0), rb = num(r.bytes, 0);
+		let ls = is_local_ip(o.src, nm), ld = is_local_ip(o.dst, nm);
+		/* between two LAN hosts: does not cross the WAN */
+		if (ls && ld) continue;
+		let up = ls || !(r.src != null && is_local_ip(r.src, nm));
+		flows[`${proto}|${o.src}|${o.sport}|${o.dst}|${o.dport}`] = up ? [ o.src, ob, rb ] : [ r.src, rb, ob ];
+	}
+	f.close();
+	hogs.flows = n;
+	return flows;
+}
+
+function hogs_snapshot() {
+	let src = hogs_source();
+	if (!src) { hogs.err = (NLBW ? 'nlbwmon_stopped' : 'no_source'); return null; }
+	let nm = hogs_names(), data = (src == 'nlbwmon') ? hogs_read_nlbw() : hogs_read_ct(nm);
+	if (data == null) { hogs.err = 'read_failed'; return null; }
+	hogs.err = null;
+	return { src, ts: now(), m: mono(), data };
+}
+
+/* traffic of the stretch between two snapshots per host: { id: [ rx, tx ] } */
+function hogs_diff(a, b) {
+	let out = {}, nm = hogs_names();
+	if (b.src == 'nlbwmon') {
+		for (let mac, v in b.data) {
+			let p = a.data[mac] ?? [ 0, 0 ];
+			let rx = v[0] - p[0], tx = v[1] - p[1];
+			if (rx < 0 || tx < 0) continue;     /* the database was committed or reset between the two */
+			if (rx || tx) out[mac] = { mac, rx, tx };
+		}
+	}
+	else {
+		for (let k, v in b.data) {
+			let p = a.data[k], up = v[1] - (p ? p[1] : 0), down = v[2] - (p ? p[2] : 0);
+			if (up < 0 || down < 0) continue;
+			let h = (out[v[0]] ??= { ip: v[0], rx: 0, tx: 0 });
+			h.tx += up;
+			h.rx += down;
+		}
+	}
+	let res = [];
+	for (let k, h in out) {
+		let lb = hogs_label(h, nm);
+		push(res, { ...lb, rx: h.rx, tx: h.tx });
+	}
+	return res;
+}
+
+function hogs_finish(t, load, dir) {
+	let a = hogs.snap, b = hogs_snapshot();
+	hogs.snap = null;
+	if (!b || b.src != a.src) return;
+	let list = hogs_diff(a, b), key = (dir == 'up') ? 'tx' : 'rx', total = 0;
+	for (let h in list) total += h[key];
+	/* hosts with a name, ordered by their share of the full direction */
+	list = sort(filter(list, (h) => h[key] * 100 >= total), (x, y) => y[key] - x[key]);
+	if (!length(list) || total <= 0) return;
+	let hosts = map(slice(list, 0, 5), (h) => ({ id: h.id, name: h.name, ip: h.ip, mac: h.mac, bytes: h[key],
+		share: round(h[key] * 100 / total, 0) }));
+	hogs.last_ev = t;
+	emit('info', 'wan', 'link', 'link_hogs', { src: b.src, dir, load: round(load * 100, 0), win: int(b.m - a.m),
+		total, hosts }, a.ts);
+	hogs.last = { ts: a.ts, src: b.src, dir, load: round(load * 100, 0), win: int(b.m - a.m), total, hosts };
+}
+
+/* every tick, rates in bit/s */
+function hogs_tick(t, rx, tx) {
+	/* the line speed and the "full" limit are those of the bufferbloat detection */
+	if (!cfg.wan.hogs || !cfg.wan.bloat || rx == null) return;
+	let cap_rx = cfg.wan.down_mbit > 0 ? cfg.wan.down_mbit * 1e6 : bloat.peak_rx;
+	let cap_tx = cfg.wan.up_mbit > 0 ? cfg.wan.up_mbit * 1e6 : bloat.peak_tx;
+	let lr = cap_rx >= 1e6 ? rx / cap_rx : 0, lt = cap_tx >= 1e6 ? tx / cap_tx : 0;
+	let load = max(lr, lt), dir = (lt > lr) ? 'up' : 'down';
+
+	if (load * 100 < cfg.wan.bloat_load) {
+		hogs.full_n = 0;
+		hogs.snap = null;
+		hogs.armed = true;
+		hogs.peak = 0;
+		return;
+	}
+	hogs.full_n++;
+	if (load > hogs.peak) { hogs.peak = load; hogs.dir = dir; }
+	if (!hogs.armed || t - hogs.last_ev < cfg.wan.hogs_cooldown) return;
+	if (hogs.snap == null) {
+		hogs.snap = hogs_snapshot();
+		if (!hogs.snap) hogs.armed = false;     /* nothing to read: not again during this episode */
+		return;
+	}
+	if (mono() - hogs.snap.m >= (hogs.snap.src == 'nlbwmon' ? 40 : 15)) {
+		hogs_finish(t, hogs.peak, hogs.dir);
+		hogs.armed = false;
+	}
+}
+
+function hogs_out() {
+	if (!cfg.wan.hogs || !cfg.wan.bloat) return null;
+	return { source: hogs_source(), err: hogs.err, last: hogs.last, cooldown: cfg.wan.hogs_cooldown, nlbw: !!NLBW };
 }
 
 /* responding / all targets of one address family */
@@ -4445,6 +4662,7 @@ function tick() {
 
 		let wd = cfg.wan.device ? res[cfg.wan.device] : null;
 		if (wd?.delta) bloat_tick(now(), wd.delta.rx_bps, wd.delta.tx_bps);
+		if (wd?.delta) hogs_tick(now(), wd.delta.rx_bps, wd.delta.tx_bps);
 		if (bloat.active) {
 			level = worst(level, 'warn');
 			push(reasons, { c: 'bufferbloat_now', add: bloat.max_add, load: bloat.last?.load, dir: bloat.last?.dir });
@@ -4474,6 +4692,7 @@ function tick() {
 			trace: cfg.wan.trace ? { tool: MTR ? 'mtr' : (TRACEROUTE ? 'traceroute' : null), running: !!trace.proc, last: trace.last || null,
 				n: trace.n, cooldown: cfg.wan.trace_cooldown } : null,
 			bloat: bloat_out(),
+			hogs: hogs_out(),
 			v6,
 			dns: dns_res,
 			rx_kbps: wd?.delta ? round(wd.delta.rx_bps / 1000, 0) : null,

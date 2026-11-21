@@ -54,6 +54,12 @@ config wan 'wan'
 	option ipv6 '1'
 	option interface6 ''
 	option ra_after '60'
+	# who fills the link: while the link is full (bloat_load) for a while, the
+	# hosts with the most traffic in that time, read from nlbwmon (when
+	# installed and running) or the conntrack table (when its byte accounting
+	# is on); at most one list per hogs_cooldown seconds. Needs bloat '1'
+	option hogs '1'
+	option hogs_cooldown '600'
 	# speed of the plan in Mbit/s; unset = the highest rate seen
 	#option down_mbit '300'
 	#option up_mbit '50'
