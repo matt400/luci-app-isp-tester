@@ -270,18 +270,6 @@ function recent_level(area, src) {
 	return lvl;
 }
 
-/* the 24 h count walks most of the list (up to max_events, 20000 at most)
- * on every tick: it is counted again only when the list changed or a minute
- * went by (old events leave the window) */
-let counts24 = { key: null, n: null };
-
-function count_events24(t) {
-	let n = length(events);
-	let key = `${n}|${n ? events[n - 1].ts : 0}|${n ? events[0].ts : 0}|${int(t / 60)}`;
-	if (key != counts24.key) counts24 = { key, n: count_events(t - 86400) };
-	return counts24.n;
-}
-
 function count_events(since) {
 	let n = { warn: 0, err: 0 };
 	for (let i = length(events) - 1; i >= 0; i--) {
@@ -296,6 +284,21 @@ function count_events(since) {
 		else if (e.lvl == 'err') n.err++;
 	}
 	return n;
+}
+
+/* (after count_events: ucode does not hoist functions - called before
+ * its declaration it was an undeclared variable, every tick failed and
+ * state.json was never written)
+ * the 24 h count walks most of the list (up to max_events, 20000 at most)
+ * on every tick: it is counted again only when the list changed or a minute
+ * went by (old events leave the window) */
+let counts24 = { key: null, n: null };
+
+function count_events24(t) {
+	let n = length(events);
+	let key = `${n}|${n ? events[n - 1].ts : 0}|${n ? events[0].ts : 0}|${int(t / 60)}`;
+	if (key != counts24.key) counts24 = { key, n: count_events(t - 86400) };
+	return counts24.n;
 }
 
 /* ---------------------------------------------------------------- history */

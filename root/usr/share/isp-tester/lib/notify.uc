@@ -172,7 +172,11 @@ function notify_flush(force) {
 	notif.busy = true;
 	notif.last = now();
 	let cut0 = notif.cut, via = null;
-	let done = (ok, err, status) => {
+	/* declared first: the function passes itself on (retry with
+	 * uclient-fetch), and ucode refuses a declaration used inside its own
+	 * initializer - the whole collector did not compile */
+	let done;
+	done = (ok, err, status) => {
 		/* the module answered, but the server refused what it sent (an
 		 * older module without post_data sends no body): uclient-fetch
 		 * from now on, and at once */
