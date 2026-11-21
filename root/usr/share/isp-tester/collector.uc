@@ -270,6 +270,18 @@ function recent_level(area, src) {
 	return lvl;
 }
 
+/* the 24 h count walks most of the list (up to max_events, 20000 at most)
+ * on every tick: it is counted again only when the list changed or a minute
+ * went by (old events leave the window) */
+let counts24 = { key: null, n: null };
+
+function count_events24(t) {
+	let n = length(events);
+	let key = `${n}|${n ? events[n - 1].ts : 0}|${n ? events[0].ts : 0}|${int(t / 60)}`;
+	if (key != counts24.key) counts24 = { key, n: count_events(t - 86400) };
+	return counts24.n;
+}
+
 function count_events(since) {
 	let n = { warn: 0, err: 0 };
 	for (let i = length(events) - 1; i >= 0; i--) {
@@ -619,10 +631,13 @@ function sample_system() {
 
 	let y = cfg.system;
 	if (o.cpu_max != null && y.cpu_warn > 0) {
+		/* two intervals in a row, so a single busy moment (e.g. opkg) does not
+		 * count: the run is counted only above the limit (it was kept between
+		 * limit - 10 and the limit, so two busy moments an hour apart counted
+		 * as "two in a row"); it ends 10 below the limit (hysteresis) */
 		if (o.cpu_max >= y.cpu_warn) sys.cpu_n++;
-		else if (o.cpu_max < y.cpu_warn - 10) sys.cpu_n = 0;
-		/* two intervals in a row, so a single busy moment (e.g. opkg) does not count */
-		load_flag('cpu', sys.cpu_n >= 2, sys.cpu_n == 0, 'cpu_high', { cpu: o.cpu_max, sirq: o.sirq_max, core: o.core });
+		else sys.cpu_n = 0;
+		load_flag('cpu', sys.cpu_n >= 2, o.cpu_max < y.cpu_warn - 10, 'cpu_high', { cpu: o.cpu_max, sirq: o.sirq_max, core: o.core });
 	}
 	if (o.mem_pct != null && y.mem_warn > 0)
 		load_flag('mem', o.mem_pct < y.mem_warn, o.mem_pct >= y.mem_warn + 5, 'mem_low', { pct: o.mem_pct });
@@ -794,6 +809,32 @@ function read_log() {
 
 /* ------------------------------------------------------------------- CSV */
 
+/* ping targets with a column in the CSV. Kept when a target goes quiet
+ * (collectd restarted, one tick without values): a header change moves
+ * samples.csv to samples.prev.csv, and two of them in a row (the targets
+ * gone, then back) overwrote the previous 24 h with a file of one row. A
+ * target that is not measured just has empty cells; only a new one changes
+ * the header. Seeded from the file's own header at start, so a restart with
+ * collectd not answering yet does not start a new file either. */
+let csv_tl = null;
+
+function csv_targets() {
+	if (csv_tl == null) {
+		csv_tl = [];
+		let f = fs.open(`${RUNDIR}/samples.csv`, 'r');
+		let first = f ? (f.read('line') ?? '') : '';
+		if (f) f.close();
+		for (let c in split(trim(first), ','))
+			if (match(c, /^ping_(.+)_loss$/)) push(csv_tl, substr(c, 5, length(c) - 10));
+	}
+	for (let k, x in targets)
+		if (x.active && index(csv_tl, x.label) < 0) push(csv_tl, x.label);
+	let by = {};
+	for (let k, x in targets)
+		if (x.active) by[x.label] = x;
+	return map(csv_tl, (l) => ({ label: l, t: by[l] }));
+}
+
 function csv_columns(devs, tlist) {
 	let cols = [ 'time', 'overall' ];
 	for (let t in tlist) push(cols, `ping_${t.label}_loss`, `ping_${t.label}_rtt`, `ping_${t.label}_jitter`);
@@ -884,10 +925,11 @@ function handle_clear_request() {
 	agg = null;
 	fs.unlink(`${RUNDIR}/history.json`);
 	fs.unlink(`${RUNDIR}/samples.prev.csv`);
-	if (csv_header != null)
-		fs.writefile(`${RUNDIR}/samples.csv`, csv_header + '\n');
-	else
-		fs.unlink(`${RUNDIR}/samples.csv`);
+	/* started again on the next tick, with the columns of the ping targets
+	 * measured now (a target removed from collectd keeps its column until then) */
+	fs.unlink(`${RUNDIR}/samples.csv`);
+	csv_header = null;
+	csv_tl = [];
 	csv_rows = 0;
 	emit('info', 'system', 'collector', 'cleared', {});
 }
@@ -1094,16 +1136,14 @@ function tick() {
 		agg_add(t, mv);
 
 		/* ---- CSV */
-		let tlist = [];
-		for (let k, x in targets)
-			if (x.active) push(tlist, { label: x.label, t: x });
+		let tlist = csv_targets();
 		let cols = csv_columns(devs, tlist);
 		/* also when the file is gone (deleted, the USB stick re-mounted):
 		 * appending would make a file without the header line */
 		if (join(',', cols) != csv_header || !fs.stat(`${RUNDIR}/samples.csv`)) csv_open(cols);
 
 		let row = [ tstamp(t), overall ];
-		for (let x in tlist) push(row, x.t.res?.loss, x.t.res?.rtt, x.t.res?.jitter);
+		for (let x in tlist) push(row, x.t?.res?.loss, x.t?.res?.rtt, x.t?.res?.jitter);
 		if (iptv_on()) {
 			/* no quoting in this CSV: commas and quotes in names become spaces */
 			let ch = chn_now();
@@ -1133,7 +1173,7 @@ function tick() {
 		own,
 		peer: peer_out(),
 		peers: peers ? peers : null,
-		counts: { h1: count_events(t - 3600), h24: count_events(t - 86400) },
+		counts: { h1: count_events(t - 3600), h24: count_events24(t) },
 		history,
 		csv_rows,
 		data: { dir: RUNDIR, link: (fs.lstat(RUNDIR)?.type == 'link') ? fs.readlink(RUNDIR) : null },

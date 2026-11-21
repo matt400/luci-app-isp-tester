@@ -59,14 +59,97 @@ function notify_queue(e) {
 	}
 }
 
+/*
+ * The address holds the secret (the Telegram bot token, the ntfy topic):
+ * given to uclient-fetch it stood in its command line, which every process
+ * on the router can read (ps, /proc/<pid>/cmdline). With the uclient module
+ * of ucode (ucode-mod-uclient) the request is made inside the collector,
+ * so it appears nowhere. Without the module - or when it does not work as
+ * expected (an HTTP error from the server on its first try, an exception) -
+ * uclient-fetch is used as before, with the body in a file (--post-file).
+ */
+const CA_FILE = '/etc/ssl/certs/ca-certificates.crt';
+let ucl = { mod: null, off: !!getenv('ISP_TESTER_CONFIG'), proven: false };
+
+function ucl_mod() {
+	if (ucl.off) return null;
+	if (ucl.mod == null) {
+		try { ucl.mod = require('uclient'); }
+		catch (e) { ucl.off = true; return null; }
+	}
+	return ucl.mod;
+}
+
+/* POST over the uclient module; done(ok, err) once. false: not started */
+function post_ucl(url, body, ctype, done) {
+	let U = ucl_mod();
+	if (!U) return false;
+	let cl = null, timer = null, status = null, over = false;
+	let end = (ok, err) => {
+		if (over) return;
+		over = true;
+		timer?.cancel();
+		/* freed outside its own callback */
+		ucl.free_t = uloop.timer(1, () => { ucl.free_t = null; try { cl?.free(); } catch (e) {} });
+		done(ok, err, status);
+	};
+	try {
+		cl = U.new(url, null, {
+			header_done: () => { try { status = cl.status()?.status; } catch (e) {} },
+			/* the answer is not needed, but it must be read */
+			data_read: () => {
+				try { for (let i = 0; i < 64; i++) if (!length(cl.read() ?? '')) break; }
+				catch (e) {}
+			},
+			data_eof: () => end(status >= 200 && status < 300, status),
+			/* the module passes the callback object first, then the value */
+			error: (cb, code) => end(false, `uclient ${code}`)
+		});
+		if (!cl) return false;
+		if (substr(url, 0, 6) == 'https:' &&
+		    !cl.ssl_init({ ca_files: [ CA_FILE ], verify: true })) { cl.free(); return false; }
+		cl.set_timeout(15000);
+		if (!cl.connect() || !cl.request('POST', { headers: { 'Content-Type': ctype }, post_data: body })) {
+			cl.free();
+			return false;
+		}
+	}
+	catch (e) {
+		try { cl?.free(); } catch (e2) {}
+		ucl.off = true;
+		return false;
+	}
+	timer = uloop.timer(30000, () => end(false, 'timeout'));
+	return true;
+}
+
+/* POST with uclient-fetch; the body (chat id, messages) in a file, not in
+ * the command line */
+function post_fetch(url, body, ctype, done) {
+	if (!FETCH) return false;
+	let f = `${VARDIR}/notify.body`;
+	if (fs.writefile(f, body) == null) return false;
+	/* (only root may read it; chmod is missing in older ucode builds) */
+	try { fs.chmod(f, 0600); } catch (e) {}
+	let args = [ '-q', '-T', '15', '-O', '/dev/null', `--post-file=${f}`, url ];
+	/* without it the receiver gets JSON as a form-encoded body */
+	if (ctype != 'application/x-www-form-urlencoded') splice(args, 5, 0, `--header=Content-Type: ${ctype}`);
+	let proc = uloop.process(FETCH, args, null, (code) => {
+		fs.unlink(f);
+		done(code == 0, code, null);
+	});
+	if (!proc) { fs.unlink(f); return false; }
+	return true;
+}
+
 function notify_flush(force) {
 	let n = C.cfg.notify;
-	if (!n.enabled || notif.busy || !length(notif.pending) || !FETCH) return;
+	if (!n.enabled || notif.busy || !length(notif.pending) || (!FETCH && !ucl_mod())) return;
 	if (!force && now() - notif.last < n.cooldown && now() >= notif.last) return;
 
 	let count = length(notif.pending);
 	let text = `ISP Tester (${C.hostname})\n` + join('\n', notif.pending);
-	let url, body, extra = [];
+	let url, body, ctype = 'application/x-www-form-urlencoded';
 
 	if (n.service == 'telegram') {
 		if (!n.token || !n.chat_id) return;
@@ -76,10 +159,11 @@ function notify_flush(force) {
 	else if (n.service == 'webhook') {
 		url = n.url;
 		body = sprintf('%J', { text, host: C.hostname, events: notif.pending });
-		/* without it the receiver gets the JSON as a form-encoded body */
-		push(extra, '--header=Content-Type: application/json');
+		ctype = 'application/json';
 	}
 	else {
+		/* ntfy takes the body as the message, whatever its type: the form
+		 * type uclient-fetch sends anyway, so no --header is needed */
 		url = n.url;
 		body = text;
 	}
@@ -87,23 +171,37 @@ function notify_flush(force) {
 
 	notif.busy = true;
 	notif.last = now();
-	let cut0 = notif.cut;
-	let proc = uloop.process(FETCH, [ '-q', '-T', '15', '-O', '/dev/null', ...extra, `--post-data=${body}`, url ], null, (code) => {
+	let cut0 = notif.cut, via = null;
+	let done = (ok, err, status) => {
+		/* the module answered, but the server refused what it sent (an
+		 * older module without post_data sends no body): uclient-fetch
+		 * from now on, and at once */
+		if (!ok && via == 'uclient' && !ucl.proven && status >= 400 && status < 500 && FETCH) {
+			ucl.off = true;
+			via = 'fetch';
+			if (post_fetch(url, body, ctype, done)) return;
+		}
 		notif.busy = false;
-		if (code == 0) {
+		if (ok) {
+			if (via == 'uclient') ucl.proven = true;
 			notif.pending = slice(notif.pending, max(0, count - (notif.cut - cut0)));
 			notif.last_ok = now();
+			notif.via = via;
 		}
 		else {
 			notif.last_fail = now();
-			notif.last_err = code;
+			notif.last_err = err;
 			/* no Internet (the usual reason): retry in a minute (or after the
 			 * cooldown, when it is shorter; a time "in the future" would let
 			 * the next tick send at once) */
 			notif.last = now() - max(0, n.cooldown - 60);
 		}
-	});
-	if (!proc) notif.busy = false;
+	};
+	via = 'uclient';
+	if (post_ucl(url, body, ctype, done)) return;
+	via = 'fetch';
+	if (post_fetch(url, body, ctype, done)) return;
+	notif.busy = false;
 }
 
 /* request from the web UI: send a test message */
@@ -121,7 +219,8 @@ function notify_test() {
 function notify_status() {
 	let n = C.cfg.notify;
 	return n.enabled ? { service: n.service, pending: length(notif.pending),
-		last_ok: notif.last_ok, last_fail: notif.last_fail, last_err: notif.last_err, fetch: FETCH != null } : null;
+		last_ok: notif.last_ok, last_fail: notif.last_fail, last_err: notif.last_err, via: notif.via,
+		fetch: FETCH != null || ucl_mod() != null } : null;
 }
 
 export { RECOVERY, notify_init, notify_queue, notify_flush, notify_test, notify_status };

@@ -392,9 +392,6 @@ msgstr ""
 msgid "WAN device"
 msgstr ""
 
-msgid "Traffic ↓ / ↑"
-msgstr ""
-
 msgid "Ping data"
 msgstr ""
 
@@ -461,9 +458,6 @@ msgstr ""
 msgid "for %s"
 msgstr ""
 
-msgid "Usual bitrate"
-msgstr ""
-
 msgid "Packets/s"
 msgstr ""
 
@@ -522,12 +516,6 @@ msgid "Link"
 msgstr ""
 
 msgid "Up for"
-msgstr ""
-
-msgid "Total errors / dropped packets since boot"
-msgstr ""
-
-msgid "Err / drop"
 msgstr ""
 
 msgid "Link state changes since boot"
@@ -1922,9 +1910,6 @@ msgstr ""
 msgid "%s MB"
 msgstr ""
 
-msgid "%d kB"
-msgstr ""
-
 msgid "Share of the router's whole CPU (%d cores) used by the tester:"
 msgstr ""
 
@@ -2064,9 +2049,6 @@ msgid "no IPv6 ping target"
 msgstr ""
 
 msgid "no statistics from dnsmasq (ubus)"
-msgstr ""
-
-msgid "%d queries/min"
 msgstr ""
 
 msgid "%d%% from the cache"
@@ -2670,4 +2652,16 @@ msgid "Where it is measured"
 msgstr ""
 
 msgid "running"
+msgstr ""
+
+msgid "Not asked while dnsmasq logs every query (Network → DHCP and DNS → Log queries): it then writes its whole cache to the log as well."
+msgstr ""
+
+msgid "dnsmasq logs every query, so it is not asked for its per-server statistics (it would also write its whole cache to the log)."
+msgstr ""
+
+msgid "no per-server statistics"
+msgstr ""
+
+msgid "The last try was interrupted (%s)."
 msgstr ""

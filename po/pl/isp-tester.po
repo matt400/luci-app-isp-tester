@@ -395,9 +395,6 @@ msgstr "Anuluj"
 msgid "WAN device"
 msgstr "Urządzenie WAN"
 
-msgid "Traffic ↓ / ↑"
-msgstr "Ruch ↓ / ↑"
-
 msgid "Ping data"
 msgstr "Dane ping"
 
@@ -464,9 +461,6 @@ msgstr "przychodzący"
 msgid "for %s"
 msgstr "od %s"
 
-msgid "Usual bitrate"
-msgstr "Zwykły bitrate"
-
 msgid "Packets/s"
 msgstr "Pakiety/s"
 
@@ -526,12 +520,6 @@ msgstr "Łącze"
 
 msgid "Up for"
 msgstr "Działa od"
-
-msgid "Total errors / dropped packets since boot"
-msgstr "Suma błędów / odrzuconych pakietów od startu"
-
-msgid "Err / drop"
-msgstr "Błędy / odrz."
 
 msgid "Link state changes since boot"
 msgstr "Zmiany stanu łącza od startu"
@@ -1925,9 +1913,6 @@ msgstr "%d wcześniejszych wpisów z tego uruchomienia przesunięto na właściw
 msgid "%s MB"
 msgstr "%s MB"
 
-msgid "%d kB"
-msgstr "%d kB"
-
 msgid "Share of the router's whole CPU (%d cores) used by the tester:"
 msgstr "Udział całego CPU routera (%d rdzeni) używany przez tester:"
 
@@ -2068,9 +2053,6 @@ msgstr "brak celu ping IPv6"
 
 msgid "no statistics from dnsmasq (ubus)"
 msgstr "brak statystyk z dnsmasq (ubus)"
-
-msgid "%d queries/min"
-msgstr "%d zapytań/min"
 
 msgid "%d%% from the cache"
 msgstr "%d%% z pamięci podręcznej"
@@ -2674,3 +2656,15 @@ msgstr "Gdzie mierzone"
 
 msgid "running"
 msgstr "działa"
+
+msgid "Not asked while dnsmasq logs every query (Network → DHCP and DNS → Log queries): it then writes its whole cache to the log as well."
+msgstr "Nie jest wysyłane, gdy dnsmasq zapisuje w logu każde zapytanie (Sieć → DHCP i DNS → logowanie zapytań): zapisałby wtedy do logu także całą swoją pamięć podręczną."
+
+msgid "dnsmasq logs every query, so it is not asked for its per-server statistics (it would also write its whole cache to the log)."
+msgstr "dnsmasq zapisuje w logu każde zapytanie, więc nie jest proszony o statystyki serwerów (zapisałby do logu także całą pamięć podręczną)."
+
+msgid "no per-server statistics"
+msgstr "bez statystyk serwerów"
+
+msgid "The last try was interrupted (%s)."
+msgstr "Ostatnia próba została przerwana (%s)."

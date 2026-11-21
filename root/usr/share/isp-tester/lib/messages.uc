@@ -165,7 +165,8 @@ function event_text(e, lang) {
 	case 'dns_ok': return sprintf(f, dur_txt(d.dur), d.max_pct);
 	case 'dns_server_bad': return sprintf(f, e.src, d.bad, d.sent, dur_txt(d.win));
 	case 'dns_server_ok': return sprintf(f, e.src);
-	case 'router_reboot': return sprintf(f, tstamp(d.boot));
+	/* no boot time when /proc/uptime could not be read: localtime(null) is "now" */
+	case 'router_reboot': return sprintf(f, (type(d.boot) == 'int') ? tstamp(d.boot) : '?');
 	case 'collector_restart': return sprintf(f, d.why == 'hung'
 		? (lang == 'pl' ? 'się zawiesił (watchdog)' : 'hung (watchdog)')
 		: (lang == 'pl' ? 'nieoczekiwanie się zatrzymał' : 'stopped unexpectedly'));

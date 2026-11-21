@@ -206,7 +206,7 @@ The Internet card shows *IPv6: prefix …/56 · RA OK · ping 2/2*; the analysis
 "Pages do not open but ping works" is often DNS. There is no own resolver test; dnsmasq already counts everything:
 
 - **Every interval**, `ubus call dnsmasq metrics`: queries sent upstream (`dns_queries_forwarded`), answered from the cache or locally, and `dns_unanswered` (sent upstream, but no server answered in time). When at least *Unanswered for a warning* (10 %) of the queries sent upstream within a minute stay unanswered (and at least 5 were sent), **DNS failing** is logged; it ends when the share falls below half of that.
-- **Per upstream server**, every 5 min (*Per-server statistics*): `kill -USR1` makes dnsmasq write its statistics to the system log (`server 1.1.1.1#53: queries sent 120, retried 3, failed 0, nxdomain replies 4, avg. latency 18ms`), which the collector reads with the rest of the log. *Retried* is a query that got no answer in time, *failed* a SERVFAIL/REFUSED. A server with 10 % or more of them since the previous dump is logged as *DNS server X: N of M queries retried or failed*. Each dump adds a few lines to the system log; set it to *Off* to avoid that.
+- **Per upstream server**, every 5 min (*Per-server statistics*): `kill -USR1` makes dnsmasq write its statistics to the system log (`server 1.1.1.1#53: queries sent 120, retried 3, failed 0, nxdomain replies 4, avg. latency 18ms`), which the collector reads with the rest of the log. *Retried* is a query that got no answer in time, *failed* a SERVFAIL/REFUSED. A server with 10 % or more of them since the previous dump is logged as *DNS server X: N of M queries retried or failed*. Each dump adds a few lines to the system log; set it to *Off* to avoid that. While dnsmasq logs every query (*Log queries* in Network → DHCP and DNS) the dump is not asked for: dnsmasq would then write its whole cache to the log too.
 
 The Internet card shows *DNS: 85 queries/min · 60 % from the cache · 0 % unanswered · 1.1.1.1 18 ms*. The analysis puts DNS failures while the line works on the upstream DNS server (the ISP's, or the one you set); during an outage they are just part of it.
 
@@ -268,7 +268,7 @@ How it works: UDP (default port 51477), one JSON message per datagram, signed wi
 
 ## Notifications
 
-**Settings → Notifications** sends a push message when something breaks and when it is fixed: [ntfy](https://ntfy.sh) (topic URL), a Telegram bot (token + chat id) or any webhook (JSON POST `{"text": …}`). Events are batched (default at most one message per 5 min). Messages that cannot be sent during an outage are sent when the Internet is back. Messages are in English or Polish. It uses `uclient-fetch` (part of OpenWrt) with HTTPS support.
+**Settings → Notifications** sends a push message when something breaks and when it is fixed: [ntfy](https://ntfy.sh) (topic URL), a Telegram bot (token + chat id) or any webhook (JSON POST `{"text": …}`). Events are batched (default at most one message per 5 min). Messages that cannot be sent during an outage are sent when the Internet is back. Messages are in English or Polish. It uses `uclient-fetch` (part of OpenWrt) with HTTPS support. The address holds the secret (the bot token, the ntfy topic), and a command line can be read by every process on the router: with `ucode-mod-uclient` installed (`opkg install ucode-mod-uclient`, where the release has it) the message is sent from inside the collector instead, so the address appears in no command line; without it, or if the module refuses, `uclient-fetch` is used as before (the message itself goes in a file, not in the command line).
 
 | File | Content |
 |------|---------|
@@ -387,7 +387,7 @@ Push a tag like `v0.2.0`. GitHub Actions builds the `.ipk` (24.10) and `.apk` (2
 
 ```sh
 ROUTER=root@192.168.1.1
-ssh $ROUTER 'opkg update && opkg install ucode-mod-fs ucode-mod-uloop ucode-mod-uci ucode-mod-ubus rpcd-mod-ucode'
+ssh $ROUTER 'opkg update && opkg install ucode-mod-fs ucode-mod-uloop ucode-mod-uci ucode-mod-ubus ucode-mod-socket ucode-mod-digest rpcd-mod-ucode ip-bridge'
 scp -O -r root/* $ROUTER:/
 scp -O -r htdocs/luci-static/resources/* $ROUTER:/www/luci-static/resources/
 ssh $ROUTER 'chmod +x /etc/init.d/isp_tester && sh /etc/uci-defaults/80_luci-isp-tester'

@@ -63,6 +63,7 @@
 #define PSI_REFRESH  600.0   /* s: read PAT/SDT again (names change rarely) */
 #define PSI_MAX      4096
 #define NAME_MAX_LEN 64
+#define RTP_JUMP     4096    /* RTP sequence jump ahead that is a new sequence, not a loss */
 
 struct psibuf {
 	uint8_t data[PSI_MAX + 188];
@@ -597,8 +598,8 @@ static void handle_frame(const uint8_t *f, int caplen, int wirelen, double t)
 
 	/* datagram timing; a long silence is a new stream (channel changed
 	 * back, decoder restarted), where the counters start over */
-	if (g->t_last >= 0) {
-		double gap = t - g->t_last;
+	double gap = (g->t_last >= 0) ? t - g->t_last : -1;
+	if (gap >= 0) {
 		if (gap >= GAP_RESET) {
 			g->restarts++;
 			cc_reset(g);
@@ -621,6 +622,16 @@ static void handle_frame(const uint8_t *f, int caplen, int wirelen, double t)
 			if (d == 0 || d > 0x8000) {
 				g->t_last = t;
 				if (d == 0 || ++g->rtp_back < 32) return;
+				cc_reset(g);
+				g->restarts++;
+				d = 1;
+			}
+			/* a jump ahead by thousands within a second is no loss either: that
+			 * many lost packets take seconds of stream (4096 RTP packets are
+			 * 1.7 s even at 25 Mbit/s), i.e. a pause that resets the counters
+			 * (GAP_RESET) - it is a sender that started a new sequence, which
+			 * was counted as up to 32767 lost packets at once */
+			else if (d > RTP_JUMP && gap >= 0 && gap < 1.0) {
 				cc_reset(g);
 				g->restarts++;
 				d = 1;

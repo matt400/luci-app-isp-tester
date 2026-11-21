@@ -442,7 +442,7 @@ function eventText(e) {
 	case 'dns_server_bad':  return _('DNS server %s: %d of %d queries retried or failed within %s (%d retried = no answer in time, %d failed = SERVFAIL/REFUSED)').format(e.src, d.bad, d.sent, fmtDur(d.win), d.retried, d.failed) +
 		(d.lat != null ? ' · ' + _('average %d ms').format(d.lat) : '');
 	case 'dns_server_ok':   return _('DNS server %s answers normally again').format(e.src);
-	case 'router_reboot':   return _('ROUTER RESTARTED – up since %s').format(fmtTime(d.boot)) + (d.ram ? ' · ' + _('earlier data was in RAM and is lost') : '');
+	case 'router_reboot':   return _('ROUTER RESTARTED – up since %s').format(d.boot ? fmtTime(d.boot) : '?') + (d.ram ? ' · ' + _('earlier data was in RAM and is lost') : '');
 	case 'collector_restart': return (d.why === 'hung'
 		? _('Monitor restarted by the watchdog: it hung (last report %s before)')
 		: _('Monitor restarted after it stopped unexpectedly (last report %s before)')).format(fmtDur(d.after));
@@ -1347,6 +1347,9 @@ return view.extend({
 				dt.push(E('span', { 'class': x.bad ? 'ispt-warn-text' : '', 'title': _('Since the previous statistics: %d sent, %d retried, %d failed').format(d.sent || 0, d.retried || 0, d.failed || 0) },
 					x.server + (x.lat != null ? ' ' + num(x.lat) + ' ms' : '') + (d.sent ? ' ' + _('%d%% bad').format(Math.round((d.bad || 0) * 100 / d.sent)) : '')));
 			});
+			if (dn.logqueries && !dn.err)
+				dt.push(E('span', { 'class': 'ispt-muted', 'title': _('dnsmasq logs every query, so it is not asked for its per-server statistics (it would also write its whole cache to the log).') },
+					_('no per-server statistics')));
 			var dp = [];
 			dt.forEach(function(x, i) { if (i) dp.push(' · '); dp.push(x); });
 			dnskv.push(E('span', { 'class': 'k', 'title': _('DNS of the router, from dnsmasq\'s own statistics') }, _('DNS')), E('span', {}, dp));
@@ -2184,6 +2187,13 @@ return view.extend({
 	exportSamples: function() {
 		return fs.read_direct('/tmp/isp-tester/samples.csv').then(function(data) {
 			download('isp-tester-samples-' + stamp() + '.csv', data);
+			/* the measurements from before the columns last changed (a ping target
+			 * or a port added) are kept in their own file: offered too, it was
+			 * readable by nobody but the data push */
+			return fs.read_direct('/tmp/isp-tester/samples.prev.csv').then(function(prev) {
+				if (prev && prev.indexOf('\n') > 0 && prev.indexOf('\n') < prev.length - 1)
+					download('isp-tester-samples-' + stamp() + '-previous.csv', prev);
+			}).catch(function() {});
 		}).catch(function(e) {
 			ui.addNotification(null, E('p', _('Unable to read measurements: %s').format(e.message)), 'error');
 		});
