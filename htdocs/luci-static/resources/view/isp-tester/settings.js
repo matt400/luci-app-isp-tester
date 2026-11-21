@@ -601,6 +601,12 @@ return view.extend({
 		o.default = '1';
 		o.rmempty = false;
 
+		o = s.taboption('basic', form.Flag, 'igmp_query', _('Watch the operator\'s IGMP queries'),
+			_('Shows how long ago the operator sent its last IGMP general query and warns when they stop: without them the memberships expire after about two intervals and the stream freezes. Works on the port facing the ISP (incoming traffic). Needs the isp-tester-tsmon package.'));
+		o.default = '1';
+		o.rmempty = false;
+		o.depends('igmp', '1');
+
 		o = s.taboption('basic', form.Flag, 'names', _('Identify channel names'),
 			_('Reads the name of each channel from the stream itself (DVB service table, sent in the clear also on encrypted channels), by the same helper as the picture quality. Names are shown on the status page, in the timeline, the CSV and notifications. Needs the isp-tester-tsmon package.'));
 		o.default = '1';

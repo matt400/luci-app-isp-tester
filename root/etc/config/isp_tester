@@ -114,6 +114,10 @@ config iptv 'iptv'
 	option dip_pct '40'
 	# watch IGMP group membership and the multicast proxy (igmpproxy, mcproxy)
 	option igmp '1'
+	# note the operator's IGMP general queries on the IPTV VLAN (time since the
+	# last one, silence = memberships expire). Needs isp-tester-tsmon and the
+	# measurement of incoming traffic
+	option igmp_query '1'
 	# interface the proxy joins the groups on (its upstream); empty = the IPTV
 	# device when measuring incoming traffic
 	option igmp_device ''

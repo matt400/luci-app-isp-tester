@@ -331,12 +331,15 @@ return baseclass.extend({
 				(e.type === 'log' && e.d && [ 'conntrack_drop', 'oom', 'dns_limit' ].indexOf(e.d.kind) >= 0); }));
 
 		/* ---- IPTV: classify every stall by what happened at the same time */
-		var withWan = [], withPort = [], withDev = [], withProxy = [], lonely = [];
+		var withWan = [], withPort = [], withDev = [], withProxy = [], withNoQuery = [], lonely = [];
+		/* the operator stopped sending IGMP queries: from the first silent moment until they were back */
+		var noQuery = periods(sorted, [ 'igmp_noquery' ], to);
 		stalls.forEach(function(s) {
 			if (near(proxyBad, s.ts, 60)) withProxy.push(s);
 			else if (near(anyWan, s.ts)) withWan.push(s);
 			else if (near(anyPort, s.ts)) withPort.push(s);
 			else if (near(iptvDevErr, s.ts)) withDev.push(s);
+			else if (inPeriods(noQuery, s.ts, 30)) withNoQuery.push(s);
 			else lonely.push(s);
 		});
 		/* lonely freezes where the membership was dropped: IGMP timeout */
@@ -361,6 +364,13 @@ return baseclass.extend({
 		add('isp', 2, 'stall_with_wan', withWan, { total: stalls.length });
 		add('home', 2, 'stall_with_port', withPort, { total: stalls.length, devs: uniq(anyPort, 'src').join(', ') });
 		add('edge', 1.5, 'stall_with_dev', withDev, { total: stalls.length });
+		/* the memberships expired because the operator's queries stopped: not the router's timers */
+		add('isp', 3, 'stall_no_query', withNoQuery, { total: stalls.length });
+		add('info', 0, 'igmp_noquery', by(function(e) { return e.type === 'igmp_noquery'; }).filter(function(e) { return withNoQuery.length === 0; }));
+		/* the operator never asked at all while the freezes went on */
+		var iq = ctx.igmpq;
+		if (stalls.length && iq && iq.gen === 0 && iq.never)
+			findings.push({ side: 'isp', code: 'isp_no_queries', n: 1, last: 0, weight: 2, args: { mins: Math.round((iq.seen_for || 0) / 60) } });
 
 		var period = periodicity(lonely.concat(left));
 		var timer = null;
@@ -525,6 +535,9 @@ return baseclass.extend({
 		case 'stall_periodic':  return a.timer
 			? _('IPTV freezes repeat every ~%d s – the same as the bridge\'s IGMP %s interval (%d s): the membership times out. Enable the IGMP querier on the bridge or fix the proxy.').format(a.period, a.timer === 'membership' ? _('membership') : _('query'), a.timer_s)
 			: _('IPTV freezes repeat every ~%d s – typical IGMP membership timeout: check the IGMP querier / snooping / proxy on the router.').format(a.period);
+		case 'stall_no_query':  return _('%d of %d IPTV freezes happened while the operator sent no IGMP queries – the memberships expire without them: ISP multicast side, not the router.').format(f.n, a.total);
+		case 'igmp_noquery':    return _('The operator\'s IGMP queries stopped %d× (see the timeline).').format(f.n);
+		case 'isp_no_queries':  return _('No IGMP query from the operator was seen in %d min although IPTV freezes occurred – the ISP side does not keep the memberships alive (check that the capture port faces the ISP).').format(a.mins);
 		case 'stall_igmp_left': return _('%d of %d IPTV freezes started when the IGMP membership was dropped, then the decoder joined again – IGMP timeout on the router/switch (querier, snooping, proxy).').format(f.n, a.total);
 		case 'stall_upstream_joined': return _('%d of %d IPTV freezes: the router stayed subscribed to the channel but the ISP stopped sending – ISP multicast side.').format(f.n, a.total);
 		case 'stall_zap':       return _('%d IPTV interruptions were channel changes – ignored.').format(f.n);

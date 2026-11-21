@@ -175,6 +175,8 @@ function default_config() {
 			min_kbps: 500, idle_after: 60, off_after: 15, dip_pct: 40,
 			sample_interval: 1, stall_after: 2,
 			igmp: true, igmp_device: '',
+			/* the operator's IGMP queries on the IPTV VLAN (needs isp-tester-tsmon) */
+			igmp_query: true,
 			quality: false, q_warn: 1, q_fail: 30, q_gap: 500,
 			names: true, channels: {},
 			/* decoder restarts: bridge MAC table (bridged VLAN) + port link; decoders = { mac: label } */
@@ -286,6 +288,7 @@ function load_config() {
 			if (s.mac) c.iptv.dec_labels[lc(trim(s.mac))] = s.label ?? '';
 		});
 		c.iptv.igmp        = bool(t.igmp, true);
+		c.iptv.igmp_query  = bool(t.igmp_query, true);
 		c.iptv.igmp_device = t.igmp_device ?? '';
 
 		c.system.enabled        = bool(y.enabled, true);
@@ -485,6 +488,10 @@ let igmp = { groups: null, joined: {}, hist: [], proxy: null, proxy_seen: false,
  * pend/last_ev/last_lvl = per group, errors whose event is held back by the
  * cooldown, cc_acc = errors since the last tick (history chart),
  * dropped/drop_ts = packets the router could not count */
+const IGQ_RING = 8;
+let igq = { on: false, pid: null, gen: 0, total: 0, last_ts: null, ivals: [], src: null, ver: null, qqic: null,
+	max_resp: null, since: null, silent: false, silent_ref: 0, ever: false };
+
 let tsq = { proc: null, args: null, started: 0, fails: 0, next: 0, err: null, seen: {}, drops: null, flow: null,
 	win: [], last: null, pend: {}, last_ev: {}, last_lvl: {}, cc_acc: null, dropped: 0, drop_ts: 0 };
 /* channel names: db = group -> { name, provider, sid, ts } learned from the
@@ -521,6 +528,7 @@ const MSG = {
 		proxy_down: 'Multicast proxy %s is not running', proxy_up: 'Multicast proxy %s running again', proxy_restart: 'Multicast proxy %s restarted',
 		cpu_high: 'Router CPU busy: %d%% (softirq %d%%)', mem_low: 'Router RAM low: %d%% free', conntrack_full: 'Connection table %d%% full',
 		link_hogs: 'Link %d%% full (%s) for %s, heaviest: %s',
+		igmp_noquery: 'No IGMP query from the operator for %s (usually every %s)', igmp_noquery_ok: 'IGMP queries from the operator again after %s',
 		sfp_rx_drop: 'Optical signal weak: RX %s dBm (usually %s dBm)', sfp_los: 'NO LIGHT from the line on %s (SFP RX)',
 		sfp_alarm: 'SFP module alarm: %s', sfp_gone: 'SFP module on %s does not answer any more',
 		temp_high: 'Router hot: %s %s C (limit %s C)', throttle: 'Router CPU throttled by heat: %s MHz instead of %s MHz (%s C)',
@@ -562,6 +570,7 @@ const MSG = {
 		proxy_down: 'Proxy multicast %s nie działa', proxy_up: 'Proxy multicast %s znów działa', proxy_restart: 'Proxy multicast %s zrestartowany',
 		cpu_high: 'Router przeciążony: CPU %d%% (softirq %d%%)', mem_low: 'Mało RAM: wolne %d%%', conntrack_full: 'Tablica połączeń zajęta w %d%%',
 		link_hogs: 'Łącze zajęte w %d%% (%s) przez %s, najwięcej: %s',
+		igmp_noquery: 'Brak zapytań IGMP od operatora od %s (zwykle co %s)', igmp_noquery_ok: 'Zapytania IGMP od operatora wróciły po %s',
 		sfp_rx_drop: 'Słaby sygnał optyczny: RX %s dBm (zwykle %s dBm)', sfp_los: 'BRAK ŚWIATŁA z linii na %s (RX SFP)',
 		sfp_alarm: 'Alarm modułu SFP: %s', sfp_gone: 'Moduł SFP na %s przestał odpowiadać',
 		temp_high: 'Router przegrzany: %s %s C (próg %s C)', throttle: 'Procesor routera dławiony przez temperaturę: %s MHz zamiast %s MHz (%s C)',
@@ -629,6 +638,8 @@ function event_text(e, lang) {
 	case 'sfp_rx_drop': return sprintf(f, d.rx, d.base ?? '?');
 	case 'sfp_los': case 'sfp_gone': return sprintf(f, d.dev);
 	case 'sfp_alarm': return sprintf(f, join(', ', d.flags ?? []));
+	case 'igmp_noquery': return sprintf(f, dur_txt(d.silent), dur_txt(d.expected));
+	case 'igmp_noquery_ok': return sprintf(f, dur_txt(d.dur));
 	case 'link_hogs': return sprintf(f, d.load, d.dir == 'up' ? (lang == 'pl' ? 'wysyłanie' : 'upload') : (lang == 'pl' ? 'pobieranie' : 'download'),
 		dur_txt(d.win), join(', ', map(slice(d.hosts ?? [], 0, 3), (h) => sprintf('%s %d%%', h.name ?? h.id, h.share))) || '-');
 	case 'temp_high': return sprintf(f, d.zone, d.temp, d.warn);
@@ -3775,6 +3786,12 @@ function iptv_out(devres) {
 			push(reasons, { c: 'proxy_down', name: igmp.last_name });
 			o.level = level;
 		}
+		o.igmpq = igmpq_out();
+		if (o.igmpq?.silent) {
+			level = worst(level, 'warn');
+			push(reasons, { c: 'igmp_noquery', since: o.igmpq.since });
+			o.level = level;
+		}
 	}
 	o.channels = chn_out(o);
 	return o;
@@ -3996,6 +4013,92 @@ function sample_iptv(devres) {
 	return iptv_out(devres);
 }
 
+/* -------------------------------------- IGMP queries of the operator */
+
+/*
+ * "Does the operator still ask?": the operator's router keeps the IPTV
+ * memberships alive by sending an IGMP general query (to 224.0.0.1) about
+ * every 125 s and the decoders (through the router's proxy) answer it.
+ * When the queries stop, the memberships time out after about two intervals
+ * - 260 s with the defaults - and the stream stops, again and again every
+ * few minutes: the freezes look random but are an operator-side fault.
+ * The helper (isp-tester-tsmon -Q) sees the queries on the port towards the
+ * ISP and reports how many came and how long ago the last general one was.
+ * The bridge's own "IGMP timers" (sysfs) are only this router's settings:
+ * they say nothing about what the operator actually sends. Silence is judged
+ * against the interval seen (the median of the last gaps, else the query's
+ * own interval, else 125 s): more than two of them (plus the response time)
+ * without a general query = the memberships can expire. Only when queries
+ * were seen before, so an operator that never sends any is not reported as
+ * "stopped" but shown as "none seen".
+ */
+
+function igmpq_ingest(m, t, pid) {
+	if (type(m) != 'object') { igq.on = false; return; }
+	igq.on = true;
+	if (igq.pid != pid) {
+		/* a new helper counts from zero; time without it is unknown, not silence */
+		igq.pid = pid;
+		igq.gen = 0;
+		igq.since = t;
+		igq.silent = false;
+	}
+	let gen = m.gen ?? 0;
+	if (gen > igq.gen) {
+		let ts = t - ((m.gen_age ?? -1) >= 0 ? m.gen_age : 0);
+		if (gen - igq.gen == 1 && igq.last_ts != null && ts > igq.last_ts) {
+			push(igq.ivals, round(ts - igq.last_ts, 0));
+			if (length(igq.ivals) > IGQ_RING) shift(igq.ivals);
+		}
+		if (igq.silent) {
+			igq.silent = false;
+			emit('info', 'iptv', 'igmp', 'igmp_noquery_ok', { dur: round(ts - igq.silent_ref, 0), src: m.src }, ts);
+		}
+		igq.total += gen - igq.gen;
+		igq.gen = gen;
+		igq.last_ts = ts;
+		igq.ever = true;
+	}
+	if (m.src) igq.src = m.src;
+	igq.ver = m.ver || igq.ver;
+	igq.qqic = (m.qqic > 0) ? m.qqic : igq.qqic;
+	igq.max_resp = (m.max_resp > 0) ? m.max_resp : igq.max_resp;
+}
+
+/* the interval between the operator's general queries, in s */
+function igmpq_expected() {
+	let e = (length(igq.ivals) >= 3) ? median(igq.ivals) : (igq.qqic > 0 ? igq.qqic : 125);
+	return max(10, round(e, 0));
+}
+
+/* silence longer than this lets the memberships expire (s) */
+function igmpq_limit() {
+	return 2 * igmpq_expected() + ((igq.max_resp > 0) ? igq.max_resp / 10 : 10);
+}
+
+function igmpq_check(t) {
+	if (!igq.on || !igq.ever || igq.silent) return;
+	let ref = max(igq.last_ts ?? 0, igq.since ?? t);
+	let sil = t - ref;
+	if (sil > igmpq_limit()) {
+		igq.silent = true;
+		igq.silent_ref = ref;
+		/* dated from when the memberships began to expire, so a freeze at that moment falls inside the period */
+		emit('warn', 'iptv', 'igmp', 'igmp_noquery', { silent: round(sil, 0), expected: igmpq_expected(), src: igq.src,
+			ver: igq.ver, since: ref }, min(t, ref + 2 * igmpq_expected()));
+	}
+}
+
+function igmpq_out() {
+	if (!cfg.iptv.igmp_query || !igq.on) return null;
+	let t = now(), seen_for = t - (igq.since ?? t);
+	return { gen: igq.total, last: igq.last_ts, age: igq.last_ts != null ? round(t - igq.last_ts, 0) : null,
+		expected: igmpq_expected(), limit: igmpq_limit(), silent: igq.silent, since: igq.silent ? igq.silent_ref : null,
+		src: igq.src, ver: igq.ver, qqic: igq.qqic, max_resp: igq.max_resp, seen_for: round(seen_for, 0),
+		/* nothing at all in more than the time the memberships last */
+		never: !igq.ever && seen_for > igmpq_limit() + 60 };
+}
+
 /* ----------------------------------------------- IPTV picture quality */
 
 /*
@@ -4013,14 +4116,26 @@ function sample_iptv(devres) {
  * reported separately and never counted as errors of the ISP.
  */
 
+/* the IPTV streams themselves are looked at only for the picture quality, the channel names and the decoders' DHCP */
+function tsm_stream() {
+	return cfg.iptv.quality || cfg.iptv.names || (cfg.iptv.dhcp && cfg.iptv.vlan);
+}
+
+/* the operator's queries come in on the port towards the ISP, not on a decoder's port */
+function igq_want() {
+	return cfg.iptv.igmp_query && cfg.iptv.igmp && tsq_target()?.dir == 'in';
+}
+
 function tsm_want() {
-	return iptv_on() && (cfg.iptv.quality || cfg.iptv.names || (cfg.iptv.dhcp && cfg.iptv.vlan));
+	return iptv_on() && (tsm_stream() || igq_want());
 }
 
 function tsm_args(tg) {
 	let a = [ '-i', tg.dev, '-d', tg.dir, '-g', `${max(0, cfg.iptv.q_gap)}`, '-o', TSQ_STATE ];
 	if (tg.vid) push(a, '-v', `${int(tg.vid)}`);
-	if (cfg.iptv.dhcp) push(a, '-D');
+	if (cfg.iptv.dhcp && tsm_stream()) push(a, '-D');
+	if (igq_want()) push(a, '-Q');
+	if (!tsm_stream()) push(a, '-I');
 	return join(' ', a);
 }
 
@@ -4031,6 +4146,8 @@ function tsm_stop() {
 	tsq.seen = {};
 	tsq.drops = null;
 	tsq.flow = null;
+	igq.on = false;
+	igq.pid = null;
 	if (p) system([ '/bin/sh', '-c', `kill ${int(p.pid())} 2>/dev/null` ]);
 	fs.unlink(TSQ_STATE);
 }
@@ -4094,6 +4211,7 @@ function tsm_read() {
 	tsq.err = null;
 	if (t - tsq.started > 120) tsq.fails = 0;
 	dhcp_ingest(r);
+	igmpq_ingest(r.igmp, t, r.pid);
 
 	/* the socket overflowed: this router could not keep up, so lost packets
 	 * in this interval may be its own, not the ISP's */
@@ -4213,6 +4331,7 @@ function tsm_poll() {
 		return;
 	}
 	tsm_read();
+	igmpq_check(now());
 	chn.err = tsq.err;
 }
 
