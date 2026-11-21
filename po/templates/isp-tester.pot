@@ -1277,6 +1277,12 @@ msgstr ""
 msgid "Identify channel names"
 msgstr ""
 
+msgid "Channel names"
+msgstr ""
+
+msgid "Send data"
+msgstr ""
+
 msgid "IPTV channel names"
 msgstr ""
 
