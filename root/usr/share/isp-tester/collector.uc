@@ -135,6 +135,15 @@ function round(v, digits) {
 
 function absf(v) { return (v < 0) ? -v : v; }
 
+/* send a signal to processes; one shell for all of them. uloop.process()
+ * handles have no kill() (only pid() and delete()), so this is the way to
+ * stop a child */
+function kill_pids(sig, pids) {
+	let l = filter(map(pids ?? [], (p) => int(p)), (p) => p > 1);
+	if (length(l))
+		system([ '/bin/sh', '-c', `kill -${sig} ${join(' ', l)} 2>/dev/null` ]);
+}
+
 function worst(a, b) {
 	return (LEVEL[b] > LEVEL[a]) ? b : a;
 }
@@ -1029,9 +1038,12 @@ function hist_add(h, t, vals, max) {
 		let cut = n - max;
 		h.t = slice(h.t, cut);
 		for (let k, arr in h.s) {
-			h.s[k] = slice(arr, cut);
-			if (length(filter(h.s[k], (v) => v != null)) == 0)
-				delete h.s[k];
+			arr = h.s[k] = slice(arr, cut);
+			/* a series with no value left is dropped; searched from the end,
+			 * where a live series has its values, so it stops at once */
+			let i = length(arr) - 1;
+			while (i >= 0 && arr[i] == null) i--;
+			if (i < 0) delete h.s[k];
 		}
 	}
 }
@@ -1514,7 +1526,9 @@ function trace_request(host, label, trig, trig_ts) {
 	/* never let a stuck trace block the next one */
 	trace.timer = uloop.timer(60000, () => {
 		trace.timer = null;
-		if (trace.proc == p) { try { p.kill(); } catch (e) {} }
+		/* the tool runs under "exec", so its pid is the process' pid; its
+		 * exit callback then clears trace.proc */
+		if (trace.proc == p) kill_pids('TERM', [ p.pid() ]);
 	});
 }
 
@@ -2366,6 +2380,15 @@ function igmp_classify(from) {
 }
 
 function proxy_process() {
+	/* the proxy found last time is still running: no scan of all of /proc */
+	if (igmp.proxy != null && igmp.pid != null &&
+	    trim(fs.readfile(`${PROC}/${igmp.pid}/comm`) ?? '') == igmp.proxy)
+		return { name: igmp.proxy, pid: igmp.pid };
+	/* no proxy seen since the start (bridged IPTV needs none): look once a
+	 * minute only; nothing is reported until one has been seen */
+	let t = now();
+	if (!igmp.proxy_seen && t - (igmp.scan_ts ?? 0) < 60) return null;
+	igmp.scan_ts = t;
 	for (let pid in (fs.lsdir(PROC) ?? [])) {
 		if (!match(pid, /^[0-9]+$/)) continue;
 		let c = trim(fs.readfile(`${PROC}/${pid}/comm`) ?? '');
@@ -2655,8 +2678,7 @@ function sample_dns() {
 	if (cfg.logread && LOGREAD && cfg.dns.dump > 0 && t - dns.dump_ts >= cfg.dns.dump) {
 		dns.dump_ts = t;
 		dns.pids = dnsmasq_pids();
-		for (let pid in dns.pids)
-			system([ '/bin/sh', '-c', `kill -USR1 ${pid} 2>/dev/null` ]);
+		kill_pids('USR1', dns.pids);
 	}
 
 	let srv = [];
@@ -3292,6 +3314,92 @@ function handle_chn_forget() {
 	chn_save();
 }
 
+/* -------------------------------------- IGMP queries of the operator */
+
+/*
+ * "Does the operator still ask?": the operator's router keeps the IPTV
+ * memberships alive by sending an IGMP general query (to 224.0.0.1) about
+ * every 125 s and the decoders (through the router's proxy) answer it.
+ * When the queries stop, the memberships time out after about two intervals
+ * - 260 s with the defaults - and the stream stops, again and again every
+ * few minutes: the freezes look random but are an operator-side fault.
+ * The helper (isp-tester-tsmon -Q) sees the queries on the port towards the
+ * ISP and reports how many came and how long ago the last general one was.
+ * The bridge's own "IGMP timers" (sysfs) are only this router's settings:
+ * they say nothing about what the operator actually sends. Silence is judged
+ * against the interval seen (the median of the last gaps, else the query's
+ * own interval, else 125 s): more than two of them (plus the response time)
+ * without a general query = the memberships can expire. Only when queries
+ * were seen before, so an operator that never sends any is not reported as
+ * "stopped" but shown as "none seen".
+ */
+
+function igmpq_ingest(m, t, pid) {
+	if (type(m) != 'object') { igq.on = false; return; }
+	igq.on = true;
+	if (igq.pid != pid) {
+		/* a new helper counts from zero; time without it is unknown, not silence */
+		igq.pid = pid;
+		igq.gen = 0;
+		igq.since = t;
+		igq.silent = false;
+	}
+	let gen = m.gen ?? 0;
+	if (gen > igq.gen) {
+		let ts = t - ((m.gen_age ?? -1) >= 0 ? m.gen_age : 0);
+		if (gen - igq.gen == 1 && igq.last_ts != null && ts > igq.last_ts) {
+			push(igq.ivals, round(ts - igq.last_ts, 0));
+			if (length(igq.ivals) > IGQ_RING) shift(igq.ivals);
+		}
+		if (igq.silent) {
+			igq.silent = false;
+			emit('info', 'iptv', 'igmp', 'igmp_noquery_ok', { dur: round(ts - igq.silent_ref, 0), src: m.src }, ts);
+		}
+		igq.total += gen - igq.gen;
+		igq.gen = gen;
+		igq.last_ts = ts;
+		igq.ever = true;
+	}
+	if (m.src) igq.src = m.src;
+	igq.ver = m.ver || igq.ver;
+	igq.qqic = (m.qqic > 0) ? m.qqic : igq.qqic;
+	igq.max_resp = (m.max_resp > 0) ? m.max_resp : igq.max_resp;
+}
+
+/* the interval between the operator's general queries, in s */
+function igmpq_expected() {
+	let e = (length(igq.ivals) >= 3) ? median(igq.ivals) : (igq.qqic > 0 ? igq.qqic : 125);
+	return max(10, round(e, 0));
+}
+
+/* silence longer than this lets the memberships expire (s) */
+function igmpq_limit() {
+	return 2 * igmpq_expected() + ((igq.max_resp > 0) ? igq.max_resp / 10 : 10);
+}
+
+function igmpq_check(t) {
+	if (!igq.on || !igq.ever || igq.silent) return;
+	let ref = max(igq.last_ts ?? 0, igq.since ?? t);
+	let sil = t - ref;
+	if (sil > igmpq_limit()) {
+		igq.silent = true;
+		igq.silent_ref = ref;
+		/* dated from when the memberships began to expire, so a freeze at that moment falls inside the period */
+		emit('warn', 'iptv', 'igmp', 'igmp_noquery', { silent: round(sil, 0), expected: igmpq_expected(), src: igq.src,
+			ver: igq.ver, since: ref }, min(t, ref + 2 * igmpq_expected()));
+	}
+}
+
+function igmpq_out() {
+	if (!cfg.iptv.igmp_query || !igq.on) return null;
+	let t = now(), seen_for = t - (igq.since ?? t);
+	return { gen: igq.total, last: igq.last_ts, age: igq.last_ts != null ? round(t - igq.last_ts, 0) : null,
+		expected: igmpq_expected(), limit: igmpq_limit(), silent: igq.silent, since: igq.silent ? igq.silent_ref : null,
+		src: igq.src, ver: igq.ver, qqic: igq.qqic, max_resp: igq.max_resp, seen_for: round(seen_for, 0),
+		/* nothing at all in more than the time the memberships last */
+		never: !igq.ever && seen_for > igmpq_limit() + 60 };
+}
+
 function iptv_out(devres) {
 	let level = 'ok', reasons = [];
 
@@ -3603,92 +3711,6 @@ function sample_iptv(devres) {
 	return iptv_out(devres);
 }
 
-/* -------------------------------------- IGMP queries of the operator */
-
-/*
- * "Does the operator still ask?": the operator's router keeps the IPTV
- * memberships alive by sending an IGMP general query (to 224.0.0.1) about
- * every 125 s and the decoders (through the router's proxy) answer it.
- * When the queries stop, the memberships time out after about two intervals
- * - 260 s with the defaults - and the stream stops, again and again every
- * few minutes: the freezes look random but are an operator-side fault.
- * The helper (isp-tester-tsmon -Q) sees the queries on the port towards the
- * ISP and reports how many came and how long ago the last general one was.
- * The bridge's own "IGMP timers" (sysfs) are only this router's settings:
- * they say nothing about what the operator actually sends. Silence is judged
- * against the interval seen (the median of the last gaps, else the query's
- * own interval, else 125 s): more than two of them (plus the response time)
- * without a general query = the memberships can expire. Only when queries
- * were seen before, so an operator that never sends any is not reported as
- * "stopped" but shown as "none seen".
- */
-
-function igmpq_ingest(m, t, pid) {
-	if (type(m) != 'object') { igq.on = false; return; }
-	igq.on = true;
-	if (igq.pid != pid) {
-		/* a new helper counts from zero; time without it is unknown, not silence */
-		igq.pid = pid;
-		igq.gen = 0;
-		igq.since = t;
-		igq.silent = false;
-	}
-	let gen = m.gen ?? 0;
-	if (gen > igq.gen) {
-		let ts = t - ((m.gen_age ?? -1) >= 0 ? m.gen_age : 0);
-		if (gen - igq.gen == 1 && igq.last_ts != null && ts > igq.last_ts) {
-			push(igq.ivals, round(ts - igq.last_ts, 0));
-			if (length(igq.ivals) > IGQ_RING) shift(igq.ivals);
-		}
-		if (igq.silent) {
-			igq.silent = false;
-			emit('info', 'iptv', 'igmp', 'igmp_noquery_ok', { dur: round(ts - igq.silent_ref, 0), src: m.src }, ts);
-		}
-		igq.total += gen - igq.gen;
-		igq.gen = gen;
-		igq.last_ts = ts;
-		igq.ever = true;
-	}
-	if (m.src) igq.src = m.src;
-	igq.ver = m.ver || igq.ver;
-	igq.qqic = (m.qqic > 0) ? m.qqic : igq.qqic;
-	igq.max_resp = (m.max_resp > 0) ? m.max_resp : igq.max_resp;
-}
-
-/* the interval between the operator's general queries, in s */
-function igmpq_expected() {
-	let e = (length(igq.ivals) >= 3) ? median(igq.ivals) : (igq.qqic > 0 ? igq.qqic : 125);
-	return max(10, round(e, 0));
-}
-
-/* silence longer than this lets the memberships expire (s) */
-function igmpq_limit() {
-	return 2 * igmpq_expected() + ((igq.max_resp > 0) ? igq.max_resp / 10 : 10);
-}
-
-function igmpq_check(t) {
-	if (!igq.on || !igq.ever || igq.silent) return;
-	let ref = max(igq.last_ts ?? 0, igq.since ?? t);
-	let sil = t - ref;
-	if (sil > igmpq_limit()) {
-		igq.silent = true;
-		igq.silent_ref = ref;
-		/* dated from when the memberships began to expire, so a freeze at that moment falls inside the period */
-		emit('warn', 'iptv', 'igmp', 'igmp_noquery', { silent: round(sil, 0), expected: igmpq_expected(), src: igq.src,
-			ver: igq.ver, since: ref }, min(t, ref + 2 * igmpq_expected()));
-	}
-}
-
-function igmpq_out() {
-	if (!cfg.iptv.igmp_query || !igq.on) return null;
-	let t = now(), seen_for = t - (igq.since ?? t);
-	return { gen: igq.total, last: igq.last_ts, age: igq.last_ts != null ? round(t - igq.last_ts, 0) : null,
-		expected: igmpq_expected(), limit: igmpq_limit(), silent: igq.silent, since: igq.silent ? igq.silent_ref : null,
-		src: igq.src, ver: igq.ver, qqic: igq.qqic, max_resp: igq.max_resp, seen_for: round(seen_for, 0),
-		/* nothing at all in more than the time the memberships last */
-		never: !igq.ever && seen_for > igmpq_limit() + 60 };
-}
-
 /* ----------------------------------------------- IPTV picture quality */
 
 /*
@@ -3738,7 +3760,7 @@ function tsm_stop() {
 	tsq.flow = null;
 	igq.on = false;
 	igq.pid = null;
-	if (p) system([ '/bin/sh', '-c', `kill ${int(p.pid())} 2>/dev/null` ]);
+	if (p) kill_pids('TERM', [ p.pid() ]);
 	fs.unlink(TSQ_STATE);
 }
 
@@ -3816,7 +3838,7 @@ function tsm_read() {
 	tsq.flow = { ts: t, groups: map(filter(r.groups, (g) => valid_group(g?.grp)),
 		(g) => ({ grp: g.grp, kbps: g.kbps, idle: g.idle })) };
 
-	let seen = {}, list = [], fresh = [];
+	let seen = {}, list = [], fresh = [], named = [];
 	tsq.win = filter(tsq.win, (e) => t - e.ts < TSQ_WIN);
 	for (let g in r.groups) {
 		if (!valid_group(g?.grp)) continue;
@@ -3830,7 +3852,8 @@ function tsm_read() {
 		seen[key] = c;
 
 		if (cfg.iptv.names) {
-			if (g.svc?.name) chn_learn([ g ]);
+			/* learned together below: channels.json is written once, not once per group */
+			if (g.svc?.name) push(named, g);
 			else if ((g.age ?? 0) >= 15) chn_missing(g.grp, g.psi?.sdt ? 'no_service' : 'no_sdt');
 		}
 		if (!cfg.iptv.quality) continue;
@@ -3844,6 +3867,7 @@ function tsm_read() {
 		}
 	}
 	tsq.seen = seen;
+	if (length(named)) chn_learn(named);
 	if (!cfg.iptv.quality) return;
 
 	/* the last minute per group */
@@ -4223,7 +4247,9 @@ function push_tick() {
 	let st;
 	try { st = json(fs.readfile(`${VARDIR}/push.json`) || 'null'); } catch (e) { st = null; }
 	let wait = cfg.push.interval_h * 3600;
-	if (st && !st.ok && st.state != 'running') wait = min(wait, 1800);
+	/* a "running" left behind by a send that was killed (dbclient itself
+	 * gives up after 300 s) counts as failed, not as sent */
+	if (st && !st.ok && (st.state != 'running' || now() - (st.ts ?? 0) > 900)) wait = min(wait, 1800);
 	if (st?.ts && now() - st.ts < wait) return;
 	system(`/bin/sh ${PUSH_SH} send >/dev/null 2>&1 &`);
 }
