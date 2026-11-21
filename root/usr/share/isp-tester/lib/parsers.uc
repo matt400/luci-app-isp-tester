@@ -41,8 +41,8 @@ function trace_parse_tr(txt) {
 		if (!sent) continue;
 		let sum = 0;
 		for (let r in rtts) sum += r;
-		push(hops, { n: +m[1], ip: ip ? ip[1] : null, loss: round(stars * 100 / sent, 0),
-			avg: length(rtts) ? round(sum / length(rtts), 1) : null });
+		push(hops, { n: +m[1], ip: ip ? ip[1] : null, loss: round(stars * 100.0 / sent, 0),
+			avg: length(rtts) ? round(sum / (length(rtts) * 1.0), 1) : null });
 	}
 	return hops;
 }
