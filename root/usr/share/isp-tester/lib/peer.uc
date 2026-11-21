@@ -340,5 +340,14 @@ function peer_out() {
 	return o;
 }
 
+/* the clock was stepped while not trusted (see clock.uc clk_fix): without
+ * this a step forward made every second router look silent (a false
+ * peer_lost and peer_back) and the sender show "no answer" */
+function peer_shift(by) {
+	let mv = (o, ks) => { for (let k in ks) if (type(o[k]) == 'int' || type(o[k]) == 'double') o[k] += by; };
+	mv(peer, [ 'last_send', 'last_ack', 'bad_ts', 'send_err' ]);
+	for (let n, p in peer.peers) mv(p, [ 'seen', 'lost_at' ]);
+	peer_saved.ts = 0;
+}
 
-export { peer_init, peer_queue, peer_start, peer_hb, peer_tick, peer_out };
+export { peer_shift, peer_init, peer_queue, peer_start, peer_hb, peer_tick, peer_out };

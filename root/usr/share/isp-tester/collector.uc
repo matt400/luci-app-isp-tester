@@ -45,8 +45,8 @@ import { tstamp } from './lib/messages.uc';
 import { iptv_init, iptv_shift, vl, tsq, dec, igmp_poll, sample_proxy, dhcp_log_line, dhcp_tick, dec_poll, iptv_on, iptv_fast, chn_load, chn_now, handle_chn_forget, iptv_fast_sample, sample_iptv, tsm_poll } from './lib/iptv.uc';
 import { wan_init, wan_shift, targets, source, wansess, wanst, trace, bloat, sfp, target_why, target_level, bloat_load_peak, bloat_tick, bloat_out, sample_sfp, sfp_out, gateway_ip, sample_pings, v6_out, dns_log_line, dns_judge_servers, sample_dns, refresh_wan6, refresh_wan_device } from './lib/wan.uc';
 import { clock_init, clk, clk_fields, clk_check, ntp_poll, ntp_out, clk_init } from './lib/clock.uc';
-import { peer_init, peer_queue, peer_start, peer_hb, peer_tick, peer_out } from './lib/peer.uc';
-import { notify_init, notify_queue, notify_flush, notify_test, notify_status } from './lib/notify.uc';
+import { peer_init, peer_queue, peer_start, peer_hb, peer_tick, peer_out, peer_shift } from './lib/peer.uc';
+import { RECOVERY, notify_init, notify_queue, notify_flush, notify_test, notify_status } from './lib/notify.uc';
 
 /* ------------------------------------------------------------------ state */
 
@@ -275,7 +275,9 @@ function count_events(since) {
 	for (let i = length(events) - 1; i >= 0; i--) {
 		let e = events[i];
 		if (e.ts < since) break;
-		if (e.host || e.m) continue;
+		/* a recovery (link up, Internet back, stream resumed) ends a problem
+		 * already counted: one outage is one problem, not two */
+		if (e.host || e.m || RECOVERY[e.type]) continue;
 		if (e.lvl == 'warn') n.warn++;
 		else if (e.lvl == 'err') n.err++;
 	}
@@ -333,7 +335,7 @@ function agg_vals(a) {
 		case 'max': vals[k] = x.max; break;
 		case 'min': vals[k] = x.min; break;
 		case 'sum': vals[k] = x.sum; break;
-		default:    vals[k] = round(x.sum / x.n, 1);
+		default:    vals[k] = round(x.sum / (x.n * 1.0), 1);   /* int / int truncates in ucode */
 		}
 	}
 	return vals;
@@ -447,7 +449,7 @@ function sample_device(m, dt) {
 		}
 		else if (cur.carrier_changes - p.carrier_changes >= 2) {
 			/* went down and up again between two samples */
-			emit('warn', m.area, m.dev, 'link_flap', { dev: m.dev, n: int((cur.carrier_changes - p.carrier_changes) / 2) });
+			emit(m.expect_up ? 'warn' : 'info', m.area, m.dev, 'link_flap', { dev: m.dev, n: int((cur.carrier_changes - p.carrier_changes) / 2) });
 		}
 
 		if (cur.up && p.up && p.speed > 0 && cur.speed > 0 && cur.speed != p.speed)
@@ -585,7 +587,7 @@ function sample_system() {
 			if (!p) continue;
 			let dt = v.total - p.total;
 			if (dt <= 0) continue;
-			let busy = 100 - (v.idle - p.idle) * 100 / dt, si = (v.sirq - p.sirq) * 100 / dt;
+			let busy = 100 - (v.idle - p.idle) * 100.0 / dt, si = (v.sirq - p.sirq) * 100.0 / dt;
 			if (k == 'cpu') {
 				o.cpu = round(busy, 0);
 				o.sirq = round(si, 0);
@@ -611,7 +613,7 @@ function sample_system() {
 
 	let ctn = num(trim(fs.readfile(`${PROC}/sys/net/netfilter/nf_conntrack_count`) ?? ''), null);
 	let ctm = num(trim(fs.readfile(`${PROC}/sys/net/netfilter/nf_conntrack_max`) ?? ''), null);
-	if (ctn != null && ctm > 0) { o.ct = ctn; o.ct_max = ctm; o.ct_pct = round(ctn * 100 / ctm, 0); }
+	if (ctn != null && ctm > 0) { o.ct = ctn; o.ct_max = ctm; o.ct_pct = round(ctn * 100.0 / ctm, 0); }
 
 	let y = cfg.system;
 	if (o.cpu_max != null && y.cpu_warn > 0) {
@@ -950,7 +952,8 @@ function tick() {
 			level = 'fail';
 			push(reasons, { c: 'wan_if_down', iface: cfg.wan.interface, since: wansess.since });
 		}
-		if (!source.type)
+		/* also with collectd running but no ping host configured: nothing is measured */
+		if (!source.type || !length(tl))
 			push(reasons, { c: 'no_ping_source', error: source.error, plugin: source.ping_plugin });
 
 		let wdev = cfg.wan.device ? res[cfg.wan.device] : null;
@@ -1072,7 +1075,8 @@ function tick() {
 		}
 		for (let d in devs) {
 			let r = res[d.dev];
-			hv[`err:${d.dev}`] = r.delta ? (r.delta.err + r.delta.crc) : null;
+			/* rx_errors already includes the CRC / frame errors: the larger of the two, not the sum */
+			hv[`err:${d.dev}`] = r.delta ? max(r.delta.err, r.delta.crc) : null;
 			hv[`drop:${d.dev}`] = r.delta ? r.delta.drop : null;
 		}
 		hist_add(history, t, hv, cfg.history);
@@ -1146,6 +1150,10 @@ function shift_run(by) {
 	for (let d, ds in devstate) if (type(ds.since) == 'int') ds.since += by;
 	for (let k in [ 'cpu_since', 'mem_since', 'ct_since' ]) if (sys[k]) sys[k] += by;
 	if (logst.min_ts != null) logst.min_ts += by;
+	/* a maintenance started before the step would end at once (step forward)
+	 * or last for as long as the step (step back) */
+	if (maint.until != null) { maint.until += by; maint.since += by; maint_save(); }
+	peer_shift(by);
 	wan_shift(by);
 	iptv_shift(by);
 }

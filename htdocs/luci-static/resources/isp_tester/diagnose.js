@@ -16,6 +16,10 @@
 var NEAR = 30;          /* seconds for "happened at the same time" */
 var CAP = 5;            /* max occurrences counted per finding */
 
+/* the end of a problem (logged as a warning so the card stays yellow for a
+ * while): counted as a problem of its own it doubled every outage */
+var RECOVERY = { stream_resume: 1, stream_lost: 1, wan_up: 1, link_up: 1, wan_if_up: 1, proxy_up: 1, v6_up: 1 };
+
 function near(list, ts, win) {
 	win = win || NEAR;
 	for (var i = 0; i < list.length; i++)
@@ -159,13 +163,14 @@ return baseclass.extend({
 		var v6Loss      = by(function(e) { return e.area === 'wan' && e.type === 'target_degraded' && isV6(e) && e.d.loss > 0; });
 
 		/* ports of both routers (a port of the second router is never the WAN of this one) */
-		var portLink    = byAll(function(e) { return e.area === 'ports' && (e.type === 'link_down' || e.type === 'link_flap'); });
+		/* a port that may be unplugged (decoder, PC switched off) logs its link changes as info: not a fault */
+		var portLink    = byAll(function(e) { return e.area === 'ports' && e.lvl !== 'info' && (e.type === 'link_down' || e.type === 'link_flap'); });
 		var portSpeed   = byAll(function(e) { return e.area === 'ports' && e.type === 'speed_change' && e.d && e.d.to < e.d.from; });
 		var portErr     = byAll(function(e) { return e.area === 'ports' && (e.type === 'errors' || e.type === 'drops'); });
 		var portMissing = byAll(function(e) { return e.type === 'dev_missing' && (e.host || (e.area !== 'wan' && e.src !== wanDev)); });
 		var devName     = function(e) { return e.host ? e.host + ':' + e.src : e.src; };
 		var wanErr      = by(function(e) { return e.area === 'wan' && e.type === 'errors'; });
-		var iptvDevErr  = by(function(e) { return e.area === 'iptv' && (e.type === 'errors' || e.type === 'drops' || e.type === 'link_down'); });
+		var iptvDevErr  = by(function(e) { return e.area === 'iptv' && (e.type === 'errors' || e.type === 'drops' || (e.type === 'link_down' && e.lvl !== 'info')); });
 		var anyPort     = portLink.concat(portSpeed, portErr);
 
 		var allStalls   = by(function(e) { return e.type === 'stream_stall'; });
@@ -440,7 +445,7 @@ return baseclass.extend({
 			zaps: zaps.length,
 			decoder_stalls: decStalls.length,
 			marks: marks.length,
-			problems: evAll.filter(function(e) { return e.lvl !== 'info' && e.type !== 'trace'; }).length,
+			problems: evAll.filter(function(e) { return e.lvl !== 'info' && e.type !== 'trace' && !RECOVERY[e.type]; }).length,
 			findings: findings
 		};
 	},
