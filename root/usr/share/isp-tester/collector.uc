@@ -60,6 +60,9 @@ const BRIDGE = find_bin('ISP_TESTER_BRIDGE', [ '/usr/sbin/bridge', '/sbin/bridge
 const PROXIES = [ 'igmpproxy', 'mcproxy', 'omcproxy', 'improxy' ];
 /* picture quality and channel names: the helper of package isp-tester-tsmon */
 const TSMON = find_bin('ISP_TESTER_TSMON', [ '/usr/sbin/isp-tester-tsmon' ]);
+/* snapshot of the path at a loss: mtr when installed, else busybox traceroute */
+const MTR = find_bin('ISP_TESTER_MTR', [ '/usr/sbin/mtr', '/usr/bin/mtr' ]);
+const TRACEROUTE = find_bin('ISP_TESTER_TRACEROUTE', [ '/usr/bin/traceroute', '/bin/traceroute', '/usr/sbin/traceroute' ]);
 
 const STAT_KEYS = [
 	'rx_bytes', 'tx_bytes', 'rx_packets', 'tx_packets',
@@ -144,7 +147,9 @@ function default_config() {
 		wan: {
 			enabled: true, interface: 'wan', device: '', gateway: '',
 			loss_warn: 1, loss_fail: 50, rtt_warn: 80, jitter_warn: 0,
-			collectd_socket: '', rrd_dir: ''
+			collectd_socket: '', rrd_dir: '',
+			/* one traceroute/mtr when a loss starts, at most every trace_cooldown s */
+			trace: true, trace_cooldown: 600
 		},
 		iptv: {
 			enabled: true, vlan: 0, upstream: '', device: '', direction: 'rx', bridge: '',
@@ -211,6 +216,8 @@ function load_config() {
 
 		c.wan.jitter_warn = num(w.jitter_warn, c.wan.jitter_warn);
 		c.wan.gateway     = w.gateway ?? '';
+		c.wan.trace          = bool(w.trace, true);
+		c.wan.trace_cooldown = num(w.trace_cooldown, c.wan.trace_cooldown);
 
 		/* where luci-app-statistics keeps collectd's data */
 		let us = cur.get_all('luci_statistics', 'collectd_unixsock') || {};
@@ -338,6 +345,8 @@ function load_config() {
 	if (c.wifi.signal_warn > -30 || c.wifi.signal_warn < -100) c.wifi.signal_warn = -75;
 	if (c.wifi.reconnect_s < 5) c.wifi.reconnect_s = 5;
 
+	if (c.wan.trace_cooldown < 60) c.wan.trace_cooldown = 60;
+
 	c.peer.port = int(c.peer.port);
 	if (c.peer.port < 1 || c.peer.port > 65535) c.peer.port = 51477;
 	c.peer.err = null;
@@ -417,6 +426,7 @@ const MSG = {
 		cpu_high: 'Router CPU busy: %d%% (softirq %d%%)', mem_low: 'Router RAM low: %d%% free', conntrack_full: 'Connection table %d%% full',
 		user_mark: 'Problem reported by user: %s', test: 'Test message - notifications work.',
 		peer_lost: 'Router %s does not report any more', peer_back: 'Router %s reports again after %s',
+		trace: 'Traceroute to %s: %s',
 		wifi_reconnect: 'Wi-Fi: %s dropped and reconnected after %s (%s)', wifi_leave: 'Wi-Fi: %s disconnected (%s)',
 		wifi_join: 'Wi-Fi: %s connected again after %s', wifi_roam: 'Wi-Fi: %s moved %s -> %s', wifi_weak: 'Wi-Fi: %s weak signal %d dBm', wifi_weak_ok: 'Wi-Fi: %s signal OK again after %s'
 	},
@@ -436,6 +446,7 @@ const MSG = {
 		cpu_high: 'Router przeciążony: CPU %d%% (softirq %d%%)', mem_low: 'Mało RAM: wolne %d%%', conntrack_full: 'Tablica połączeń zajęta w %d%%',
 		user_mark: 'Problem zgłoszony ręcznie: %s', test: 'Wiadomość testowa - powiadomienia działają.',
 		peer_lost: 'Router %s przestał się zgłaszać', peer_back: 'Router %s znów się zgłasza po %s',
+		trace: 'Traceroute do %s: %s',
 		wifi_reconnect: 'Wi-Fi: %s rozłączył się i wrócił po %s (%s)', wifi_leave: 'Wi-Fi: %s rozłączony (%s)',
 		wifi_join: 'Wi-Fi: %s znów połączony po %s', wifi_roam: 'Wi-Fi: %s przeszedł %s -> %s', wifi_weak: 'Wi-Fi: %s słaby sygnał %d dBm', wifi_weak_ok: 'Wi-Fi: %s sygnał znów OK po %s'
 	}
@@ -476,6 +487,9 @@ function event_text(e, lang) {
 	case 'user_mark': return sprintf(f, d.note || '-');
 	case 'peer_lost': return sprintf(f, e.src);
 	case 'peer_back': return sprintf(f, e.src, dur_txt(d.dur));
+	case 'trace': return sprintf(f, d.host, d.first_bad
+		? sprintf(lang == 'pl' ? 'straty od hopa %d (%s)' : 'loss starts at hop %d (%s)', d.first_bad, d.bad_ip ?? '?')
+		: (lang == 'pl' ? 'bez strat do celu' : 'no loss to the destination'));
 	case 'wifi_reconnect': return sprintf(f, e.src, dur_txt(d.away), d.iface ?? '?');
 	case 'wifi_leave': return sprintf(f, e.src, d.iface ?? '?');
 	case 'wifi_join': return sprintf(f, e.src, dur_txt(d.away));
@@ -955,6 +969,114 @@ function target_level(r) {
 	return target_why(r) ? 'warn' : 'ok';
 }
 
+/* ------------------------------------------------------ path snapshot */
+
+/*
+ * When a loss starts (a target goes to loss, or the whole WAN is down) one
+ * traceroute is run - mtr -r (10 rounds) when installed, else busybox
+ * traceroute -  so the timeline shows at which hop the loss starts: proof for
+ * the ISP. Loss at a hop that does not carry on to the destination is just
+ * a router that answers ICMP slowly, so only loss that continues to the
+ * end counts. One at a time, at most every trace_cooldown seconds.
+ */
+let trace = { proc: null, last: 0, timer: null, n: 0 };
+
+function trace_file() { return `${VARDIR}/trace.out`; }
+
+/* mtr -r:  "  3.|-- 81.2.3.4   20.0%    10    5.1   5.3   4.9   6.0   0.3" */
+function trace_parse_mtr(txt) {
+	let hops = [];
+	for (let l in split(txt ?? '', '\n')) {
+		let m = match(l, /^ *([0-9]+)\.\|-- +([^ ]+) +([0-9.]+)%? +[0-9]+ +[0-9.]+ +([0-9.]+)/);
+		if (!m) continue;
+		let ip = (m[2] == '???') ? null : m[2];
+		push(hops, { n: +m[1], ip, loss: round(+m[3], 0), avg: ip ? round(+m[4], 1) : null });
+	}
+	return hops;
+}
+
+/* traceroute -q 3: " 4  10.0.0.1  5.123 ms  *  5.301 ms" / " 5  * * *" */
+function trace_parse_tr(txt) {
+	let hops = [];
+	for (let l in split(txt ?? '', '\n')) {
+		let m = match(l, /^ *([0-9]+) +(.*)$/);
+		if (!m) continue;
+		let rest = m[2], ip = match(rest, /([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+|[0-9A-Fa-f]*:[0-9A-Fa-f:]+)/);
+		let stars = length(match(rest, /\*/g) ?? []), rtts = [];
+		for (let x in (match(rest, /([0-9.]+) ms/g) ?? [])) push(rtts, +x[1]);
+		let sent = stars + length(rtts);
+		if (!sent) continue;
+		let sum = 0;
+		for (let r in rtts) sum += r;
+		push(hops, { n: +m[1], ip: ip ? ip[1] : null, loss: round(stars * 100 / sent, 0),
+			avg: length(rtts) ? round(sum / length(rtts), 1) : null });
+	}
+	return hops;
+}
+
+/* the first hop from which the loss carries on to the end */
+function trace_judge(hops) {
+	let r = { first_bad: null, bad_ip: null, last_good: null, good_ip: null, dest_loss: null };
+	if (!length(hops)) return r;
+	let last = hops[length(hops) - 1];
+	r.dest_loss = last.loss;
+	if (last.loss < 20) return r;          /* nothing lost to the end: the loss was over */
+	let i = length(hops) - 1;
+	while (i > 0 && hops[i - 1].loss >= 20) i--;
+	/* a hop that never answers (???, * * *) is not where it starts: the next one that does */
+	while (i < length(hops) - 1 && !hops[i].ip) i++;
+	r.first_bad = hops[i].n;
+	r.bad_ip = hops[i].ip;
+	for (let j = i - 1; j >= 0; j--)
+		if (hops[j].ip && hops[j].loss < 20) { r.last_good = hops[j].n; r.good_ip = hops[j].ip; break; }
+	return r;
+}
+
+function trace_request(host, label, trig, trig_ts) {
+	if (!cfg.wan.trace || trace.proc || (!MTR && !TRACEROUTE)) return;
+	if (now() - trace.last < cfg.wan.trace_cooldown) return;
+	if (!valid_host(host) || substr(host, 0, 1) == '-') return;
+	let tool = MTR ? 'mtr' : 'traceroute';
+	/* valid_host() keeps the host free of shell characters */
+	let cmd = MTR ? `exec ${MTR} -n -r -c 10 -i 0.5 ${host}` : `exec ${TRACEROUTE} -n -q 3 -w 1 -m 20 ${host}`;
+	let t0 = now();
+	trace.last = t0;
+	trace.n++;
+	let p;
+	p = uloop.process('/bin/sh', [ '-c', `${cmd} > ${trace_file()} 2>&1` ], null, (code) => {
+		if (trace.proc != p) return;
+		trace.proc = null;
+		trace.timer?.cancel();
+		trace.timer = null;
+		let txt = fs.readfile(trace_file()) ?? '';
+		fs.unlink(trace_file());
+		let hops = slice((tool == 'mtr') ? trace_parse_mtr(txt) : trace_parse_tr(txt), 0, 30);
+		if (!length(hops)) {
+			emit('info', 'wan', label, 'trace', { host, tool, trig, err: substr(trim(txt), 0, 120) || `exit ${code}`, hops: [] }, t0);
+			return;
+		}
+		let j = trace_judge(hops);
+		emit(j.first_bad ? 'warn' : 'info', 'wan', label, 'trace',
+			{ host, tool, trig, hops, ...j, dur: now() - t0, after: (trig_ts != null) ? t0 - trig_ts : null }, t0);
+	});
+	if (!p) return;
+	trace.proc = p;
+	/* never let a stuck trace block the next one */
+	trace.timer = uloop.timer(60000, () => {
+		trace.timer = null;
+		if (trace.proc == p) { try { p.kill(); } catch (e) {} }
+	});
+}
+
+/* the target to trace: the gateway itself shows nothing beyond hop 1, so a
+ * far target is traced when the gateway (or everything) loses */
+function trace_target(t) {
+	if (t && t.label != 'gateway') return t;
+	for (let k, x in targets)
+		if (x.active && x.label != 'gateway') return x;
+	return t;
+}
+
 function check_wan_down() {
 	let all = 0, failed = 0;
 	for (let k, t in targets) {
@@ -967,6 +1089,8 @@ function check_wan_down() {
 	if (failed == all && wan_down_since == null) {
 		wan_down_since = now();
 		emit('err', 'wan', 'wan', 'wan_down', {});
+		let tt = trace_target(null);
+		if (tt) trace_request(tt.host, tt.label, 'wan_down', wan_down_since);
 	}
 	else if (failed < all && wan_down_since != null) {
 		emit('warn', 'wan', 'wan', 'wan_up', { dur: now() - wan_down_since });
@@ -1133,6 +1257,11 @@ function sample_pings() {
 			else
 				emit(lvl == 'fail' ? 'err' : 'warn', 'wan', t.label, lvl == 'fail' ? 'target_fail' : 'target_degraded',
 					{ host, loss: res.loss, rtt: res.rtt, jitter: res.jitter, why: target_why(res) }, v.ts);
+			/* a loss started: one snapshot of the path */
+			if (lvl != 'ok' && target_why(res) == 'loss') {
+				let tt = trace_target(t);
+				trace_request(tt.host, tt.label, lvl == 'fail' ? 'target_fail' : 'target_degraded', v.ts);
+			}
 			t.state = lvl;
 			t.since = t_now;
 		}
@@ -2924,6 +3053,8 @@ function tick() {
 		}
 
 		wan = { level, reasons, targets: tl, device: cfg.wan.device, interface: cfg.wan.interface,
+			trace: cfg.wan.trace ? { tool: MTR ? 'mtr' : (TRACEROUTE ? 'traceroute' : null), running: !!trace.proc, last: trace.last || null,
+				n: trace.n, cooldown: cfg.wan.trace_cooldown } : null,
 			rx_kbps: wd?.delta ? round(wd.delta.rx_bps / 1000, 0) : null,
 			tx_kbps: wd?.delta ? round(wd.delta.tx_bps / 1000, 0) : null,
 			source: { type: source.type, error: source.error, sock_error: source.sock_error, ping_plugin: source.ping_plugin, gateway: gateway_ip() },

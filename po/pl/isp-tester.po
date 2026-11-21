@@ -1707,3 +1707,54 @@ msgstr "Adres MAC"
 
 msgid "e.g. Phone"
 msgstr "np. Telefon"
+
+msgid "Path snapshots (%d): the loss started at hop %d (%s) and carried on to the destination (%d× there) – inside the ISP's network or beyond; the hops before it were fine. Show this to the ISP."
+msgstr "Migawki trasy (%d): straty zaczynały się od hopa %d (%s) i ciągnęły do celu (%d× tam) – w sieci operatora lub dalej; hopy przed nim były w porządku. Pokaż to operatorowi."
+
+msgid "Path snapshots (%d): the loss started already at the first hop (%s) – the access line or the ISP's first router."
+msgstr "Migawki trasy (%d): straty zaczynały się już na pierwszym hopie (%s) – łącze dostępowe lub pierwszy router operatora."
+
+msgid "Path snapshot (%s) to %s"
+msgstr "Migawka trasy (%s) do %s"
+
+msgid "(%s after the loss started)"
+msgstr "(%s po początku strat)"
+
+msgid "no result"
+msgstr "brak wyniku"
+
+msgid "no loss to the destination any more – the loss was over, or only ICMP replies of a router on the way were slow"
+msgstr "już bez strat do celu – straty minęły albo tylko router po drodze wolno odpowiadał na ICMP"
+
+msgid "loss from the first hop (%s) to the destination – the access line or the ISP's first router"
+msgstr "straty od pierwszego hopa (%s) do celu – łącze dostępowe lub pierwszy router operatora"
+
+msgid "loss starts at hop %d (%s) and carries on to the destination (%d%%); up to hop %s (%s) it was fine"
+msgstr "straty zaczynają się na hopie %d (%s) i ciągną do celu (%d%%); do hopa %s (%s) było w porządku"
+
+msgid "Hop"
+msgstr "Hop"
+
+msgid "Path snapshots at the moment of a loss"
+msgstr "Migawki trasy w chwili strat"
+
+msgid "Taken automatically when a loss started. Loss that starts at a hop and carries on to the destination shows where packets are lost; loss at a single hop only is a router that answers pings slowly."
+msgstr "Wykonywane automatycznie, gdy zaczynały się straty. Straty, które zaczynają się na danym hopie i ciągną do celu, pokazują, gdzie giną pakiety; straty tylko na jednym hopie to router, który wolno odpowiada na pingi."
+
+msgid "path snapshot at a loss: %s%s"
+msgstr "migawka trasy przy stratach: %s%s"
+
+msgid "running now"
+msgstr "trwa teraz"
+
+msgid "path snapshot at a loss: no traceroute / mtr on the router"
+msgstr "migawka trasy przy stratach: brak traceroute / mtr na routerze"
+
+msgid "Path snapshot at a loss"
+msgstr "Migawka trasy przy stratach"
+
+msgid "When a loss starts (or the connection is down), one traceroute is run to a far target – <code>mtr</code> when installed (10 rounds, more precise), otherwise the busybox <code>traceroute</code>. The timeline then shows at which hop the loss starts and carries on to the destination: concrete proof for the ISP. Takes a few seconds, at most once per the time below."
+msgstr "Gdy zaczynają się straty (albo łącze leży), uruchamiany jest jeden traceroute do dalekiego celu – <code>mtr</code>, jeśli jest zainstalowany (10 rund, dokładniejszy), inaczej <code>traceroute</code> z busybox. Oś czasu pokazuje wtedy, od którego hopa straty zaczynają się i ciągną do celu: konkretny dowód dla operatora. Trwa kilka sekund, najwyżej raz na czas podany niżej."
+
+msgid "At most every (s)"
+msgstr "Najwyżej co (s)"

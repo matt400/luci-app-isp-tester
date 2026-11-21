@@ -308,6 +308,16 @@ return view.extend({
 		o.datatype = 'uinteger';
 		o.placeholder = '0';
 
+		o = s.option(form.Flag, 'trace', _('Path snapshot at a loss'),
+			_('When a loss starts (or the connection is down), one traceroute is run to a far target – <code>mtr</code> when installed (10 rounds, more precise), otherwise the busybox <code>traceroute</code>. The timeline then shows at which hop the loss starts and carries on to the destination: concrete proof for the ISP. Takes a few seconds, at most once per the time below.'));
+		o.default = '1';
+		o.rmempty = false;
+
+		o = s.option(form.Value, 'trace_cooldown', _('At most every (s)'));
+		o.datatype = 'range(60,86400)';
+		o.placeholder = '600';
+		o.depends('trace', '1');
+
 		/* ---- IPTV */
 		s = m.section(form.NamedSection, 'iptv', 'iptv', _('IPTV'),
 			_('Usually it is enough to enter the IPTV VLAN of your ISP. The bridge, the port towards the ISP and the decoder ports are then found automatically.'));

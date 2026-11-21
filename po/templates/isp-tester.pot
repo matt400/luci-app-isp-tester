@@ -1705,3 +1705,54 @@ msgstr ""
 
 msgid "e.g. Phone"
 msgstr ""
+
+msgid "Path snapshots (%d): the loss started at hop %d (%s) and carried on to the destination (%d× there) – inside the ISP's network or beyond; the hops before it were fine. Show this to the ISP."
+msgstr ""
+
+msgid "Path snapshots (%d): the loss started already at the first hop (%s) – the access line or the ISP's first router."
+msgstr ""
+
+msgid "Path snapshot (%s) to %s"
+msgstr ""
+
+msgid "(%s after the loss started)"
+msgstr ""
+
+msgid "no result"
+msgstr ""
+
+msgid "no loss to the destination any more – the loss was over, or only ICMP replies of a router on the way were slow"
+msgstr ""
+
+msgid "loss from the first hop (%s) to the destination – the access line or the ISP's first router"
+msgstr ""
+
+msgid "loss starts at hop %d (%s) and carries on to the destination (%d%%); up to hop %s (%s) it was fine"
+msgstr ""
+
+msgid "Hop"
+msgstr ""
+
+msgid "Path snapshots at the moment of a loss"
+msgstr ""
+
+msgid "Taken automatically when a loss started. Loss that starts at a hop and carries on to the destination shows where packets are lost; loss at a single hop only is a router that answers pings slowly."
+msgstr ""
+
+msgid "path snapshot at a loss: %s%s"
+msgstr ""
+
+msgid "running now"
+msgstr ""
+
+msgid "path snapshot at a loss: no traceroute / mtr on the router"
+msgstr ""
+
+msgid "Path snapshot at a loss"
+msgstr ""
+
+msgid "When a loss starts (or the connection is down), one traceroute is run to a far target – <code>mtr</code> when installed (10 rounds, more precise), otherwise the busybox <code>traceroute</code>. The timeline then shows at which hop the loss starts and carries on to the destination: concrete proof for the ISP. Takes a few seconds, at most once per the time below."
+msgstr ""
+
+msgid "At most every (s)"
+msgstr ""

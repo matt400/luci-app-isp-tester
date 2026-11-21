@@ -278,6 +278,7 @@ function eventText(e) {
 	case 'conntrack_full_ok': return _('Connection table OK again after %s').format(fmtDur(d.dur));
 	case 'user_mark':       return _('You reported: %s').format(markText(d.what)) + (d.note ? ' – „' + d.note + '”' : '');
 	case 'log':             return logText(d.kind) + ' – ' + d.prog + ': „' + d.msg + '”' + (d.n > 1 ? ' (%d×)'.format(d.n) : '');
+	case 'trace':           return traceText(e);
 	case 'wifi_reconnect':  return (d.roam
 		? _('Wi-Fi: %s moved from %s to %s (gap %s)').format(e.src, d.from, d.iface, fmtDur(d.away))
 		: _('Wi-Fi: %s DROPPED and reconnected after %s').format(e.src, fmtDur(d.away))) + wifiNote(d);
@@ -320,6 +321,31 @@ function logText(k) {
 	case 'dns_limit':      return _('DNS server overloaded (query limit)');
 	default:               return _('System log');
 	}
+}
+
+/* the result of a traceroute/mtr snapshot, in one line */
+function traceText(e) {
+	var d = e.d || {}, tool = d.tool === 'mtr' ? 'mtr' : 'traceroute';
+	var head = _('Path snapshot (%s) to %s').format(tool, d.host) + (d.after != null && d.after > 2 ? ' ' + _('(%s after the loss started)').format(fmtDur(d.after)) : '') + ': ';
+	if (d.err || !(d.hops || []).length) return head + _('no result') + (d.err ? ' (' + d.err + ')' : '');
+	if (!d.first_bad) return head + _('no loss to the destination any more – the loss was over, or only ICMP replies of a router on the way were slow');
+	return head + (d.first_bad === 1
+		? _('loss from the first hop (%s) to the destination – the access line or the ISP\'s first router').format(d.bad_ip || '?')
+		: _('loss starts at hop %d (%s) and carries on to the destination (%d%%); up to hop %s (%s) it was fine').format(
+			d.first_bad, d.bad_ip || '?', d.dest_loss, d.last_good != null ? d.last_good : '?', d.good_ip || '?'));
+}
+
+/* the hops of a snapshot, as a table (timeline and report) */
+function traceTable(d) {
+	return E('table', { 'class': 'ispt-mini', 'style': 'margin:.3em 0;max-width:36em' }, [
+		E('tr', {}, [ E('th', {}, _('Hop')), E('th', {}, _('Address')), E('th', {}, _('Loss')), E('th', {}, _('Ping')) ])
+	].concat((d.hops || []).map(function(h) {
+		var bad = d.first_bad != null && h.n >= d.first_bad;
+		return E('tr', { 'class': bad ? 'ispt-warn-text' : '' }, [
+			E('td', {}, String(h.n)), E('td', {}, h.ip || '???'), E('td', {}, '%d%%'.format(h.loss)),
+			E('td', {}, h.avg != null ? '%.1f ms'.format(h.avg) : '–')
+		]);
+	})));
 }
 
 /* what was known about a Wi-Fi drop: signal before it, hostapd's reason */
@@ -392,7 +418,7 @@ function hourHistogram(events, from, to) {
 	var h = [];
 	for (var i = 0; i < 24; i++) h.push(0);
 	events.forEach(function(e) {
-		if (e.ts < from || e.ts > to || e.lvl === 'info') return;
+		if (e.ts < from || e.ts > to || e.lvl === 'info' || e.type === 'trace') return;
 		if (e.type === 'stream_resume' || e.type === 'wan_up' || e.type === 'link_up' || e.type === 'wan_if_up' || e.type === 'proxy_up') return;
 		h[new Date(e.ts * 1000).getHours()]++;
 	});
@@ -1260,6 +1286,20 @@ return view.extend({
 			'</ul><h2>' + x(_('Problems by hour of day')) + '</h2><div class="hours">' +
 			h.map(function(n) { return '<div style="height:' + Math.max(1, Math.round(n * 100 / hmax)) + '%" title="' + n + '"></div>'; }).join('') +
 			'</div><div class="hl">' + h.map(function(n, i) { return '<span>' + i + '</span>'; }).join('') + '</div>' +
+			(function() {
+				var tr = own.filter(function(e) { return e.type === 'trace' && e.d && (e.d.hops || []).length; });
+				if (!tr.length) return '';
+				return '<h2>' + x(_('Path snapshots at the moment of a loss')) + '</h2><p class="muted">' +
+					x(_('Taken automatically when a loss started. Loss that starts at a hop and carries on to the destination shows where packets are lost; loss at a single hop only is a router that answers pings slowly.')) + '</p>' +
+					tr.map(function(e) {
+						return '<p><b>' + x(fmtTime(e.ts)) + '</b> – ' + x(traceText(e)) + '</p><table class="ev"><tr><th>' + x(_('Hop')) + '</th><th>' +
+							x(_('Address')) + '</th><th>' + x(_('Loss')) + '</th><th>' + x(_('Ping')) + '</th></tr>' +
+							e.d.hops.map(function(h) {
+								return '<tr class="' + (e.d.first_bad != null && h.n >= e.d.first_bad ? 'err' : '') + '"><td>' + h.n + '</td><td>' + x(h.ip || '???') +
+									'</td><td>' + h.loss + '%</td><td>' + (h.avg != null ? h.avg + ' ms' : '–') + '</td></tr>';
+							}).join('') + '</table>';
+					}).join('');
+			})() +
 			'<h2>' + x(_('Event log (problems only)')) + '</h2><table class="ev">' +
 			evs.filter(function(e) { return e.lvl !== 'info'; }).map(function(e) {
 				return '<tr class="' + (e.lvl === 'err' ? 'err' : '') + '"><td>' + x(fmtTime(e.ts)) + '</td><td>' + x(hostArea(e)) + '</td><td>' + x(eventText(e)) + '</td></tr>';
@@ -1315,11 +1355,15 @@ return view.extend({
 			list = list.filter(function(e) { return e.lvl !== 'info'; });
 
 		var rows = list.slice(0, 200).map(function(e) {
+			/* a path snapshot: the hops fold out (clicks there do not move the charts) */
+			var text = (e.type === 'trace' && e.d && (e.d.hops || []).length)
+				? E('details', { 'click': function(ev) { ev.stopPropagation(); } }, [ E('summary', {}, eventText(e)), traceTable(e.d) ])
+				: eventText(e);
 			return E('tr', { 'class': 'click lvl-' + e.lvl, 'title': _('Show this moment in the charts'),
 				'click': function() { self.setWindow(self.range > 3600 ? 3600 : self.range, e.ts + Math.min(self.range, 3600) / 2); } }, [
 				E('td', { 'class': 'when' }, fmtTime(e.ts)),
 				E('td', { 'class': 'area' }, [ hostBadge(e), areaName(e.area) ]),
-				E('td', {}, eventText(e))
+				E('td', {}, text)
 			]);
 		});
 
@@ -1350,6 +1394,10 @@ return view.extend({
 	renderFooter: function(st) {
 		var bits = [];
 		bits.push(st.data && st.data.link ? _('Data kept in %s (survives a reboot)').format(st.data.link) : _('Data kept in RAM (lost on reboot)'));
+		if (st.wan && st.wan.trace)
+			bits.push(st.wan.trace.tool ? _('path snapshot at a loss: %s%s').format(st.wan.trace.tool,
+				st.wan.trace.running ? ' (' + _('running now') + ')' : '')
+				: E('span', { 'class': 'ispt-warn-text' }, _('path snapshot at a loss: no traceroute / mtr on the router')));
 		if (st.peer) {
 			var pe = st.peer, perr = {
 				no_key: _('no key set (at least 8 characters)'),

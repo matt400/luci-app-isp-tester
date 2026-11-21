@@ -36,6 +36,10 @@ config wan 'wan'
 	option rtt_warn '80'
 	# jitter (ms, collectd ping_stddev) for yellow, 0 = off
 	option jitter_warn '0'
+	# one traceroute (mtr when installed) when a loss starts, at most every
+	# trace_cooldown seconds: shows at which hop the loss starts
+	option trace '1'
+	option trace_cooldown '600'
 
 config iptv 'iptv'
 	option enabled '1'

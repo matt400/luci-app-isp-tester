@@ -147,6 +147,8 @@ return baseclass.extend({
 		var wifiDrop    = byAll(function(e) { return e.type === 'wifi_reconnect' && e.lvl !== 'info'; });
 		var wifiWeak    = byAll(function(e) { return e.type === 'wifi_weak'; });
 		var wifiBad     = wifiDrop.concat(wifiWeak);
+		/* traceroute/mtr snapshots that found where the loss starts */
+		var traces      = by(function(e) { return e.type === 'trace' && e.d && e.d.first_bad; });
 		/* the second router: freezes seen only there, times it did not report */
 		var remoteStalls = remote.filter(function(e) { return e.type === 'stream_stall'; });
 		var peerLost    = by(function(e) { return e.type === 'peer_lost'; });
@@ -272,6 +274,14 @@ return baseclass.extend({
 		}
 		add('home', 1, 'peer_lost', peerLost, { hosts: uniq(peerLost, 'src').join(', ') });
 
+		/* ---- path snapshots: the most common hop where the loss started */
+		if (traces.length) {
+			var hopN = {};
+			traces.forEach(function(e) { var k = e.d.first_bad + '|' + (e.d.bad_ip || '?'); hopN[k] = (hopN[k] || 0) + 1; });
+			var top = Object.keys(hopN).sort(function(a, b) { return hopN[b] - hopN[a]; })[0].split('|');
+			add('isp', 1, +top[0] === 1 ? 'trace_first_hop' : 'trace_hop', traces, { hop: +top[0], ip: top[1], same: hopN[top.join('|')] });
+		}
+
 		add(ctx.iptv_direction === 'tx' ? 'info' : 'isp', 0.5, 'stream_dip', dips);
 		/* counted on the stream as it arrives, before the router: lost packets are upstream */
 		add(ctx.iptv_direction === 'tx' ? 'info' : 'isp', 1.5, 'ts_errors', tsErr);
@@ -328,7 +338,7 @@ return baseclass.extend({
 			stalls: stalls.length,
 			zaps: zaps.length,
 			marks: marks.length,
-			problems: evAll.filter(function(e) { return e.lvl !== 'info'; }).length,
+			problems: evAll.filter(function(e) { return e.lvl !== 'info' && e.type !== 'trace'; }).length,
 			findings: findings
 		};
 	},
@@ -393,6 +403,8 @@ return baseclass.extend({
 		case 'router_load':     return _('The router was overloaded %d× (no problems at those moments).').format(f.n);
 		case 'marks_seen':      return _('%d of %d of your reports match a measured problem.').format(f.n, a.total);
 		case 'marks_unseen':    return _('%d of %d of your reports have nothing measured around them – the problem is not visible on this router: check the IPTV device setting, or the cause is the decoder, the TV or Wi-Fi.').format(f.n, a.total);
+		case 'trace_hop':       return _('Path snapshots (%d): the loss started at hop %d (%s) and carried on to the destination (%d× there) – inside the ISP\'s network or beyond; the hops before it were fine. Show this to the ISP.').format(f.n, a.hop, a.ip, a.same);
+		case 'trace_first_hop': return _('Path snapshots (%d): the loss started already at the first hop (%s) – the access line or the ISP\'s first router.').format(f.n, a.ip);
 		case 'marks_wifi':      return _('%d of %d of your reports came with a Wi-Fi drop or weak signal of %s, and nothing on the line – the cause is Wi-Fi.').format(f.n, a.total, a.devs);
 		case 'marks_unseen_wifi_ok': return _('%d of %d of your reports have nothing measured around them, and the Wi-Fi of the watched devices was fine too – the cause is probably the decoder or the TV (or a device that is not watched).').format(f.n, a.total);
 		case 'wifi_drops':      return _('Wi-Fi of %s dropped and reconnected %d× – range, interference or the device\'s power saving.').format(a.devs, f.n);
