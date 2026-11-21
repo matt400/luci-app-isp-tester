@@ -1038,7 +1038,7 @@ function hist_add(h, t, vals, max) {
 
 /* 1-minute aggregates for the long (24 h) history */
 const AGG_MODE = { rtt: 'avg', rttmax: 'max', loss: 'max', jit: 'max',
-	'iptv:kbps': 'avg', 'iptv:min': 'min', 'iptv:cc': 'sum', err: 'sum', drop: 'sum', lvl: 'max', maint: 'max' };
+	'iptv:kbps': 'avg', 'iptv:min': 'min', 'iptv:cc': 'sum', err: 'sum', drop: 'sum', lvl: 'max', maint: 'max', 'self:cpu': 'max' };
 
 let agg = null;
 let agg10 = null;     /* 10-minute aggregates for the archive */
@@ -1939,6 +1939,67 @@ function wan_session(st) {
 	wansess.uptime = up ? upt : null;
 	wansess.proto = st.proto;
 	if (ip) wansess.ip = ip;
+}
+
+/* ------------------------------------------------- the tester's own load */
+
+/*
+ * Proof that measuring does not load the router (and is not what breaks
+ * IPTV): CPU and RAM of the collector (with the commands it runs: logread,
+ * bridge, rrdtool... - their time is added to it when they end) and of
+ * tsmon, from /proc/<pid>/stat and status. CPU in % of the whole router
+ * (all cores); USER_HZ is 100 on Linux.
+ */
+let selfu = { prev: null, tsm: null, start: null, cpu: null, max: 0, ncpu: null };
+
+function pid_usage(pid, children) {
+	let st = fs.readfile(`${PROC}/${pid}/stat`);
+	if (!st) return null;
+	let f = split(trim(substr(st, rindex(st, ')') + 2)), ' ');
+	let ticks = int(f[11]) + int(f[12]) + (children ? int(f[13]) + int(f[14]) : 0);
+	let rss = null;
+	for (let l in split(fs.readfile(`${PROC}/${pid}/status`) ?? '', '\n')) {
+		let m = match(l, /^VmRSS:\s+([0-9]+) kB/);
+		if (m) { rss = int(m[1]); break; }
+	}
+	return { ticks, rss, m: mono() };
+}
+
+function cpu_pct(cur, prev) {
+	if (!cur || !prev || cur.m <= prev.m || cur.ticks < prev.ticks) return null;
+	return round((cur.ticks - prev.ticks) / (cur.m - prev.m) / (selfu.ncpu || 1), 2);
+}
+
+function sample_self() {
+	if (selfu.ncpu == null) {
+		let n = 0;
+		for (let l in split(fs.readfile(`${PROC}/stat`) ?? '', '\n'))
+			if (match(l, /^cpu[0-9]+ /)) n++;
+		selfu.ncpu = n || 1;
+	}
+	let me = pid_usage('self', true);
+	let c = cpu_pct(me, selfu.prev);
+	selfu.prev = me;
+	selfu.start ??= me;
+	if (c != null) { selfu.cpu = c; if (c > selfu.max) selfu.max = c; }
+
+	let tsm = null;
+	if (tsq.proc) {
+		let pid = int(tsq.proc.pid());
+		let u = pid_usage(pid, false);
+		if (u) {
+			let p = (selfu.tsm?.pid == pid) ? selfu.tsm : null;
+			let tc = cpu_pct(u, p);
+			selfu.tsm = { ...u, pid, cpu: tc ?? p?.cpu, max: max(p?.max ?? 0, tc ?? 0) };
+			tsm = { cpu: selfu.tsm.cpu, max: selfu.tsm.max, rss: u.rss };
+		}
+	}
+	else selfu.tsm = null;
+
+	let avg = cpu_pct(me, selfu.start);
+	let total = (selfu.cpu ?? 0) + (tsm?.cpu ?? 0);
+	return { cpu: selfu.cpu, avg, max: selfu.max, rss: me?.rss, tsmon: tsm, total: round(total, 2),
+		rss_total: (me?.rss ?? 0) + (tsm?.rss ?? 0), ncpu: selfu.ncpu };
 }
 
 /* ------------------------------------------------------------ IPv6 (WAN) */
@@ -4210,9 +4271,11 @@ function tick() {
 
 	/* ---- history (skip the baseline tick without deltas) */
 	let t = now();
+	let me = sample_self();
 	if (dt > 0) {
 		let hv = { lvl: LEVEL[overall] };
 		if (maint_on()) hv.maint = 1;
+		if (me.cpu != null) hv['self:cpu'] = me.total;
 		if (wan?.rx_kbps != null) {
 			hv['wan:rx'] = wan.rx_kbps;
 			hv['wan:tx'] = wan.tx_kbps;
@@ -4288,6 +4351,7 @@ function tick() {
 		csv_rows,
 		data: { dir: RUNDIR, link: (fs.lstat(RUNDIR)?.type == 'link') ? fs.readlink(RUNDIR) : null, archive: arch.info },
 		ntp: ntp_out(),
+		self: me,
 		watchdog: { timeout: WATCHDOG, mode: wd.mode, last: wd.last || null, err: wd.err },
 		maint: maint.until != null ? { until: maint.until, since: maint.since, note: maint.note, active: maint_on() } : null,
 		notify: cfg.notify.enabled ? { service: cfg.notify.service, pending: length(notif.pending),

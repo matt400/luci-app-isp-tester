@@ -137,6 +137,10 @@ A monitor that silently stops is worse than none. The init script uses procd's o
 
 On the overview a red **MONITOR IS NOT WORKING** banner appears as soon as the collector has not updated its state for three intervals (with *Restart*), and a yellow strip when it restarted more than once in the last hour. The report counts the monitor restarts.
 
+### The tester's own load
+
+Proof that the measurement does not load the router (and is not what breaks IPTV): under the banner's times a small line shows *Tester itself: CPU 0.3 % · RAM 4.1 MB* – the share of the router's **whole** CPU (all cores) used by the collector (including the commands it runs: logread, bridge, rrdtool) and by tsmon, from `/proc/<pid>/stat` and `status`. Hover it for now / average / maximum of each. The report says the same in one row (*Load of the tester itself*), and the 1-min history keeps its maximum.
+
 ### Clock: times are only worth something when it is synchronized
 
 After a reboot the router starts with the time of its newest file until NTP sets the clock, so the first entries of a boot can carry a wrong time – exactly the entries the ISP would look at after an outage. Two sources, nothing measured twice:

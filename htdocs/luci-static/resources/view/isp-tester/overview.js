@@ -346,6 +346,22 @@ function eventText(e) {
 	}
 }
 
+function fmtPct(v) {
+	return v == null ? '–' : (v < 1 ? v.toFixed(2) : v.toFixed(1));
+}
+
+function fmtKB(kb) {
+	return kb == null ? '–' : (kb >= 1024 ? _('%s MB').format((kb / 1024).toFixed(1)) : _('%d kB').format(kb));
+}
+
+/* what the tester itself uses: proof that it does not load the router */
+function selfTitle(s) {
+	var t = _('Share of the router\'s whole CPU (%d cores) used by the tester:').format(s.ncpu || 1) + '\n' +
+		_('collector (with logread, bridge, rrdtool it runs): now %s%%, average %s%%, at most %s%%, RAM %s').format(fmtPct(s.cpu), fmtPct(s.avg), fmtPct(s.max), fmtKB(s.rss));
+	if (s.tsmon) t += '\n' + _('tsmon (IPTV picture): now %s%%, at most %s%%, RAM %s').format(fmtPct(s.tsmon.cpu), fmtPct(s.tsmon.max), fmtKB(s.tsmon.rss));
+	return t;
+}
+
 function gapWhy(w) {
 	switch (w) {
 	case 'reboot':  return _('the router restarted');
@@ -1089,6 +1105,8 @@ return view.extend({
 				E('div', {}, _('Last 24 h: %d errors, %d warnings').format(c24.err, c24.warn)),
 				E('div', { 'class': age > st.interval * 3 ? 'ispt-warn-text' : '' },
 					_('Updated %s ago · running for %s').format(fmtDur(age), fmtDur(st.ts - st.started))),
+					st.self && st.self.cpu != null ? E('div', { 'class': 'ispt-muted', 'style': 'font-size:.85em',
+						'title': selfTitle(st.self) }, _('Tester itself: CPU %s%% · RAM %s').format(fmtPct(st.self.total), fmtKB(st.self.rss_total))) : '',
 				E('button', { 'class': 'cbi-button cbi-button-action ispt-markbtn', 'style': 'margin-top:.4em',
 					'title': _('Click the moment you notice a problem (TV freezes, Internet slow). It is logged and compared with the measurements.'),
 					'click': ui.createHandlerFn(this, 'showMark') }, _('⚑ Problem now')),
@@ -1805,6 +1823,9 @@ return view.extend({
 				(gaps.length ? ' · ' + _('not measured: %s in %d periods (listed below)').format(fmtDur(unmeasured), gaps.length) : ' · ' + _('without interruption'))) +
 			row(_('Router restarts'), _('%d×').format(allEv.filter(function(e) { return e.type === 'router_reboot' && !e.host && e.ts >= w.from && e.ts <= w.to; }).length)) +
 			row(_('Monitor restarts (crash / watchdog)'), _('%d×').format(allEv.filter(function(e) { return e.type === 'collector_restart' && !e.host && e.ts >= w.from && e.ts <= w.to; }).length)) +
+			(st.self && st.self.avg != null ? row(_('Load of the tester itself'), _('average %s%%, at most %s%% of the router\'s CPU, RAM %s (since %s) – the measurement does not load the router').format(
+				fmtPct((st.self.avg || 0) + (st.self.tsmon ? st.self.tsmon.cpu || 0 : 0)), fmtPct(st.self.max + (st.self.tsmon ? st.self.tsmon.max || 0 : 0)),
+				fmtKB(st.self.rss_total), fmtTime(st.started))) : '') +
 			(function() {
 				var ms = maintIn(allEv, w.from, w.to, Date.now() / 1000), len = 0;
 				ms.forEach(function(m) { len += clipLen(Math.max(m.from, w.from), Math.min(m.to, w.to), hr); });
