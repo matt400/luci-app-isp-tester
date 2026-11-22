@@ -14,7 +14,7 @@ Target: **OpenWrt 24.10 and 25.12** (ucode + rpcd + LuCI JS). No compiled code, 
 
 ![Probable cause panel](docs/screenshots/probable-cause.png)
 
-**History, last 24 h.** It shows a state strip, ping with packet-loss bands, IPTV bitrate and interface errors:
+**History, last 24 h.** It shows a state strip, ping with packet-loss bands, IPTV bitrate, WAN traffic and interface errors:
 
 ![24 h history](docs/screenshots/history-24h.png)
 
