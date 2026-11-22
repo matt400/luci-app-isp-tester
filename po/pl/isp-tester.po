@@ -2879,9 +2879,6 @@ msgstr "<strong>Tylko operator</strong> – router nie pyta. Skrypt zostaje, ale
 msgid "<strong>The ISP, the router as a backup</strong> – the router's querier is on, but asks only when the ISP has not asked for 255 s. The ISP may let the channel expire in that time: a freeze around each hand-over."
 msgstr "<strong>Operator, router jako rezerwa</strong> – querier routera jest włączony, ale pyta dopiero, gdy operator nie pytał przez 255 s. W tym czasie operator może pozwolić kanałowi wygasnąć: zacięcie przy każdym przejęciu."
 
-msgid "<strong>Only the router</strong> – the ISP's queries arriving on the port towards the ISP are dropped (nftables table <code>bridge isp_tester</code>, needs <code>kmod-nft-bridge</code>), so the router asks every 125 s with no hand-overs; the decoders' answers still go to the ISP. For an ISP that asks irregularly. The ISP's queries are still counted under “ISP IGMP queries”."
-msgstr "<strong>Tylko router</strong> – zapytania operatora przychodzące portem od operatora są odrzucane (tabela nftables <code>bridge isp_tester</code>, wymaga <code>kmod-nft-bridge</code>), więc router pyta co 125 s bez przejęć; odpowiedzi dekoderów nadal idą do operatora. Dla operatora, który pyta nieregularnie. Zapytania operatora są dalej liczone w „Zapytania IGMP od operatora”."
-
 msgid "A script of the same name that ISP Tester did not write is kept as <code>/etc/isp-tester/99-iptv-querier.orig</code> before it is replaced."
 msgstr "Skrypt o tej samej nazwie, którego nie zapisał ISP Tester, jest przed zastąpieniem zachowywany jako <code>/etc/isp-tester/99-iptv-querier.orig</code>."
 
@@ -2896,3 +2893,12 @@ msgstr "Operator, router jako rezerwa"
 
 msgid "Only the router (the ISP's queries are dropped)"
 msgstr "Tylko router (zapytania operatora odrzucane)"
+
+msgid "<strong>Only the router</strong> – the ISP's queries arriving on the port towards the ISP are dropped (nftables table <code>bridge isp_tester</code>, needs <code>kmod-nft-bridge</code>), so the router asks every 125 s with no hand-overs. The router's own queries are not sent to the ISP either: towards the ISP go only the decoders' answers, as before. For an ISP that asks irregularly. The ISP's queries are still counted under “ISP IGMP queries”."
+msgstr "<strong>Tylko router</strong> – zapytania operatora przychodzące portem od operatora są odrzucane (tabela nftables <code>bridge isp_tester</code>, wymaga <code>kmod-nft-bridge</code>), więc router pyta co 125 s bez przejęć. Własne zapytania routera też nie trafiają do operatora: do operatora idą tylko odpowiedzi dekoderów, jak wcześniej. Dla operatora, który pyta nieregularnie. Zapytania operatora są dalej liczone w „Zapytania IGMP od operatora”."
+
+msgid "The router's own queries kept from the ISP so far: %d"
+msgstr "Zatrzymane dotąd własne zapytania routera do operatora: %d"
+
+msgid "own queries kept from the ISP: %d"
+msgstr "zatrzymane zapytania routera do operatora: %d"

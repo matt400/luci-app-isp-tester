@@ -18,7 +18,9 @@
  *                   in the other VLANs
  *   mode router     as backup, and the ISP's general queries arriving on the
  *                   port towards the ISP are dropped (nft table
- *                   "bridge isp_tester"): only the router asks
+ *                   "bridge isp_tester"): only the router asks. Its own
+ *                   queries are not sent out of that port either: towards
+ *                   the ISP go only the decoders' reports, as before
  *
  * The file is rewritten only when its content changes (no flash writes on
  * every boot), then run once at once. A script of the same name that was not
@@ -120,6 +122,15 @@ for (let e in (bridge_json(`vlan show dev ${up}`) ?? []))
 let rules = `		iifname "$UP" ether type 8021q vlan id $VID @ll,216,8 2 @ll,272,32 0xe0000001 counter drop comment "isp-tester-q $UP/$VID"\n`;
 if (untagged)
 	rules += `		iifname "$UP" ether type ip @ll,184,8 2 @ll,240,32 0xe0000001 counter drop comment "isp-tester-q $UP/$VID/untagged"\n`;
+/* the router's own queries are flooded to every port of the VLAN, also
+ * towards the ISP: kept at home. The bridge sends them per port (output
+ * hook) or through its own transmit path (output, then postrouting): both */
+let own = (hook) => {
+	let r = `		oifname "$UP" ether type 8021q vlan id $VID @ll,216,8 2 @ll,272,32 0xe0000001 counter drop comment "isp-tester-o $UP/$VID/${hook}"\n`;
+	if (untagged)
+		r += `		oifname "$UP" ether type ip @ll,184,8 2 @ll,240,32 0xe0000001 counter drop comment "isp-tester-o $UP/$VID/${hook}/untagged"\n`;
+	return r;
+};
 
 let text = `#!/bin/sh
 ${MARK} (Settings -> IPTV -> IGMP querier).
@@ -130,7 +141,8 @@ ${MARK} (Settings -> IPTV -> IGMP querier).
 # Who sends the IGMP queries on the IPTV VLAN, so the decoders keep their channels:
 #   MODE='off'     the ISP alone - this script does nothing
 #   MODE='backup'  the ISP, and the router when the ISP stops (it waits 255 s)
-#   MODE='router'  only the router; the ISP's queries on $UP are dropped
+#   MODE='router'  only the router; the ISP's queries on $UP are dropped,
+#                  and the router's own are not sent to the ISP
 #                  (needs kmod-nft-bridge)
 MODE='${Q.mode}'
 BR='${br}'
@@ -161,6 +173,12 @@ table bridge isp_tester {
 	chain isp_queries {
 		type filter hook prerouting priority -300; policy accept;
 ${rules}	}
+	chain own_queries_out {
+		type filter hook output priority -300; policy accept;
+${own('out')}	}
+	chain own_queries_post {
+		type filter hook postrouting priority -300; policy accept;
+${own('post')}	}
 }
 EOF
 	fi

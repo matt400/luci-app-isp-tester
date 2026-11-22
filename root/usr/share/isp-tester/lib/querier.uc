@@ -37,6 +37,8 @@ let C = null;
 
 const TABLE = 'isp_tester';
 const RULE_TAG = 'isp-tester-q';
+/* the router's own queries kept from the ISP (querier-gen.uc) */
+const OUT_TAG = 'isp-tester-o';
 /* "no querier at all" only after it lasted this long (the router's own
  * querier starts a few seconds after the bridge comes up) */
 const NONE_AFTER = 20;
@@ -132,30 +134,36 @@ function bridge_wide(br) {
 
 const SCRIPT_STATUS = `${VARDIR}/querier-script.json`;
 
-/* the filter's state: packets dropped by its rules, null = no table */
+/* the filter's state: packets dropped by its rules (the ISP's queries
+ * coming in, the router's own going out), null = no table */
 function nft_read() {
 	if (!NFT) return null;
 	let j = json_of(`${NFT} -j list table bridge ${TABLE}`);
 	if (type(j?.nftables) != 'array') return null;
-	let n = 0, pk = 0;
+	let n = 0, pk = 0, out = null;
 	for (let o in j.nftables) {
-		let r = o?.rule;
-		if (type(r) != 'object' || substr(r.comment ?? '', 0, length(RULE_TAG)) != RULE_TAG) continue;
-		n++;
+		let r = o?.rule, c = r?.comment ?? '';
+		if (type(r) != 'object') continue;
+		let isin = substr(c, 0, length(RULE_TAG)) == RULE_TAG, isout = substr(c, 0, length(OUT_TAG)) == OUT_TAG;
+		if (!isin && !isout) continue;
+		let p = 0;
 		for (let x in (r.expr ?? []))
-			if (x?.counter) pk += int(x.counter.packets ?? 0);
+			if (x?.counter) p += int(x.counter.packets ?? 0);
+		if (isin) { n++; pk += p; }
+		else out = (out ?? 0) + p;
 	}
-	return { rules: n, packets: pk };
+	return { rules: n, packets: pk, out };
 }
 
 function nft_check(t) {
 	let cur = nft_read();
 	q.nft_ok = cur != null && cur.rules > 0;
-	if (!q.nft_ok) { q.nft_since = null; q.drops = null; return; }
+	if (!q.nft_ok) { q.nft_since = null; q.drops = null; q.out = null; return; }
 	q.nft_since ??= t;
 	/* the counter starts again when the table is set again (the script with "apply") */
 	if (q.drops != null && cur.packets > q.drops) q.drop_ts = t;
 	q.drops = cur.packets;
+	q.out = cur.out;
 }
 
 /* what the bridge shows differs from the chosen mode: [ what, ... ] */
@@ -302,7 +310,7 @@ function querier_out() {
 	o.version = Q.igmp_version;
 	o.script = q.script;
 	o.diff = q.diff;
-	if (q.nft_ok || Q.mode == 'router') o.nft = { ok: q.nft_ok, drops: q.drops, last: q.drop_ts };
+	if (q.nft_ok || Q.mode == 'router') o.nft = { ok: q.nft_ok, drops: q.drops, last: q.drop_ts, out: q.out };
 	let reasons = [];
 	if (q.script?.err && Q.mode != 'unmanaged') push(reasons, { c: 'querier_script_err', err: q.script.err });
 	if (length(q.diff ?? [])) push(reasons, { c: 'querier_diff', what: q.diff, mode: Q.mode });
