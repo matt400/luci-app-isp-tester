@@ -44,10 +44,16 @@ function uniq(list, key) {
 	return out;
 }
 
-/* first event after ts (sorted list) matching pred */
+/* first event after ts (sorted list) matching pred. The start is found by
+ * halving: it is asked for every freeze, bufferbloat and IPv6 outage, and the
+ * scan from the start of the list for each of them was the slowest part of
+ * the analysis, run on every 5 s refresh (24 h window: tens of thousands of
+ * steps per freeze) */
 function nextOf(sorted, ts, pred) {
-	for (var i = 0; i < sorted.length; i++)
-		if (sorted[i].ts >= ts && pred(sorted[i])) return sorted[i];
+	var lo = 0, hi = sorted.length;
+	while (lo < hi) { var mid = (lo + hi) >> 1; if (sorted[mid].ts < ts) lo = mid + 1; else hi = mid; }
+	for (var i = lo; i < sorted.length; i++)
+		if (pred(sorted[i])) return sorted[i];
 	return null;
 }
 
@@ -202,11 +208,16 @@ return baseclass.extend({
 		var duringRestart = function(s) {
 			return decRestarts.some(function(r) { return s.ts >= r.ts - 15 && s.ts <= r.ts + ((r.d && r.d.dur) || 0) + 10; });
 		};
+		/* the operator stopped sending IGMP queries: from the first silent moment until they were back */
+		var noQuery = periods(sorted, [ 'igmp_noquery' ], to);
 		var zaps = [], stalls = [], igmpLeft = [], igmpJoined = [], decStalls = [];
 		allStalls.forEach(function(s) {
 			var ig = igmpOf(s);
 			if (ig === 'zap') { zaps.push(s); return; }
-			if (duringRestart(s)) { decStalls.push(s); return; }
+			/* without the operator's queries a decoder that only watches goes
+			 * silent and looks restarted when it speaks again: a freeze then is
+			 * the missing queries, not the decoder */
+			if (duringRestart(s) && !inPeriods(noQuery, s.ts, 30)) { decStalls.push(s); return; }
 			stalls.push(s);
 			if (ig === 'left') igmpLeft.push(s);
 			else if (ig === 'joined') igmpJoined.push(s);
@@ -311,8 +322,6 @@ return baseclass.extend({
 
 		/* ---- IPTV: classify every stall by what happened at the same time */
 		var withWan = [], withPort = [], withDev = [], withProxy = [], withNoQuery = [], lonely = [];
-		/* the operator stopped sending IGMP queries: from the first silent moment until they were back */
-		var noQuery = periods(sorted, [ 'igmp_noquery' ], to);
 		stalls.forEach(function(s) {
 			if (near(proxyBad, s.ts, 60)) withProxy.push(s);
 			else if (near(anyWan, s.ts)) withWan.push(s);
