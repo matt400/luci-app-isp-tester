@@ -50,7 +50,7 @@ function igmpq_limit() {
 }
 
 let tsq = { proc: null, args: null, started: 0, fails: 0, next: 0, err: null, seen: {}, drops: null, flow: null,
-	win: [], last: null, pend: {}, last_ev: {}, last_lvl: {}, cc_acc: null, dropped: 0, drop_ts: 0 };
+	win: [], last: null, pend: {}, last_ev: {}, last_lvl: {}, cc_acc: null, dropped: 0, drop_ts: 0, read_t: null, zap_skip: 0 };
 /* channel names: db = group -> { name, provider, sid, ts } learned from the
  * streams (or { name: null, why, ts } when a stream carries none) */
 let chn = { db: {}, err: null };
@@ -175,7 +175,15 @@ function igmp_classify(from) {
 	let step = (C.cfg.iptv.sample_interval > 0) ? C.cfg.iptv.sample_interval : C.cfg.interval;
 	let lim = from + C.cfg.iptv.stall_after + step + 2;
 	let emptied = length(filter(rel, (h) => !length(h.after) && h.ts <= lim)) > 0;
-	if (length(before) && length(after) && join(',', before) != join(',', after)) return 'zap';
+	/* a channel change that stops the stream comes with the stop (the
+	 * decoder leaves the old group as it joins the new one). A change
+	 * seconds later is the viewer reacting to a freeze (a frozen picture,
+	 * channel up and back): it was taken for the cause, the freeze was
+	 * "a channel change - ignored" and left out of the analysis */
+	let zap = filter(rel, (h) => h.ts <= from + step + 2);
+	if (length(zap) && length(before) && length(zap[length(zap) - 1].after) &&
+	    join(',', before) != join(',', zap[length(zap) - 1].after))
+		return 'zap';
 	if (emptied || !length(before)) return 'left';
 	/* left and joined again later: subscribed when the data stopped */
 	return length(after) ? 'joined' : null;
@@ -779,7 +787,7 @@ const TSQ_DROP_SHOW = 600;   /* s: how long packets the router dropped are shown
 function tsq_out() {
 	return { error: tsq.err, running: tsq.proc != null, since: tsq.proc ? tsq.started : null,
 		window: TSQ_WIN, warn: C.cfg.iptv.q_warn, fail: C.cfg.iptv.q_fail, last: tsq.last,
-		dropped: tsq.dropped, drop_ts: tsq.drop_ts || null };
+		dropped: tsq.dropped, drop_ts: tsq.drop_ts || null, zap_skip: tsq.zap_skip ?? 0 };
 }
 
 function iptv_on() {
@@ -1517,6 +1525,20 @@ function tsm_read() {
 	let seen = {}, list = [], fresh = [], named = [];
 	/* (an entry "from the future" after the clock was set back is dropped too) */
 	tsq.win = filter(tsq.win, (e) => t - e.ts < TSQ_WIN && e.ts <= t);
+	/* groups joined since the last read (and a few seconds before it): a
+	 * channel change. Zapping away and back within a few seconds (A -> B ->
+	 * A) stops group A at the operator and starts it again: its counter
+	 * jumps and the pause is counted, under the helper's 5 s "new stream"
+	 * limit - every quick zap was "picture errors" against the operator.
+	 * Errors of a group are not counted while another group was just joined
+	 * (a decoder leaving and joining the same group again - retrying after
+	 * an outage - still counts). With two decoders, one zapping hides the
+	 * other one's errors of these seconds. */
+	let zj = {}, zfrom = (tsq.read_t ?? t) - 5;
+	for (let h in igmp.hist)
+		if (h.ts >= zfrom && h.ts <= t)
+			for (let x in (h.after ?? [])) if (index(h.before ?? [], x) < 0) zj[x] = true;
+	tsq.read_t = t;
 	for (let g in r.groups) {
 		if (!valid_group(g?.grp)) continue;
 		let key = `${r.pid}:${g.id}`;
@@ -1536,7 +1558,12 @@ function tsm_read() {
 		if (!C.cfg.iptv.quality) continue;
 
 		push(list, g);
-		if (ddrop == 0 && (d.cc + d.tei + (C.cfg.iptv.q_gap > 0 ? d.gaps : 0)) > 0) {
+		let bad = d.cc + d.tei + (C.cfg.iptv.q_gap > 0 ? d.gaps : 0);
+		if (bad > 0 && length(filter(keys(zj), (x) => x != g.grp))) {
+			tsq.zap_skip = (tsq.zap_skip ?? 0) + bad;
+			continue;
+		}
+		if (ddrop == 0 && bad > 0) {
 			push(tsq.win, { ts: t, grp: g.grp, cc: d.cc, tei: d.tei, lost: d.lost, gaps: d.gaps,
 				gap: d.gaps ? (g.gap_last_ms ?? 0) : 0 });
 			push(fresh, { g, d });
@@ -1644,6 +1671,7 @@ function iptv_shift(by) {
 	mv(igq, [ 'last_ts', 'since', 'silent_ref' ]);
 	for (let mac, s in dhl.mac) mv(s, [ 'offer_t', 'last_ack', 'boot_t' ]);
 	for (let e in tsq.win) e.ts += by;
+	mv(tsq, [ 'read_t' ]);
 	for (let g, t in tsq.last_ev) tsq.last_ev[g] = t + by;
 	for (let g, p in tsq.pend) mv(p, [ 'since' ]);
 	if (tsq.flow) mv(tsq.flow, [ 'ts' ]);

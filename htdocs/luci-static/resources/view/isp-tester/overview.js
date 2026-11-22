@@ -1533,6 +1533,9 @@ return view.extend({
 			if (q.drop_ts && rnow() - q.drop_ts < 600)
 				kv.push(E('span', { 'class': 'k' }, _('Not counted')),
 					E('span', {}, [ dot('warn'), ' ', _('%d packets the router was too busy to count (last %s ago) – errors at that time are not logged').format(q.dropped, fmtDur(rnow() - q.drop_ts)) ]));
+			if (q.zap_skip)
+				kv.push(E('span', { 'class': 'k' }, _('Channel changes')),
+					E('span', {}, _('%d errors right after a channel change not counted (zapping away and back restarts the stream at the operator)').format(q.zap_skip)));
 		}
 
 		if (t.bridge) {
