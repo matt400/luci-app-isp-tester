@@ -347,4 +347,15 @@ function querier_shift(by) {
 		if (q[k] != null) q[k] += by;
 }
 
-export { querier_init, querier_tick, querier_out, querier_shift };
+/* for the decoder heuristics (iptv.uc): nobody asks on the VLAN now (also
+ * before it is logged), and the query interval the decoders answer when
+ * the router itself is the querier (s, null = not the router / unknown) */
+function querier_none() {
+	return q.br != null && (q.none_open || q.none_from != null);
+}
+
+function querier_query() {
+	return (q.br != null && q.who == 'router' && q.conf?.query > 0) ? q.conf.query : null;
+}
+
+export { querier_init, querier_tick, querier_out, querier_shift, querier_none, querier_query };
