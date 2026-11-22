@@ -116,6 +116,7 @@ struct dhcp_ev {
 	int type;                        /* 2 OFFER, 5 ACK, 6 NAK */
 	uint8_t mac[6];
 	uint32_t ip, server, mask, router, lease, t1;   /* t1 = renewal time (option 58), 0 = not sent */
+	uint8_t renew;                   /* ciaddr set: the answer to a renewal (RENEWING/REBINDING), 0 = a start (INIT-REBOOT, SELECTING) */
 };
 static struct dhcp_ev dhcp_ring[DHCP_RING];
 static unsigned dhcp_seq;
@@ -502,6 +503,9 @@ static void dhcp_frame(const uint8_t *b, int n)
 	if (e.type != 2 && e.type != 5 && e.type != 6) return;
 	memcpy(e.mac, b + 28, 6);
 	memcpy(&e.ip, b + 16, 4);
+	/* the server copies ciaddr from the REQUEST (RFC 2131, table 3): only a
+	 * client that still holds its address and renews it sets it */
+	e.renew = (b[12] | b[13] | b[14] | b[15]) != 0;
 	e.seq = ++dhcp_seq;
 	e.wall = (long long)time(NULL);
 	dhcp_ring[e.seq % DHCP_RING] = e;
@@ -771,10 +775,10 @@ static void write_json(FILE *o, double t, double up, const char *dev, int vid, t
 			inet_ntop(AF_INET, &e->mask, a[2], sizeof(a[2]));
 			inet_ntop(AF_INET, &e->router, a[3], sizeof(a[3]));
 			fprintf(o, "%s{\"seq\":%u,\"t\":%lld,\"type\":%d,\"mac\":\"%02x:%02x:%02x:%02x:%02x:%02x\","
-				"\"ip\":\"%s\",\"server\":\"%s\",\"mask\":\"%s\",\"router\":\"%s\",\"lease\":%u,\"t1\":%u}",
+				"\"ip\":\"%s\",\"server\":\"%s\",\"mask\":\"%s\",\"router\":\"%s\",\"lease\":%u,\"t1\":%u,\"renew\":%s}",
 				first ? "" : ",", e->seq, e->wall, e->type,
 				e->mac[0], e->mac[1], e->mac[2], e->mac[3], e->mac[4], e->mac[5],
-				a[0], a[1], a[2], a[3], e->lease, e->t1);
+				a[0], a[1], a[2], a[3], e->lease, e->t1, e->renew ? "true" : "false");
 			first = 0;
 		}
 		fputc(']', o);

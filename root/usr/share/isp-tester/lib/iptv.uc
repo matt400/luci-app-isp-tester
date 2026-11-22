@@ -159,7 +159,10 @@ function igmp_classify(from) {
 	 * seconds later: many decoders leave and join the same channel again
 	 * when no data comes - an operator-side stop was "IGMP timeout at home"
 	 * (stall_igmp_left, weight 3 for the home side) */
-	let lim = from + C.cfg.iptv.stall_after + 3;
+	/* h.ts is when the change was read, up to one sample after it happened
+	 * (sample_interval with the fast sampler, else the main interval) */
+	let step = iptv_fast() ? C.cfg.iptv.sample_interval : C.cfg.interval;
+	let lim = from + C.cfg.iptv.stall_after + step + 2;
 	let emptied = length(filter(rel, (h) => !length(h.after) && h.ts <= lim)) > 0;
 	if (length(before) && length(after) && join(',', before) != join(',', after)) return 'zap';
 	if (emptied || !length(before)) return 'left';
@@ -260,7 +263,14 @@ function dhcp_seen(x, via) {
 	 * with a stall in it was logged as a restart */
 	/* (with a T1 shorter than half the lease every renewal was a "boot") */
 	let ren = (s.t1 > 0 && s.t1 < (s.lease ?? 0)) ? s.t1 : (s.lease ?? 0) * 0.5;
-	if (s.last_ack != null && s.lease && t - s.last_ack > 30 && t - s.last_ack < ren * 0.9)
+	/* tsmon tells it from the ACK itself (ciaddr): a renewal has it set, a
+	 * start not. Trusted only once a renewal of this decoder came with it
+	 * set - a server that never copies it would make every ACK a start.
+	 * Without it (dnsmasq log, an older helper) by the schedule above */
+	if (x.renew === true) s.ci_ok = true;
+	let start = (s.ci_ok && x.renew === false) ? true : (s.ci_ok && x.renew === true) ? false : null;
+	if (start === true ||
+	    (start == null && s.last_ack != null && s.lease && t - s.last_ack > 30 && t - s.last_ack < ren * 0.9))
 		s.boot_t = t;
 	let fresh = s.offer_t != null && t - s.offer_t <= 15;
 	s.offer_t = null;
@@ -275,9 +285,12 @@ function dhcp_seen(x, via) {
 	 * "renewed too late" (warning, counted against the operator) */
 	else if (fresh)
 		C.emit('info', 'iptv', src, 'dhcp_new', { mac, ip: x.ip, lease: x.lease, via });
-	/* nor when it was switched off meanwhile (a start with INIT-REBOOT) */
-	else if (s.lease && s.last_ack != null && t - s.last_ack > s.lease + 5 && !dec.list[mac]?.off &&
-	         !(s.boot_t != null && s.boot_t >= t - 15)) {
+	/* nor a start with INIT-REBOOT (asks for its old address, no OFFER):
+	 * seen by ciaddr, else by it being switched off meanwhile or on again
+	 * only shortly ago (without membership data "on" comes with its first
+	 * frame, before the ACK) */
+	else if (s.lease && s.last_ack != null && t - s.last_ack > s.lease + 5 && start !== true &&
+	         !dec.list[mac]?.off && !(dec.list[mac]?.on_t != null && t - dec.list[mac].on_t <= 120)) {
 		s.renew++;
 		C.emit('warn', 'iptv', src, 'dhcp_late', { mac, ip: x.ip, late: t - s.last_ack - s.lease, lease: s.lease, via });
 	}
@@ -487,8 +500,11 @@ function dec_noquery_hit(from) {
 	 * is the one the decoders answer, not the operator): the same silence */
 	if (C.querier_none()) return true;
 	/* the router's own querier keeps the decoders talking: the operator's
-	 * queries pausing (dropped anyway in mode router) silences nobody */
-	if (igq.silent && !igq.silent_router && !C.querier_router()) return true;
+	 * queries pausing (dropped anyway in mode router) silences nobody.
+	 * Judged by who asked when the pause began, not now: in mode backup the
+	 * router takes over only after the memberships expired, and the
+	 * decoders' silence before that was the operator's pause */
+	if (igq.silent && !igq.silent_router) return true;
 	let evs = C.events();
 	for (let i = length(evs) - 1; i >= 0; i--) {
 		let e = evs[i];
@@ -522,7 +538,8 @@ function dec_quiet_proof(mac, from, to) {
 /* more than the decoders behind the port (any VLAN: a PC, the switch's own
  * address): a switch. Its link going down is the switch or its cable, not a
  * decoder restart. Read once a minute until known, then every 10 min (a
- * laptop plugged in once made the port a "switch" for good). An empty
+ * laptop plugged in once made the port a "switch" for good; back to "the
+ * decoder alone" after an hour without other devices). An empty
  * table (the link is down, the port flushed) keeps what was known.
  * An unmanaged switch with only the decoder behind it sends nothing of its
  * own: it cannot be told from the decoder directly on the port. */
@@ -531,7 +548,9 @@ function dec_port_shared(port) {
 	if (p.m != null && mono() - p.m < (p.v ? 600 : 60)) return p.v;
 	p.m = mono();
 	let j = bridge_json(`fdb show br ${vl.bridge} brport ${port}`);
-	if (j == null) return false;
+	/* the table could not be read: keep what was known (a switch turned
+	 * into a decoder on the port for a minute) */
+	if (j == null) return p.v;
 	let macs = {}, n = 0;
 	for (let e in j) {
 		let mac = lc(`${e?.mac ?? ''}`);
@@ -542,7 +561,12 @@ function dec_port_shared(port) {
 	if (!n) return p.v;
 	let decs = 0;
 	for (let mac, d in dec.list) if (d.port == port) decs++;
-	p.v = n > max(1, decs);
+	let v = n > max(1, decs);
+	/* a switch becomes "the decoder alone" only after an hour without other
+	 * devices: a PC or laptop behind it asleep for a while ages out of the
+	 * table, and the switch losing power then was logged as the decoder off */
+	if (v || !p.v) { p.v = v; p.no = null; }
+	else if ((p.no ??= p.m) != null && p.m - p.no >= 3600) { p.v = false; p.no = null; }
 	return p.v;
 }
 
@@ -619,6 +643,7 @@ function dec_poll() {
 					if (!mdb_ok || length(port_groups(x.port))) {
 						C.emit('info', 'iptv', src, 'decoder_on', { mac, port: x.port, dur });
 						d.off = false;
+						d.on_t = t;
 						d.since = t;
 					}
 				}
@@ -648,6 +673,7 @@ function dec_poll() {
 				if (x.age != null && x.age < C.cfg.iptv.dec_silence && (!mdb_ok || length(port_groups(d.port)))) {
 					C.emit('info', 'iptv', src, 'decoder_on', { mac, port: x.port, dur: max(1, t - d.gone_at) });
 					d.off = false;
+					d.on_t = t;
 					d.since = t;
 					d.quiet_from = null;
 				}
@@ -1585,7 +1611,7 @@ function iptv_shift(by) {
 	mv(tsq, [ 'started', 'drop_ts' ]);
 	for (let g, t in igmp.joined) if (t > 0) igmp.joined[g] = t + by;
 	for (let h in igmp.hist) h.ts += by;
-	for (let mac, d in dec.list) mv(d, [ 'since', 'gone_at', 'seen', 'last_active', 'quiet_from' ]);
+	for (let mac, d in dec.list) mv(d, [ 'since', 'gone_at', 'seen', 'last_active', 'quiet_from', 'on_t' ]);
 	mv(dec, [ 't0' ]);
 	/* the operator's queries: a step forward would look like a long silence
 	 * (a false igmp_noquery), the decoders' leases like expired ones */
