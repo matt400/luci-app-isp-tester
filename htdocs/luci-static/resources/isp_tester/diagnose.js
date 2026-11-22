@@ -341,10 +341,14 @@ return baseclass.extend({
 				(e.type === 'log' && e.d && [ 'conntrack_drop', 'oom', 'dns_limit' ].indexOf(e.d.kind) >= 0); }));
 
 		/* ---- IPTV: classify every stall by what happened at the same time */
+		/* only an Internet problem that stops traffic (loss, outage, session):
+		 * a high ping alone does not stop multicast, and a freeze within 30 s
+		 * of one was a "shared cause on the ISP line" */
+		var wanHard = anyWan.filter(function(e) { return !(e.type === 'target_degraded' && e.d && !(e.d.loss > 0)); });
 		var withWan = [], withPort = [], withDev = [], withProxy = [], withNoQuery = [], withQSwitch = [], withNoQuerier = [], lonely = [];
 		stalls.forEach(function(s) {
 			if (near(proxyBad, s.ts, 60)) withProxy.push(s);
-			else if (near(anyWan, s.ts)) withWan.push(s);
+			else if (near(wanHard, s.ts)) withWan.push(s);
 			else if (near(anyPort, s.ts)) withPort.push(s);
 			else if (near(iptvDevErr, s.ts)) withDev.push(s);
 			/* the ISP lets the membership expire about when the router takes over: just before or after it */
