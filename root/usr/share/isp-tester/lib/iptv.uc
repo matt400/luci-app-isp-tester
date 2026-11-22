@@ -408,6 +408,9 @@ function vlan_sample() {
  * Back within dec_off s: decoder_restart; longer: decoder_off / decoder_on.
  */
 
+/* s: a decoder directly on a port whose link is down that long is off */
+const DEC_LINK_OFF = 120;
+
 /* does the bridge tool take "vlan" in fdb show: null = not known yet */
 let fdb_vlan = null;
 
@@ -550,7 +553,11 @@ function dec_poll() {
 				 * as "quiet" when it is back (it was logged as one, "fdb") */
 				d.via = (lk && !dec_port_shared(d.port)) ? 'link' : lk ? 'port' : 'aged';
 			}
-			if (!d.off && t - d.gone_at > C.cfg.iptv.dec_off) {
+			/* its own link down (decoder directly on the port): a restart takes
+			 * the link down only for seconds, so after DEC_LINK_OFF it is off
+			 * (unplugged, power) - not shown "not visible" for dec_off */
+			let lim = (d.via == 'link' && link == '0') ? min(DEC_LINK_OFF, C.cfg.iptv.dec_off) : C.cfg.iptv.dec_off;
+			if (!d.off && t - d.gone_at > lim) {
 				d.off = true;
 				C.emit('info', 'iptv', src, 'decoder_off', { mac, port: d.port, via: (d.via == 'port') ? 'link' : d.via }, d.gone_at);
 			}
