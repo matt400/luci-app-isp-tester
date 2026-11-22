@@ -2,8 +2,8 @@
  * isp-tester-tsmon - continuous MPEG-TS quality counter for IPTV multicast
  * (part of luci-app-isp-tester)
  *
- *   isp-tester-tsmon -i DEV [-v VID] [-d in|out] -o STATE.json [-g GAP_MS] [-D] [-Q [-I]]
- *   isp-tester-tsmon -r CAPTURE.pcap [-g GAP_MS] [-D] [-Q]
+ *   isp-tester-tsmon -i DEV [-v VID] [-d in|out] -o STATE.json [-g GAP_MS] [-D] [-Q] [-M] [-I]
+ *   isp-tester-tsmon -r CAPTURE.pcap [-g GAP_MS] [-D] [-Q] [-M]
  *
  * Live mode listens on DEV with a packet socket. The kernel filter (classic
  * BPF) passes only IPv4 UDP multicast (not 224.0.0.x), in VLAN VID when -v is
@@ -19,7 +19,11 @@
  * With -Q it also notes the IGMP membership queries the operator sends on the
  * VLAN: how many, the time since the last general query (to 224.0.0.1), who
  * sends them and with which IGMP version and interval. Without queries the
- * memberships time out. -I (with -Q) passes only IGMP, no stream at all.
+ * memberships time out. With -M it notes the decoders' own IGMP messages
+ * (reports and leaves, which go the other way: towards the ISP) per MAC
+ * address, so two decoders behind one port are told apart: which groups
+ * each one reported and when, and its last leave. -I (with -Q / -M) passes
+ * only IGMP, no stream at all.
  * Once a second the cumulative counters of all groups are written to
  * STATE.json (atomically, via a .tmp file and rename); the collector reads it
  * and works out what changed. Packets the socket had to drop because this
@@ -123,6 +127,26 @@ static unsigned dhcp_seq;
 static int want_dhcp;
 /* IGMP membership queries (-Q): the querier's own messages, seen on the VLAN */
 static int want_igmp, want_stream = 1;
+/* the decoders' reports and leaves (-M): per source MAC, the groups it
+ * reported and when (monotonic), and its last leave */
+static int want_members;
+#define MEM_HOSTS  32
+#define MEM_GROUPS 8
+#define MEM_KEEP   600.0         /* s: a group not reported again for this long is forgotten */
+#define MEM_HOST_KEEP 3600.0     /* s: a host silent this long is forgotten */
+struct mem_host {
+	int used;
+	uint8_t mac[6];
+	uint32_t ip;                 /* IPv4 source of its last message */
+	double t_last;               /* last report or leave */
+	uint64_t reports, leaves;
+	uint32_t grp[MEM_GROUPS];
+	double t_grp[MEM_GROUPS];    /* < 0 = slot free */
+	uint32_t leave_grp;
+	double t_leave;              /* < 0 = none */
+	int ver;                     /* version of its last report */
+};
+static struct mem_host members[MEM_HOSTS];
 static struct {
 	uint64_t total, general;
 	double t_gen, t_any;             /* monotonic time of the last general / any query, < 0 = none */
@@ -511,10 +535,100 @@ static void dhcp_frame(const uint8_t *b, int n)
 	dhcp_ring[e.seq % DHCP_RING] = e;
 }
 
+static struct mem_host *mem_get(const uint8_t *mac, double t)
+{
+	struct mem_host *free_h = NULL, *oldest = NULL;
+	for (int i = 0; i < MEM_HOSTS; i++) {
+		struct mem_host *h = &members[i];
+		if (h->used && !memcmp(h->mac, mac, 6)) return h;
+		if (!h->used && !free_h) free_h = h;
+		if (h->used && (!oldest || h->t_last < oldest->t_last)) oldest = h;
+	}
+	struct mem_host *h = free_h ? free_h : oldest;
+	memset(h, 0, sizeof(*h));
+	h->used = 1;
+	memcpy(h->mac, mac, 6);
+	h->t_leave = -1;
+	for (int i = 0; i < MEM_GROUPS; i++) h->t_grp[i] = -1;
+	h->t_last = t;
+	return h;
+}
+
+/* 224.0.0.x (all hosts, all routers, IGMPv3 reports...) is no channel */
+static int mem_skip(uint32_t grp)
+{
+	return (ntohl(grp) & 0xffffff00) == 0xe0000000 || (ntohl(grp) & 0xf0000000) != 0xe0000000;
+}
+
+static void mem_join(struct mem_host *h, uint32_t grp, double t)
+{
+	int slot = -1, old = 0;
+	if (mem_skip(grp)) return;
+	for (int i = 0; i < MEM_GROUPS; i++) {
+		if (h->t_grp[i] >= 0 && h->grp[i] == grp) { slot = i; break; }
+		if (slot < 0 && h->t_grp[i] < 0) slot = i;
+		if (h->t_grp[i] < h->t_grp[old]) old = i;
+	}
+	if (slot < 0) slot = old;
+	h->grp[slot] = grp;
+	h->t_grp[slot] = t;
+}
+
+static void mem_leave(struct mem_host *h, uint32_t grp, double t)
+{
+	if (mem_skip(grp)) return;
+	for (int i = 0; i < MEM_GROUPS; i++)
+		if (h->t_grp[i] >= 0 && h->grp[i] == grp) h->t_grp[i] = -1;
+	h->leave_grp = grp;
+	h->t_leave = t;
+	h->leaves++;
+}
+
+/* a decoder's own message: v1/v2 report, v2 leave, v3 report (RFC 3376
+ * 4.2: group records; INCLUDE with no source = leave, EXCLUDE = join) */
+static void member_frame(const uint8_t *g, int n, const uint8_t *src, const uint8_t *mac, double t)
+{
+	if (n < 8 || (g[0] != 0x12 && g[0] != 0x16 && g[0] != 0x17 && g[0] != 0x22)) return;
+	struct mem_host *h = mem_get(mac, t);
+	uint32_t grp;
+	memcpy(&h->ip, src, 4);
+	h->t_last = t;
+	if (g[0] == 0x22) {
+		int nrec = be16(g + 6), p = 8;
+		int joins = 0;
+		h->ver = 3;
+		for (int r = 0; r < nrec && p + 8 <= n; r++) {
+			int type = g[p], aux = g[p + 1], ns = be16(g + p + 2);
+			memcpy(&grp, g + p + 4, 4);
+			if (type == 2 || type == 4 || type == 5 || ((type == 1 || type == 3) && ns > 0)) { mem_join(h, grp, t); joins++; }
+			else if ((type == 1 || type == 3) && ns == 0) mem_leave(h, grp, t);
+			p += 8 + 4 * ns + 4 * aux;
+		}
+		if (joins) h->reports++;
+		return;
+	}
+	memcpy(&grp, g + 4, 4);
+	if (g[0] == 0x17) { mem_leave(h, grp, t); return; }
+	h->ver = (g[0] == 0x12) ? 1 : 2;
+	h->reports++;
+	mem_join(h, grp, t);
+}
+
+static void members_expire(double t)
+{
+	for (int i = 0; i < MEM_HOSTS; i++) {
+		struct mem_host *h = &members[i];
+		if (!h->used) continue;
+		if (t - h->t_last > MEM_HOST_KEEP) { h->used = 0; continue; }
+		for (int j = 0; j < MEM_GROUPS; j++)
+			if (h->t_grp[j] >= 0 && t - h->t_grp[j] > MEM_KEEP) h->t_grp[j] = -1;
+	}
+}
+
 /* IGMP membership query (type 0x11), g = IGMP message, n bytes of it, src = the IP source */
 static void igmp_frame(const uint8_t *g, int n, const uint8_t *src, double t)
 {
-	if (n < 8 || g[0] != 0x11) return;
+	if (!want_igmp || n < 8 || g[0] != 0x11) return;
 	uint32_t grp;
 	memcpy(&grp, g + 4, 4);
 	igmpq.total++;
@@ -542,8 +656,9 @@ static void igmp_frame(const uint8_t *g, int n, const uint8_t *src, double t)
 }
 
 /* frame: Ethernet frame as received (VLAN tag inline or already removed by
- * the kernel), caplen bytes of it present, wirelen its real length */
-static void handle_frame(const uint8_t *f, int caplen, int wirelen, double t)
+ * the kernel), caplen bytes of it present, wirelen its real length; rev =
+ * it went the other way than the stream (a decoder's IGMP towards the ISP) */
+static void handle_frame(const uint8_t *f, int caplen, int wirelen, double t, int rev)
 {
 	if (caplen < 14 + 20 + 8) return;
 	unsigned et = be16(f + 12);
@@ -556,12 +671,18 @@ static void handle_frame(const uint8_t *f, int caplen, int wirelen, double t)
 	if (et != 0x0800) return;
 
 	const uint8_t *h = f + ip;
-	if (want_igmp && (h[0] >> 4) == 4 && h[9] == 2) {
+	if ((want_igmp || want_members) && (h[0] >> 4) == 4 && h[9] == 2) {
 		int l4 = (h[0] & 15) * 4, tot = (int)be16(h + 2) - l4;
-		if (l4 >= 20 && tot >= 8 && ip + l4 + 8 <= caplen)
-			igmp_frame(h + l4, tot > caplen - ip - l4 ? caplen - ip - l4 : tot, h + 12, t);
+		if (l4 >= 20 && tot >= 8 && ip + l4 + 8 <= caplen) {
+			int len = tot > caplen - ip - l4 ? caplen - ip - l4 : tot;
+			/* the operator's queries come with the stream, the decoders'
+			 * reports go the other way */
+			if (rev) { if (want_members) member_frame(h + l4, len, h + 12, f + 6, t); }
+			else igmp_frame(h + l4, len, h + 12, t);
+		}
 		return;
 	}
+	if (rev) return;
 	if ((h[0] >> 4) != 4 || h[9] != 17) return;
 	int ihl = (h[0] & 15) * 4;
 	if (ihl < 20) return;
@@ -792,6 +913,35 @@ static void write_json(FILE *o, double t, double up, const char *dev, int vid, t
 			igmpq.t_gen >= 0 ? t - igmpq.t_gen : -1.0, igmpq.t_any >= 0 ? t - igmpq.t_any : -1.0,
 			a, igmpq.ver, igmpq.max_resp_ds, igmpq.qqic, igmpq.qrv);
 	}
+	if (want_members) {
+		char a[INET_ADDRSTRLEN];
+		fputs(",\"members\":[", o);
+		first = 1;
+		for (int i = 0; i < MEM_HOSTS; i++) {
+			const struct mem_host *h = &members[i];
+			if (!h->used) continue;
+			inet_ntop(AF_INET, &h->ip, a, sizeof(a));
+			fprintf(o, "%s{\"mac\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"ip\":\"%s\",\"age\":%.1f,\"ver\":%d,"
+				"\"reports\":%llu,\"leaves\":%llu,\"groups\":[",
+				first ? "" : ",", h->mac[0], h->mac[1], h->mac[2], h->mac[3], h->mac[4], h->mac[5],
+				a, t - h->t_last, h->ver, (unsigned long long)h->reports, (unsigned long long)h->leaves);
+			int gf = 1;
+			for (int j = 0; j < MEM_GROUPS; j++) {
+				if (h->t_grp[j] < 0) continue;
+				inet_ntop(AF_INET, &h->grp[j], a, sizeof(a));
+				fprintf(o, "%s{\"grp\":\"%s\",\"age\":%.1f}", gf ? "" : ",", a, t - h->t_grp[j]);
+				gf = 0;
+			}
+			fputc(']', o);
+			if (h->t_leave >= 0) {
+				inet_ntop(AF_INET, &h->leave_grp, a, sizeof(a));
+				fprintf(o, ",\"leave\":{\"grp\":\"%s\",\"age\":%.1f}", a, t - h->t_leave);
+			}
+			fputc('}', o);
+			first = 0;
+		}
+		fputc(']', o);
+	}
 	fputs("}\n", o);
 }
 
@@ -852,12 +1002,15 @@ static int run_pcap(const char *file)
 		if (fread(buf, 1, incl, f) != incl) break;
 		t = rd32(rec, le) + rd32(rec + 4, le) / tdiv;
 		if (t0 < 0) t0 = t;
-		handle_frame(buf, incl, orig, t);
+		/* no direction in a capture: queries and reports are told by type */
+		handle_frame(buf, incl, orig, t, 0);
+		if (want_members) handle_frame(buf, incl, orig, t, 1);
 	}
 	fclose(f);
 	/* rates over the whole file */
 	for (int i = 0; i < MAX_GROUPS; i++)
 		if (groups[i].used) groups[i].rep_t = groups[i].t_first;
+	members_expire(t);
 	update_rates(t);
 	write_json(stdout, t, t0 >= 0 ? t - t0 : 0, file, 0, time(NULL));
 	return 0;
@@ -888,7 +1041,7 @@ static int emit(struct prog *p, uint16_t code, uint32_t k, int jt, int jf)
 
 /* IPv4 header at base: UDP, to 224.0.0.0/4 but not 224.0.0.0/24; with -D
  * also unfragmented UDP from port 67 to port 68 (DHCP server replies); with
- * -Q also IGMP (protocol 2), alone with -I */
+ * -Q / -M also IGMP (protocol 2), alone with -I */
 static void emit_ipcheck(struct prog *p, int base)
 {
 	int next, j_mc;
@@ -898,7 +1051,7 @@ static void emit_ipcheck(struct prog *p, int base)
 		emit(p, BPF_JMP | BPF_JEQ | BPF_K, 2, L_ACCEPT, L_DROP);
 		return;
 	}
-	if (want_igmp) {
+	if (want_igmp || want_members) {
 		/* UDP continues below; IGMP (protocol 2) is passed as it is */
 		emit(p, BPF_JMP | BPF_JEQ | BPF_K, 17, p->n + 2, p->n + 1);
 		emit(p, BPF_JMP | BPF_JEQ | BPF_K, 2, L_ACCEPT, L_DROP);
@@ -1060,12 +1213,13 @@ static int run_live(const char *dev, int vid, int dir_out, const char *state)
 				die(6, "recv: %s", strerror(errno));
 			}
 			int outgoing = from.sll_pkttype == PACKET_OUTGOING;
-			if (outgoing != dir_out) continue;
+			int rev = outgoing != dir_out;
+			if (rev && !want_members) continue;
 			int caplen = (n > (ssize_t)sizeof(buf)) ? (int)sizeof(buf) : (int)n;
 			int wire = (int)n;
 			/* the kernel removed the VLAN tag: count it in the length */
 			if (vid && caplen >= 14 && be16(buf + 12) != 0x8100) wire += 4;
-			handle_frame(buf, caplen, wire, mono_now());
+			handle_frame(buf, caplen, wire, mono_now(), rev);
 		}
 
 		nowm = mono_now();
@@ -1075,6 +1229,7 @@ static int run_live(const char *dev, int vid, int dir_out, const char *state)
 			if (getsockopt(fd, SOL_PACKET, PACKET_STATISTICS, &ps, &pl) == 0)
 				sock_drops += ps.tp_drops;
 			groups_expire(nowm);
+			members_expire(nowm);
 			update_rates(nowm);
 			if (write_state(state, nowm, nowm - t_start, dev, vid) < 0)
 				die(7, "cannot write %s: %s", state, strerror(errno));
@@ -1093,11 +1248,12 @@ __attribute__((noreturn))
 static void usage(void)
 {
 	fprintf(stderr,
-		"usage: isp-tester-tsmon -i DEV [-v VID] [-d in|out] -o STATE.json [-g GAP_MS] [-D] [-Q [-I]]\n"
-		"       isp-tester-tsmon -r CAPTURE.pcap [-g GAP_MS] [-D] [-Q]\n"
+		"usage: isp-tester-tsmon -i DEV [-v VID] [-d in|out] -o STATE.json [-g GAP_MS] [-D] [-Q] [-M] [-I]\n"
+		"       isp-tester-tsmon -r CAPTURE.pcap [-g GAP_MS] [-D] [-Q] [-M]\n"
 		"  -D  also note the DHCP server's replies (lease of the decoders)\n"
 		"  -Q  also note the IGMP queries of the operator (time since the last general query)\n"
-		"  -I  with -Q: only IGMP, do not look at the IPTV streams\n");
+		"  -M  also note the decoders' own IGMP reports and leaves, per MAC address\n"
+		"  -I  with -Q / -M: only IGMP, do not look at the IPTV streams\n");
 	exit(2);
 }
 
@@ -1106,10 +1262,11 @@ int main(int argc, char **argv)
 	const char *dev = NULL, *state = NULL, *pcap = NULL;
 	int vid = 0, dir_out = 0, c;
 
-	while ((c = getopt(argc, argv, "i:v:d:o:g:r:hDQI")) != -1) {
+	while ((c = getopt(argc, argv, "i:v:d:o:g:r:hDQMI")) != -1) {
 		switch (c) {
 		case 'D': want_dhcp = 1; break;
 		case 'Q': want_igmp = 1; break;
+		case 'M': want_members = 1; break;
 		case 'I': want_stream = 0; break;
 		case 'i': dev = optarg; break;
 		case 'v': vid = atoi(optarg); if (vid < 1 || vid > 4094) usage(); break;
@@ -1124,7 +1281,7 @@ int main(int argc, char **argv)
 		default: usage();
 		}
 	}
-	if (!want_stream && !want_igmp) usage();
+	if (!want_stream && !want_igmp && !want_members) usage();
 	crc_init();
 	if (pcap) return run_pcap(pcap);
 	if (!dev || !state || strlen(dev) >= IFNAMSIZ) usage();

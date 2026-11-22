@@ -1483,7 +1483,10 @@ return view.extend({
 			decs.push(E('span', { 'class': 'k' }, _('Decoder %s').format(x.label || x.mac)), E('span', { 'class': (x.present || x.off) ? '' : 'ispt-warn-text' },
 				(x.present && !x.off)
 					? [ dot(x.quiet ? 'warn' : 'ok'), _('on %s, for %s').format(x.port, fmtDur(rnow() - x.since)) +
-						(x.quiet ? ' · ' + _('silent for %s').format(fmtDur(rnow() - x.active)) : '') ]
+						(x.quiet ? ' · ' + _('silent for %s').format(fmtDur(rnow() - x.active)) : '') +
+						/* its own IGMP reports (isp-tester-tsmon): told apart from another decoder on the same port */
+						((x.groups || []).length ? ' · ' + (x.igmp ? _('reports %s') : _('channels on its port: %s')).format(
+							x.groups.map(function(g) { return chLabel(t, g); }).join(', ')) : '') ]
 					: [ dot(x.off ? 'unknown' : 'fail'), (x.off ? _('off / unplugged since %s') : _('not visible for %s')).format(
 						x.off ? hhmm(x.since) : fmtDur(rnow() - x.since)) + ' (' + x.port + ')' ]));
 		});
