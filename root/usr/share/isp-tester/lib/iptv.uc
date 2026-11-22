@@ -537,6 +537,18 @@ function dec_port_shared(port) {
 	return p.v;
 }
 
+/* was this decoder the only one watching? Another port with a channel, or
+ * another decoder on its own port that is on: then a freeze while it
+ * restarted is the stream's (the bitrate is the whole VLAN's - below
+ * min_kbps the others' channels stopped too), not the restart's */
+function dec_alone(mac, port) {
+	for (let p in vl.ports)
+		if (p != port && length(port_groups(p))) return false;
+	for (let m, o in dec.list)
+		if (m != mac && o.port == port && o.present && !o.off) return false;
+	return true;
+}
+
 function dec_poll() {
 	if (!C.cfg.iptv.decoders || !C.cfg.iptv.vlan || !vl.bridge || !BRIDGE) { dec.err = null; return null; }
 	let fdb = dec_fdb(), t = now();
@@ -606,14 +618,15 @@ function dec_poll() {
 					let from = d.quiet_from ?? d.gone_at, qd = active - from;
 					if (qd >= C.cfg.iptv.dec_silence && qd <= C.cfg.iptv.dec_off && dec_stream_hit(from, active) && !dec_noquery_hit(from) &&
 					    dec_quiet_proof(mac, from, active))
-						C.emit('info', 'iptv', src, 'decoder_restart', { mac, port: x.port, dur: qd, via: 'quiet', stream: true }, from);
+						C.emit('info', 'iptv', src, 'decoder_restart', { mac, port: x.port, dur: qd, via: 'quiet', stream: true,
+							alone: dec_alone(mac, x.port) }, from);
 					d.since = t;
 				}
 				/* the switch it is behind lost its link: not the decoder */
 				else if (d.via == 'port') d.since = t;
 				else {
 					C.emit('info', 'iptv', src, 'decoder_restart', { mac, port: x.port, dur, via: d.via,
-						stream: dec_stream_hit(d.gone_at, t) }, d.gone_at);
+						stream: dec_stream_hit(d.gone_at, t), alone: dec_alone(mac, x.port) }, d.gone_at);
 					d.since = t;
 				}
 				d.quiet_from = null;
@@ -635,7 +648,8 @@ function dec_poll() {
 					let dur = active - d.quiet_from;
 					if (dur >= C.cfg.iptv.dec_silence && dur <= C.cfg.iptv.dec_off && dec_stream_hit(d.quiet_from, active) &&
 					    !dec_noquery_hit(d.quiet_from) && dec_quiet_proof(mac, d.quiet_from, active))
-						C.emit('info', 'iptv', src, 'decoder_restart', { mac, port: x.port, dur, via: 'quiet', stream: true }, d.quiet_from);
+						C.emit('info', 'iptv', src, 'decoder_restart', { mac, port: x.port, dur, via: 'quiet', stream: true,
+							alone: dec_alone(mac, x.port) }, d.quiet_from);
 					d.quiet_from = null;
 				}
 			}

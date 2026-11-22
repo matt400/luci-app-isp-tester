@@ -212,8 +212,13 @@ return baseclass.extend({
 		};
 		/* decoder restarts (both routers): a freeze while a decoder was away is the decoder, not the stream */
 		var decRestarts = byAll(function(e) { return e.type === 'decoder_restart'; });
+		/* only a decoder that was the only one watching (d.alone): with another
+		 * one watching, the freeze stopped its channel too - the stream's */
+		var covers = function(r, s) {
+			return !(r.d && r.d.alone === false) && s.ts >= r.ts - 15 && s.ts <= r.ts + ((r.d && r.d.dur) || 0) + 10;
+		};
 		var duringRestart = function(s) {
-			return decRestarts.some(function(r) { return s.ts >= r.ts - 15 && s.ts <= r.ts + ((r.d && r.d.dur) || 0) + 10; });
+			return decRestarts.some(function(r) { return covers(r, s); });
 		};
 		/* the operator stopped sending IGMP queries: from the first silent moment until they were back */
 		/* not while the router asked the decoders itself (d.router): then no
@@ -354,7 +359,7 @@ return baseclass.extend({
 
 		add('info', 0, 'stall_zap', zaps, { total: allStalls.length });
 		add('info', 0, 'stall_decoder', decStalls, { total: allStalls.length,
-			devs: uniq(decRestarts.filter(function(r) { return decStalls.some(function(s) { return s.ts >= r.ts - 15 && s.ts <= r.ts + ((r.d && r.d.dur) || 0) + 10; }); }), 'src').join(', ') });
+			devs: uniq(decRestarts.filter(function(r) { return decStalls.some(function(s) { return covers(r, s); }); }), 'src').join(', ') });
 		/* a decoder that restarts by itself: power supply, firmware, overheating */
 		add('home', 1, 'decoder_restarts', decRestarts, { devs: uniq(decRestarts, 'src').join(', ') });
 

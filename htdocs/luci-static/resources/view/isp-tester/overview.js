@@ -1995,7 +1995,7 @@ return view.extend({
 		if (qOpen != null) noQ.push([ qOpen, w.to ]);
 		var byDecoder = function(s) {
 			if (noQ.some(function(p) { return s.ts >= p[0] - 30 && s.ts <= p[1] + 30; })) return false;
-			return decR.some(function(r) { return s.ts >= r.ts - 15 && s.ts <= r.ts + ((r.d && r.d.dur) || 0) + 10; });
+			return decR.some(function(r) { return !(r.d && r.d.alone === false) && s.ts >= r.ts - 15 && s.ts <= r.ts + ((r.d && r.d.dur) || 0) + 10; });
 		};
 
 		/* outage / freeze durations from start/end pairs (this router's
