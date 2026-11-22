@@ -115,7 +115,7 @@ The panel looks at what happened **at the same time** (within 30 s) in the selec
 | Your "Problem now" reports with / without anything measured around them | context (no weight) |
 | LAN link drops, CRC errors, renegotiation to 100 Mbit/s | cabling / devices at home |
 | IGMP snooping on, querier off, no other querier elected (with freezes) | router configuration |
-| IPTV freeze within 90 s of the IGMP querier passing from the ISP to the router | ISP (irregular queries); fix: block the ISP's queries |
+| IPTV freeze within 90 s of the IGMP querier passing from the ISP to the router | ISP (irregular queries); fix: Who asks → Only the router |
 | IPTV freeze while nobody asked on the IPTV VLAN | router configuration (querier off) |
 
 Each finding is weighted (repeated occurrences count up to 5×). The verdict is "ISP" or "home" when one side has at least twice the weight of the other, otherwise "mixed". It is a hint, not proof. The timeline is the evidence you show the ISP.
@@ -258,15 +258,22 @@ On a bridged IPTV VLAN two devices can send the queries: the ISP, and this route
 
 The IPTV card shows who asks now (*Asks now: the ISP · 10.206.86.1 (eth1)* / *this router* / *nobody*), read every interval from the kernel (`bridge -d vlan global show`, `mcast_querier_state_ipv4`). Every hand-over is a timeline event (*IGMP querier of VLAN 236: the ISP → this router · no query from the ISP for 4 min 15 s*), and *NO IGMP querier* is a warning. A freeze within 90 s of a hand-over from the ISP to the router is a finding of its own (ISP side, with the fix below). With per-VLAN snooping the card and the analysis use the VLAN's own snooping / querier / timers, not the bridge-wide ones.
 
-*Settings → IPTV → IGMP querier* (section `querier`, off by default) lets the collector keep it set up, instead of a hotplug script:
+*Settings → IPTV → IGMP querier → Who asks* (`querier.mode`) sets it up. The setting is written into a **system** hotplug script, `/etc/hotplug.d/iface/99-iptv-querier`: it is not part of the package, so it **stays when ISP Tester is removed**, and it is added to `/etc/sysupgrade.conf`, so it stays over a firmware upgrade. The collector itself sets nothing; it only shows whether the bridge matches the setting (*the bridge differs: querier, filter …*).
 
-- **Set up the querier** (`enabled`): per-VLAN snooping on the bridge, the router's querier in the IPTV VLAN (IGMP version `igmp_version`), the port towards the ISP a permanent multicast router port (the decoders' reports go to the ISP) and, with `others_off`, no snooping in the bridge's other VLANs. Checked every minute and at once when the kernel shows something else (network restart). Switching it off leaves the bridge as it is. Remove an old hotplug script that does the same.
-- **Block the ISP's IGMP queries** (`block_isp`, needs `kmod-nft-bridge`): the nftables table `bridge isp_tester` drops the ISP's general queries (to 224.0.0.1) arriving on the port towards the ISP, so the router stays the only querier and asks every 125 s. The decoders' answers still reach the ISP. The rule matches by offsets from the Ethernet header, so it works whether the network card strips the VLAN tag or not. `isp-tester-tsmon` still sees the dropped queries (*ISP IGMP queries* keeps working). The card shows how many were dropped; if the ISP is still elected more than 255 s after the filter was set, it warns that the filter does not catch them.
+| Who asks | What the script does |
+|---|---|
+| **Do not manage** (`unmanaged`, default) | nothing is written: your own script, or none, stays as it is |
+| **The ISP alone** (`off`) | the script stays, switched off (`MODE='off'`); the router's querier is switched off now. Switch it on again later in the settings, or by hand with `MODE='backup'` |
+| **The ISP, the router as a backup** (`backup`) | per-VLAN snooping, the router's querier in the IPTV VLAN (`igmp_version`), the port towards the ISP a permanent multicast router port (the decoders' reports reach the ISP), with `others_off` no snooping in the other VLANs. The router asks only after the ISP was silent for 255 s |
+| **Only the router** (`router`) | as *backup*, and the ISP's general queries (to 224.0.0.1) arriving on the port towards the ISP are dropped (nftables table `bridge isp_tester`, needs `kmod-nft-bridge`): the router asks every 125 s, no hand-overs |
+
+The script is rewritten only when the setting changes (no flash writes at every boot) and is then run once, so the change works at once; at boot it runs whenever an interface comes up. A script of the same name not written by ISP Tester is kept as `/etc/isp-tester/99-iptv-querier.orig` first. The filter matches by offsets from the Ethernet header, so it works whether the network card strips the VLAN tag or not; `isp-tester-tsmon` still sees the dropped queries (*ISP IGMP queries* keeps working). The card shows how many were dropped; if the ISP is still elected more than 255 s after the filter was set, it warns that the filter does not catch them.
 
 ```sh
 opkg install kmod-nft-bridge
-nft list table bridge isp_tester        # the rule and its counter
-nft delete table bridge isp_tester      # by hand, e.g. after removing the package
+nft list table bridge isp_tester                      # the rule and its counter
+cat /etc/hotplug.d/iface/99-iptv-querier              # the script (MODE=... at the top)
+sh /etc/hotplug.d/iface/99-iptv-querier apply         # run it by hand
 ```
 
 ## Two routers, one timeline

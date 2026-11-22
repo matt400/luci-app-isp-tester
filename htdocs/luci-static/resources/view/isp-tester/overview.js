@@ -94,6 +94,7 @@ var CSS = [
 	'.ispt-ok{background:#2e9d4f}.ispt-warn{background:#e0a100}.ispt-fail{background:#d64541}.ispt-unknown{background:#999}',
 	'.ispt-dot.ispt-ok{background:url(data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2024%2024%22%3E%3Cpath%20d=%22M4%2012.5l5%205L20%206.5%22%20fill=%22none%22%20stroke=%22%232e9d4f%22%20stroke-width=%223.5%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22/%3E%3C/svg%3E) center/contain no-repeat;border-radius:0}',
 	'.ispt-dot.ispt-fail{background:url(data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2024%2024%22%3E%3Cpath%20d=%22M6%206l12%2012M18%206L6%2018%22%20fill=%22none%22%20stroke=%22%23d64541%22%20stroke-width=%223.5%22%20stroke-linecap=%22round%22/%3E%3C/svg%3E) center/contain no-repeat;border-radius:0}',
+	'.ispt-dot.ispt-warn{background:url(data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2024%2024%22%3E%3Cpath%20d=%22M12%202.8L22.6%2021H1.4Z%22%20fill=%22%23e0a100%22%20stroke=%22%23e0a100%22%20stroke-width=%221.5%22%20stroke-linejoin=%22round%22/%3E%3Cpath%20d=%22M12%209.2v5.6%22%20stroke=%22%23fff%22%20stroke-width=%222.6%22%20stroke-linecap=%22round%22/%3E%3Ccircle%20cx=%2212%22%20cy=%2217.9%22%20r=%221.5%22%20fill=%22%23fff%22/%3E%3C/svg%3E) center/contain no-repeat;border-radius:0}',
 	'.ispt-pulse{animation:ispt-pulse 1.2s ease-in-out infinite}',
 	'@keyframes ispt-pulse{0%,100%{opacity:1}50%{opacity:.35}}',
 	'.ispt-cards{display:flex;flex-wrap:wrap;gap:1em;margin-bottom:1em}',
@@ -325,8 +326,8 @@ function reasonText(r) {
 	case 'no_ping_source':  return _('No ping data: enable the Ping plugin of luci-app-statistics (collectd) and add the ISP gateway and far hosts there.');
 	case 'proxy_down':      return _('Multicast proxy %s is not running').format(r.name || '');
 	case 'igmp_noquery':    return _('The operator has stopped sending IGMP queries');
-	case 'querier_err':     return _('The router\'s IGMP querier cannot be set: %s').format(r.err === 'no_upstream' ? _('the port towards the ISP is not known') : r.err === 'no_ip' ? _('the ip command is missing') : r.err);
-	case 'querier_nft_err': return _('The filter of the ISP\'s IGMP queries cannot be set: %s').format(r.err === 'no_bridge_family' ? _('install kmod-nft-bridge') : r.err === 'no_nft' ? _('nft is missing') : r.err);
+	case 'querier_script_err': return _('The IGMP querier script cannot be written: %s (Settings → IPTV → IGMP querier)').format(r.err);
+	case 'querier_diff':    return _('The bridge does not match the IGMP querier setting (%s) – a network restart without the script, or the script was changed by hand').format((r.what || []).join(', '));
 	case 'querier_block_fail': return _('The ISP (%s) is still the IGMP querier although its queries should be blocked – the filter does not catch them').format(r.addr || '?');
 	case 'querier_none':    return _('No IGMP querier on VLAN %d for %s – the channels expire').format(r.vlan, fmtDur(rnow() - r.since));
 	case 'stream_stalled':  return _('Stream stopped %s ago').format(fmtDur(rnow() - r.since));
@@ -1552,15 +1553,14 @@ return view.extend({
 			if (qr.since) qv.push(' · ' + _('since %s').format(fmtWhen(qr.since)));
 			igmp.push(E('span', { 'class': 'k', 'title': _('Who sends the IGMP queries on the IPTV VLAN right now, as elected by the bridge. Every change is in the timeline.') }, _('Asks now')),
 				E('span', {}, qv));
-			var mg = qr.managed;
-			if (mg) {
-				var mv = [ dot(mg.err ? 'warn' : 'ok'), mg.err ? _('cannot be set: %s').format(mg.err) : _('kept on by ISP Tester (IGMPv%d)').format(mg.version) ];
-				if (mg.nft) {
-					if (mg.nft.err) mv.push(' · ', dot('warn'), _('ISP query filter not set: %s').format(mg.nft.err === 'no_bridge_family' ? _('install kmod-nft-bridge') : mg.nft.err));
-					else if (mg.nft.ok) mv.push(' · ' + _('ISP queries blocked: %d').format(mg.nft.drops || 0) +
-						(mg.nft.last ? ' (' + _('last %s ago').format(fmtDur(rnow() - mg.nft.last)) + ')' : ''));
-				}
-				igmp.push(E('span', { 'class': 'k' }, _('Querier setup')), E('span', {}, mv));
+			if (qr.mode && qr.mode !== 'unmanaged') {
+				var modeTxt = { off: _('the ISP alone'), backup: _('the ISP, the router as a backup'), router: _('only the router') }[qr.mode] || qr.mode;
+				var bad = (qr.diff && qr.diff.length) || (qr.script && qr.script.err);
+				var mv = [ dot(bad ? 'warn' : 'ok'), _('set: %s').format(modeTxt) ];
+				if (qr.diff && qr.diff.length) mv.push(' · ' + _('the bridge differs (%s)').format(qr.diff.join(', ')));
+				if (qr.nft && qr.nft.ok) mv.push(' · ' + _('ISP queries blocked: %d').format(qr.nft.drops || 0) +
+					(qr.nft.last ? ' (' + _('last %s ago').format(fmtDur(rnow() - qr.nft.last)) + ')' : ''));
+				igmp.push(E('span', { 'class': 'k', 'title': _('Settings → IPTV → IGMP querier, kept in the system script /etc/hotplug.d/iface/99-iptv-querier.') }, _('Querier setup')), E('span', {}, mv));
 			}
 		}
 

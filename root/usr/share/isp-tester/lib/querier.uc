@@ -17,23 +17,16 @@
  * (bridge vlan global show: mcast_querier_state_ipv4) every tick; every
  * change is a timeline event, so a freeze can be matched to a hand-over.
  *
- * Managed (option querier.enabled): the collector keeps the VLAN's IGMP
- * snooping and querier on, the port towards the ISP a permanent multicast
- * router port (the decoders' reports go to the operator) and, optionally,
- * snooping off in the bridge's other VLANs - what was a hotplug script
- * (99-iptv-querier) before. Checked once a minute and right away when the
- * kernel shows something else (netifd recreated the bridge): only what
- * differs is not worked out, all settings are sent again; the kernel takes a
- * setting that does not change as a no-op. With block_isp the ISP's general
- * queries (to 224.0.0.1) arriving on the upstream port are dropped before
- * the bridge sees them (nft, bridge family, prerouting): the router stays
- * the only querier and asks every 125 s. The reports still go to the ISP.
+ * Set up by the system, not here: Settings -> IPTV -> IGMP querier writes a
+ * hotplug script (querier-gen.uc, run by the init script), which stays when
+ * the package is removed. This module only compares the bridge with the
+ * chosen mode: the VLAN's snooping and querier on and the port towards the
+ * ISP a multicast router port (backup / router), the nft filter of the ISP's
+ * queries in place (router) - and how many it dropped. When the ISP is still
+ * the elected querier well after the filter was seen (more than the 255 s
+ * the bridge keeps a querier it heard), the rule does not catch its queries.
  * isp-tester-tsmon keeps seeing the dropped queries (its packet socket sees
  * the frame before the bridge does), so "ISP IGMP queries" stays measured.
- * The rule matches by offsets from the Ethernet header: with the VLAN tag
- * taken off by the network card or kept in the frame alike (nft puts an
- * offloaded tag back into the link-layer view), where the network and
- * transport header offsets would point at the tag.
  */
 
 import * as fs from 'fs';
@@ -44,9 +37,6 @@ let C = null;
 
 const TABLE = 'isp_tester';
 const RULE_TAG = 'isp-tester-q';
-/* checks of the settings / the filter, s */
-const ENSURE_EVERY = 60;
-const ENSURE_MIN = 10;
 /* "no querier at all" only after it lasted this long (the router's own
  * querier starts a few seconds after the bridge comes up) */
 const NONE_AFTER = 20;
@@ -57,20 +47,12 @@ let q = {
 	conf: null,                                          /* the VLAN's own settings, as the kernel has them */
 	vsnoop: null, vsnoop_m: null,                        /* per-VLAN snooping of the bridge (ip link), null = unknown */
 	br: null, vlan: null, up: null,
-	ensure_m: null, ensure_err: null, ensured: null,     /* managed: last check, its error, when settings were (re)sent */
-	nft_m: null, nft_err: null, nft_ok: false, nft_since: null, drops: null, drop_ts: null,
+	script: null, script_m: null, diff: null,            /* the hotplug script's outcome, what differs from the mode */
+	nft_m: null, nft_ok: false, nft_since: null, drops: null, drop_ts: null,
 	ifn: {}                                              /* ifindex -> name */
 };
 
 function querier_init(ctx) { C = ctx; }
-
-function run(cmd) {
-	let f = fs.popen(`${cmd} 2>&1`, 'r');
-	if (!f) return { out: '', code: -1 };
-	let out = f.read('all') ?? '';
-	let code = f.close();
-	return { out: trim(out), code };
-}
 
 function json_of(cmd) {
 	let f = fs.popen(`${cmd} 2>/dev/null`, 'r');
@@ -146,121 +128,48 @@ function bridge_wide(br) {
 	};
 }
 
-/* ------------------------------------------------------------ managed */
+/* ---------------------------------------------------- the chosen mode */
 
-function nft_rules(up, vid, untagged) {
-	/* @ll offsets from the Ethernet header: with a tag, IP starts at 18
-	 * (protocol +9 = 27, destination +16 = 34), without one at 14 */
-	let r = `\t\tiifname "${up}" ether type 8021q vlan id ${vid} @ll,216,8 2 @ll,272,32 0xe0000001 counter drop comment "${RULE_TAG} ${up}/${vid}"\n`;
-	if (untagged)
-		r += `\t\tiifname "${up}" ether type ip @ll,184,8 2 @ll,240,32 0xe0000001 counter drop comment "${RULE_TAG} ${up}/${vid}/untagged"\n`;
-	return `table bridge ${TABLE}\ndelete table bridge ${TABLE}\ntable bridge ${TABLE} {\n` +
-		`\tchain isp_queries {\n\t\ttype filter hook prerouting priority -300; policy accept;\n${r}\t}\n}\n`;
-}
+const SCRIPT_STATUS = `${VARDIR}/querier-script.json`;
 
-/* is vid the untagged (PVID) VLAN of port up? Then the ISP's frames have no tag */
-function pvid_of(up, vid) {
-	let j = bridge_json(`vlan show dev ${up}`);
-	for (let e in (j ?? []))
-		for (let v in (e?.vlans ?? []))
-			if (int(v.vlan) == vid && index(v.flags ?? [], 'PVID') >= 0) return true;
-	return false;
-}
-
-/* the filter's state: { sig, packets } of the rules found, null = no table */
+/* the filter's state: packets dropped by its rules, null = no table */
 function nft_read() {
+	if (!NFT) return null;
 	let j = json_of(`${NFT} -j list table bridge ${TABLE}`);
 	if (type(j?.nftables) != 'array') return null;
-	let sig = [], pk = 0;
+	let n = 0, pk = 0;
 	for (let o in j.nftables) {
 		let r = o?.rule;
 		if (type(r) != 'object' || substr(r.comment ?? '', 0, length(RULE_TAG)) != RULE_TAG) continue;
-		push(sig, substr(r.comment, length(RULE_TAG) + 1));
+		n++;
 		for (let x in (r.expr ?? []))
 			if (x?.counter) pk += int(x.counter.packets ?? 0);
 	}
-	return { sig: join(',', sort(sig)), packets: pk };
+	return { rules: n, packets: pk };
 }
 
-function nft_remove() {
-	if (!NFT) return;
-	if (nft_read() != null) run(`${NFT} delete table bridge ${TABLE}`);
-	q.nft_ok = false;
-	q.nft_since = null;
-	q.drops = null;
-}
-
-function nft_ensure(t, m) {
-	if (!NFT) { q.nft_err = 'no_nft'; q.nft_ok = false; return; }
-	let untagged = pvid_of(q.up, q.vlan);
-	let want = join(',', sort(untagged ? [ `${q.up}/${q.vlan}`, `${q.up}/${q.vlan}/untagged` ] : [ `${q.up}/${q.vlan}` ]));
+function nft_check(t) {
 	let cur = nft_read();
-	if (cur == null || cur.sig != want) {
-		let path = `${VARDIR}/querier.nft`;
-		fs.writefile(path, nft_rules(q.up, q.vlan, untagged));
-		let r = run(`${NFT} -f ${path}`);
-		if (r.code != 0) {
-			/* "No such file or directory" on the bridge family = kmod-nft-bridge missing */
-			q.nft_since = null;
-			q.nft_err = match(r.out, /No such file|not supported|Operation not supported/i) ? 'no_bridge_family' : (substr(split(r.out, '\n')[0] ?? '', 0, 120) || 'failed');
-			q.nft_ok = false;
-			return;
-		}
-		cur = nft_read();
-		q.drops = null;
-	}
-	q.nft_err = null;
-	q.nft_ok = (cur != null);
-	if (!q.nft_ok) q.nft_since = null;
-	else q.nft_since ??= t;
-	if (cur) {
-		if (q.drops != null && cur.packets > q.drops) q.drop_ts = t;
-		q.drops = cur.packets;
-	}
+	q.nft_ok = cur != null && cur.rules > 0;
+	if (!q.nft_ok) { q.nft_since = null; q.drops = null; return; }
+	q.nft_since ??= t;
+	/* the counter starts again when the table is set again (the script with "apply") */
+	if (q.drops != null && cur.packets > q.drops) q.drop_ts = t;
+	q.drops = cur.packets;
 }
 
-/* send all settings of the VLAN's querier again (no-ops where nothing changes) */
-function settings_ensure(gl) {
-	let Q = C.cfg.querier, br = q.br, vid = q.vlan;
-	let cmds = [
-		`${IPCMD} link set dev ${br} type bridge mcast_snooping 1 mcast_vlan_snooping 1`,
-		`${BRIDGE} vlan global set vid ${vid} dev ${br} mcast_snooping 1 mcast_querier 1 mcast_igmp_version ${Q.igmp_version}`,
-		`${BRIDGE} vlan set vid ${vid} dev ${q.up} mcast_router 2`
-	];
-	if (Q.others_off)
-		for (let v in (gl?.all ?? [])) {
-			if (v.snooping === 0) continue;
-			/* the IPTV VLAN cut out of a range */
-			let parts = [];
-			if (vid >= v.lo && vid <= v.hi) {
-				if (v.lo < vid) push(parts, [ v.lo, vid - 1 ]);
-				if (vid < v.hi) push(parts, [ vid + 1, v.hi ]);
-			}
-			else push(parts, [ v.lo, v.hi ]);
-			for (let p in parts)
-				push(cmds, `${BRIDGE} vlan global set vid ${p[0] == p[1] ? p[0] : p[0] + '-' + p[1]} dev ${br} mcast_snooping 0`);
-		}
-	let err = null;
-	for (let c in cmds) {
-		let r = run(c);
-		if (r.code != 0 && !err) err = substr(split(r.out, '\n')[0] ?? '', 0, 120) || 'failed';
-	}
-	q.ensure_err = err;
-	q.ensured = now();
-	q.vsnoop_m = null;   /* asked again on the next tick */
-}
-
-/* what the kernel shows differs from what is wanted: right away, not in a minute */
-function drifted(conf, gl) {
-	let Q = C.cfg.querier;
-	if (q.vsnoop === false || !conf?.per_vlan) return true;
-	if (conf.snooping !== 1 || conf.querier !== 1 || (conf.version != null && conf.version != Q.igmp_version)) return true;
-	if (index(conf.routers ?? [], q.up) < 0) return true;
-	/* another VLAN (or the rest of a range with the IPTV VLAN in it) still snooped */
-	if (Q.others_off)
-		for (let v in (gl?.all ?? []))
-			if (v.snooping === 1 && !(v.lo == q.vlan && v.hi == q.vlan)) return true;
-	return false;
+/* what the bridge shows differs from the chosen mode: [ what, ... ] */
+function mismatch(mode, conf) {
+	let out = [];
+	if (mode != 'backup' && mode != 'router') return out;
+	if (!conf) return [ 'unreadable' ];
+	if (conf.per_vlan === false) push(out, 'vlan_snooping');
+	if (conf.snooping !== 1) push(out, 'snooping');
+	if (conf.querier !== 1) push(out, 'querier');
+	if (conf.version != null && conf.version != C.cfg.querier.igmp_version) push(out, 'version');
+	if (q.up && conf.routers != null && index(conf.routers, q.up) < 0) push(out, 'router_port');
+	if (mode == 'router' && !q.nft_ok) push(out, 'filter');
+	return out;
 }
 
 /* ------------------------------------------------------------- events */
@@ -303,7 +212,7 @@ function note(t, el) {
 	if (q.who == 'none' || q.who == 'off') { take(t, el); return; }
 
 	/* the ISP elected again while its queries should be dropped: the filter does not catch them */
-	let blocked = Q.block_isp && q.nft_ok;
+	let blocked = q.nft_ok;
 	let lvl = (blocked && (el.who == 'isp' || el.who == 'other') && t - (q.nft_since ?? t) > (q.conf?.querier_after ?? 255) + 30) ? 'warn' : 'info';
 	C.emit(lvl, 'iptv', 'igmp', 'igmp_querier', { from: q.who, to: el.who, addr: el.addr, port: el.port,
 		prev_addr: q.addr, prev_port: q.port, after: q.conf?.querier_after, held: t - (q.since ?? t), vlan: q.vlan,
@@ -364,34 +273,23 @@ function querier_tick(vl) {
 		}
 	}
 
-	/* ---- managed */
-	if (Q.enabled && vid && q.up && valid_dev(q.up) && IPCMD) {
-		let due = q.ensure_m == null || m - q.ensure_m >= ENSURE_EVERY ||
-			(m - q.ensure_m >= ENSURE_MIN && (q.conf == null || drifted(q.conf, gl)));
-		if (due) {
-			q.ensure_m = m;
-			settings_ensure(gl);
-		}
-		if (Q.block_isp && (q.nft_m == null || m - q.nft_m >= ENSURE_EVERY || due)) {
-			q.nft_m = m;
-			nft_ensure(t, m);
-		}
+	/* ---- the chosen mode: the script's outcome (querier-gen.uc) and the filter */
+	if (q.script_m == null || m - q.script_m >= 60) {
+		q.script_m = m;
+		try { q.script = json(fs.readfile(SCRIPT_STATUS) || 'null'); } catch (e) { q.script = null; }
 	}
-	else if (Q.enabled) {
-		q.ensure_err = !vid ? 'no_vlan' : !IPCMD ? 'no_ip' : 'no_upstream';
-	}
-	/* filter off (or not managed): a table left from before is removed, once */
-	if (!Q.block_isp && q.nft_m == null) {
+	if (q.nft_m == null || m - q.nft_m >= 60) {
 		q.nft_m = m;
-		nft_remove();
+		nft_check(t);
 	}
+	q.diff = mismatch(Q.mode, q.conf);
 }
 
 /* the filter is in place, yet the ISP is (still) the elected querier. Right
  * after the filter was set the bridge keeps the ISP for its "other querier
  * present" interval (255 s): only after that it means the rule misses them */
 function filter_failing(t) {
-	return C.cfg.querier.block_isp && q.nft_ok && (q.who == 'isp' || q.who == 'other') &&
+	return q.nft_ok && (q.who == 'isp' || q.who == 'other') &&
 		t - (q.nft_since ?? t) > (q.conf?.querier_after ?? 255) + 30;
 }
 
@@ -400,13 +298,14 @@ function querier_out() {
 	let Q = C.cfg.querier, t = now();
 	let o = { bridge: q.br, vlan: q.vlan || null, upstream: q.up, per_vlan: q.conf?.per_vlan ?? null,
 		who: q.who, addr: q.addr, port: q.port, since: q.since, conf: q.conf };
-	if (Q.enabled)
-		o.managed = { block: Q.block_isp, version: Q.igmp_version, others_off: Q.others_off,
-			err: q.ensure_err, ensured: q.ensured,
-			nft: Q.block_isp ? { ok: q.nft_ok, err: q.nft_err, drops: q.drops, last: q.drop_ts } : null };
+	o.mode = Q.mode;
+	o.version = Q.igmp_version;
+	o.script = q.script;
+	o.diff = q.diff;
+	if (q.nft_ok || Q.mode == 'router') o.nft = { ok: q.nft_ok, drops: q.drops, last: q.drop_ts };
 	let reasons = [];
-	if (Q.enabled && q.ensure_err) push(reasons, { c: 'querier_err', err: q.ensure_err });
-	if (Q.block_isp && q.nft_err) push(reasons, { c: 'querier_nft_err', err: q.nft_err });
+	if (q.script?.err && Q.mode != 'unmanaged') push(reasons, { c: 'querier_script_err', err: q.script.err });
+	if (length(q.diff ?? [])) push(reasons, { c: 'querier_diff', what: q.diff, mode: Q.mode });
 	if (filter_failing(t)) push(reasons, { c: 'querier_block_fail', addr: q.addr, port: q.port });
 	if (q.none_open) push(reasons, { c: 'querier_none', since: q.none_since, vlan: q.vlan });
 	o.reasons = reasons;
@@ -415,7 +314,7 @@ function querier_out() {
 
 /* the clock was stepped (clock.uc): times noted by this run move with it */
 function querier_shift(by) {
-	for (let k in [ 'since', 'none_from', 'none_since', 'ensured', 'drop_ts', 'nft_since' ])
+	for (let k in [ 'since', 'none_from', 'none_since', 'drop_ts', 'nft_since' ])
 		if (q[k] != null) q[k] += by;
 }
 

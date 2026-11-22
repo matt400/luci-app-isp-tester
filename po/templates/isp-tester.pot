@@ -2666,31 +2666,7 @@ msgstr ""
 msgid "Notifications are switched off in the saved settings: tick “Send notifications”, Save & Apply, then test."
 msgstr ""
 
-msgid "%d of %d IPTV freezes came within a minute and a half of the IGMP querier passing from the ISP to the router – the ISP asks irregularly, and during the 255 s hand-over it lets the channel expire. Fix on the router: Settings → IPTV → IGMP querier → “Block the ISP's IGMP queries”; also worth reporting to the ISP."
-msgstr ""
-
-msgid "%d of %d IPTV freezes happened while nobody sent IGMP queries on the IPTV VLAN – the channels expire. Switch the router's querier on: Settings → IPTV → IGMP querier."
-msgstr ""
-
 msgid "The IGMP querier passed from the ISP to the router %d× – the ISP's queries paused for over 4 minutes (no freeze at those moments)."
-msgstr ""
-
-msgid "The router's IGMP querier cannot be set: %s"
-msgstr ""
-
-msgid "the port towards the ISP is not known"
-msgstr ""
-
-msgid "the ip command is missing"
-msgstr ""
-
-msgid "The filter of the ISP's IGMP queries cannot be set: %s"
-msgstr ""
-
-msgid "install kmod-nft-bridge"
-msgstr ""
-
-msgid "nft is missing"
 msgstr ""
 
 msgid "The ISP (%s) is still the IGMP querier although its queries should be blocked – the filter does not catch them"
@@ -2756,15 +2732,6 @@ msgstr ""
 msgid "Asks now"
 msgstr ""
 
-msgid "cannot be set: %s"
-msgstr ""
-
-msgid "kept on by ISP Tester (IGMPv%d)"
-msgstr ""
-
-msgid "ISP query filter not set: %s"
-msgstr ""
-
 msgid "ISP queries blocked: %d"
 msgstr ""
 
@@ -2783,19 +2750,7 @@ msgstr ""
 msgid "nobody needed – IGMP snooping is off"
 msgstr ""
 
-msgid "Elected querier: %s"
-msgstr ""
-
-msgid "Cannot set the querier: %s"
-msgstr ""
-
 msgid "ISP queries dropped so far: %d"
-msgstr ""
-
-msgid "Set up the querier"
-msgstr ""
-
-msgid "The router keeps its own querier on in the IPTV VLAN (IGMP snooping per VLAN, the port towards the ISP as a permanent multicast router port, so the decoders' answers reach the ISP). Checked every minute and at once when the bridge is recreated (network restart). Replaces a hotplug script with <code>bridge vlan global set … mcast_querier 1</code> – remove that one. Switching this off leaves the bridge as it is."
 msgstr ""
 
 msgid "IGMP version"
@@ -2810,8 +2765,131 @@ msgstr ""
 msgid "Switches IGMP snooping off in the bridge's other VLANs: they have no querier, and with snooping on their multicast (e.g. device discovery) could time out."
 msgstr ""
 
-msgid "Block the ISP's IGMP queries"
+msgid "%d of %d IPTV freezes came within a minute and a half of the IGMP querier passing from the ISP to the router – the ISP asks irregularly, and during the 255 s hand-over it lets the channel expire. Fix on the router: Settings → IPTV → IGMP querier → Who asks: “Only the router”; also worth reporting to the ISP."
 msgstr ""
 
-msgid "Drops the ISP's general queries arriving on the port towards the ISP, so the router stays the only querier and asks every 125 s; the decoders' answers still go to the ISP. For an ISP that asks irregularly (the hand-overs coincide with freezes). The ISP queries are still counted under “ISP IGMP queries”. Needs <code>kmod-nft-bridge</code>; the rule is the nftables table <code>bridge isp_tester</code>."
+msgid "%d of %d IPTV freezes happened while nobody sent IGMP queries on the IPTV VLAN – the channels expire. Switch the router's querier on: Settings → IPTV → IGMP querier → Who asks."
+msgstr ""
+
+msgid "The IGMP querier script cannot be written: %s (Settings → IPTV → IGMP querier)"
+msgstr ""
+
+msgid "The bridge does not match the IGMP querier setting (%s) – a network restart without the script, or the script was changed by hand"
+msgstr ""
+
+msgid "the ISP alone"
+msgstr ""
+
+msgid "the ISP, the router as a backup"
+msgstr ""
+
+msgid "only the router"
+msgstr ""
+
+msgid "set: %s"
+msgstr ""
+
+msgid "the bridge differs (%s)"
+msgstr ""
+
+msgid "Settings → IPTV → IGMP querier, kept in the system script /etc/hotplug.d/iface/99-iptv-querier."
+msgstr ""
+
+msgid "the IPTV VLAN is not set"
+msgstr ""
+
+msgid "the bridge of the IPTV VLAN was not found"
+msgstr ""
+
+msgid "the port towards the ISP was not found – set it under IPTV → Advanced"
+msgstr ""
+
+msgid "the bridge command is missing: install ip-bridge"
+msgstr ""
+
+msgid "the file cannot be written"
+msgstr ""
+
+msgid "your script cannot be backed up, so it was not replaced"
+msgstr ""
+
+msgid "no per-VLAN snooping"
+msgstr ""
+
+msgid "IGMP snooping off in the IPTV VLAN"
+msgstr ""
+
+msgid "the router's querier off"
+msgstr ""
+
+msgid "another IGMP version"
+msgstr ""
+
+msgid "the port towards the ISP is not a multicast router port"
+msgstr ""
+
+msgid "the filter of the ISP's queries is missing (kmod-nft-bridge installed?)"
+msgstr ""
+
+msgid "cannot be read"
+msgstr ""
+
+msgid "Asks now: %s"
+msgstr ""
+
+msgid "Script %s: none"
+msgstr ""
+
+msgid "Script %s: %s"
+msgstr ""
+
+msgid "written by ISP Tester, mode %s"
+msgstr ""
+
+msgid "your own (not written by ISP Tester)"
+msgstr ""
+
+msgid "kept over a firmware upgrade"
+msgstr ""
+
+msgid "Your previous script was kept as %s"
+msgstr ""
+
+msgid "Cannot write the script: %s"
+msgstr ""
+
+msgid "The bridge differs from the setting: %s"
+msgstr ""
+
+msgid "Who asks"
+msgstr ""
+
+msgid "Written into the system script <code>/etc/hotplug.d/iface/99-iptv-querier</code>, which is not part of the package: it stays when ISP Tester is removed, and it is listed in <code>/etc/sysupgrade.conf</code>, so it stays over a firmware upgrade. ISP Tester itself sets nothing, it only shows whether the bridge matches."
+msgstr ""
+
+msgid "<strong>Do not manage</strong> – the script is left as it is: yours, or none."
+msgstr ""
+
+msgid "<strong>The ISP alone</strong> – the router does not ask. The script stays, switched off, so you can switch it on again later, also without ISP Tester (<code>MODE='backup'</code> in the file). If the ISP stops asking, the channels expire."
+msgstr ""
+
+msgid "<strong>The ISP, the router as a backup</strong> – the router's querier is on, but asks only when the ISP has not asked for 255 s. The ISP may let the channel expire in that time: a freeze around each hand-over."
+msgstr ""
+
+msgid "<strong>Only the router</strong> – the ISP's queries arriving on the port towards the ISP are dropped (nftables table <code>bridge isp_tester</code>, needs <code>kmod-nft-bridge</code>), so the router asks every 125 s with no hand-overs; the decoders' answers still go to the ISP. For an ISP that asks irregularly. The ISP's queries are still counted under “ISP IGMP queries”."
+msgstr ""
+
+msgid "A script of the same name that ISP Tester did not write is kept as <code>/etc/isp-tester/99-iptv-querier.orig</code> before it is replaced."
+msgstr ""
+
+msgid "Do not manage (leave the script as it is)"
+msgstr ""
+
+msgid "The ISP alone (script kept, switched off)"
+msgstr ""
+
+msgid "The ISP, the router as a backup"
+msgstr ""
+
+msgid "Only the router (the ISP's queries are dropped)"
 msgstr ""

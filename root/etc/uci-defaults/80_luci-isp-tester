@@ -14,10 +14,9 @@ uci -q get isp_tester.peer >/dev/null || {
 uci -q get isp_tester.dns >/dev/null || uci -q set isp_tester.dns=dns
 uci -q get isp_tester.querier >/dev/null || {
 	uci -q set isp_tester.querier=querier
-	uci -q set isp_tester.querier.enabled=0
+	uci -q set isp_tester.querier.mode=unmanaged
 	uci -q set isp_tester.querier.igmp_version=2
 	uci -q set isp_tester.querier.others_off=1
-	uci -q set isp_tester.querier.block_isp=0
 }
 uci -q get isp_tester.notify >/dev/null || {
 	uci -q set isp_tester.notify=notify

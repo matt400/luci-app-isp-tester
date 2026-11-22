@@ -2669,32 +2669,8 @@ msgstr "Tylko litery, cyfry oraz . _ -, najwyżej 32 znaki, nie na początku -"
 msgid "Notifications are switched off in the saved settings: tick “Send notifications”, Save & Apply, then test."
 msgstr "Powiadomienia są wyłączone w zapisanych ustawieniach: zaznacz „Wysyłaj powiadomienia”, Zapisz i zastosuj, potem testuj."
 
-msgid "%d of %d IPTV freezes came within a minute and a half of the IGMP querier passing from the ISP to the router – the ISP asks irregularly, and during the 255 s hand-over it lets the channel expire. Fix on the router: Settings → IPTV → IGMP querier → “Block the ISP's IGMP queries”; also worth reporting to the ISP."
-msgstr "%d z %d zacięć IPTV nastąpiło w ciągu półtorej minuty od przejścia queriera IGMP od operatora do routera – operator pyta nieregularnie, a w czasie 255-sekundowego przejęcia pozwala kanałowi wygasnąć. Naprawa na routerze: Ustawienia → IPTV → Querier IGMP → „Blokuj zapytania IGMP operatora”; warto też zgłosić to operatorowi."
-
-msgid "%d of %d IPTV freezes happened while nobody sent IGMP queries on the IPTV VLAN – the channels expire. Switch the router's querier on: Settings → IPTV → IGMP querier."
-msgstr "%d z %d zacięć IPTV nastąpiło, gdy nikt nie wysyłał zapytań IGMP w VLAN-ie IPTV – kanały wygasają. Włącz querier routera: Ustawienia → IPTV → Querier IGMP."
-
 msgid "The IGMP querier passed from the ISP to the router %d× – the ISP's queries paused for over 4 minutes (no freeze at those moments)."
 msgstr "Querier IGMP przeszedł od operatora do routera %d× – zapytania operatora miały przerwy dłuższe niż 4 minuty (bez zacięć w tych momentach)."
-
-msgid "The router's IGMP querier cannot be set: %s"
-msgstr "Nie można ustawić queriera IGMP routera: %s"
-
-msgid "the port towards the ISP is not known"
-msgstr "nie wiadomo, który port prowadzi do operatora"
-
-msgid "the ip command is missing"
-msgstr "brakuje polecenia ip"
-
-msgid "The filter of the ISP's IGMP queries cannot be set: %s"
-msgstr "Nie można ustawić filtra zapytań IGMP operatora: %s"
-
-msgid "install kmod-nft-bridge"
-msgstr "zainstaluj kmod-nft-bridge"
-
-msgid "nft is missing"
-msgstr "brakuje nft"
 
 msgid "The ISP (%s) is still the IGMP querier although its queries should be blocked – the filter does not catch them"
 msgstr "Operator (%s) nadal jest querierem IGMP, choć jego zapytania mają być blokowane – filtr ich nie łapie"
@@ -2759,15 +2735,6 @@ msgstr "Kto teraz wysyła zapytania IGMP w VLAN-ie IPTV (wybrany przez bridge). 
 msgid "Asks now"
 msgstr "Teraz pyta"
 
-msgid "cannot be set: %s"
-msgstr "nie można ustawić: %s"
-
-msgid "kept on by ISP Tester (IGMPv%d)"
-msgstr "utrzymywany przez ISP Tester (IGMPv%d)"
-
-msgid "ISP query filter not set: %s"
-msgstr "Filtr zapytań operatora nie jest ustawiony: %s"
-
 msgid "ISP queries blocked: %d"
 msgstr "Zablokowane zapytania operatora: %d"
 
@@ -2786,20 +2753,8 @@ msgstr "nieznany – VLAN IPTV nie jest ustawiony albo monitorowanie jest wyłą
 msgid "nobody needed – IGMP snooping is off"
 msgstr "nikt nie jest potrzebny – IGMP snooping wyłączony"
 
-msgid "Elected querier: %s"
-msgstr "Wybrany querier: %s"
-
-msgid "Cannot set the querier: %s"
-msgstr "Nie można ustawić queriera: %s"
-
 msgid "ISP queries dropped so far: %d"
 msgstr "Zablokowane dotąd zapytania operatora: %d"
-
-msgid "Set up the querier"
-msgstr "Ustawiaj querier"
-
-msgid "The router keeps its own querier on in the IPTV VLAN (IGMP snooping per VLAN, the port towards the ISP as a permanent multicast router port, so the decoders' answers reach the ISP). Checked every minute and at once when the bridge is recreated (network restart). Replaces a hotplug script with <code>bridge vlan global set … mcast_querier 1</code> – remove that one. Switching this off leaves the bridge as it is."
-msgstr "Router utrzymuje własny querier w VLAN-ie IPTV (IGMP snooping per VLAN, port do operatora jako stały port routera multicast, żeby odpowiedzi dekoderów docierały do operatora). Sprawdzane co minutę i od razu, gdy bridge zostanie utworzony na nowo (restart sieci). Zastępuje skrypt hotplug z <code>bridge vlan global set … mcast_querier 1</code> – usuń go. Wyłączenie zostawia bridge tak, jak jest."
 
 msgid "IGMP version"
 msgstr "Wersja IGMP"
@@ -2813,8 +2768,131 @@ msgstr "Snooping tylko w VLAN-ie IPTV"
 msgid "Switches IGMP snooping off in the bridge's other VLANs: they have no querier, and with snooping on their multicast (e.g. device discovery) could time out."
 msgstr "Wyłącza IGMP snooping w pozostałych VLAN-ach bridge'a: nie mają queriera, a przy włączonym snoopingu ich multicast (np. wykrywanie urządzeń) mógłby wygasać."
 
-msgid "Block the ISP's IGMP queries"
-msgstr "Blokuj zapytania IGMP operatora"
+msgid "%d of %d IPTV freezes came within a minute and a half of the IGMP querier passing from the ISP to the router – the ISP asks irregularly, and during the 255 s hand-over it lets the channel expire. Fix on the router: Settings → IPTV → IGMP querier → Who asks: “Only the router”; also worth reporting to the ISP."
+msgstr "%d z %d zacięć IPTV nastąpiło w ciągu półtorej minuty od przejścia queriera IGMP od operatora do routera – operator pyta nieregularnie, a w czasie 255-sekundowego przejęcia pozwala kanałowi wygasnąć. Naprawa na routerze: Ustawienia → IPTV → Querier IGMP → Kto pyta: „Tylko router”; warto też zgłosić to operatorowi."
 
-msgid "Drops the ISP's general queries arriving on the port towards the ISP, so the router stays the only querier and asks every 125 s; the decoders' answers still go to the ISP. For an ISP that asks irregularly (the hand-overs coincide with freezes). The ISP queries are still counted under “ISP IGMP queries”. Needs <code>kmod-nft-bridge</code>; the rule is the nftables table <code>bridge isp_tester</code>."
-msgstr "Odrzuca ogólne zapytania operatora przychodzące portem od operatora, więc router zostaje jedynym querierem i pyta co 125 s; odpowiedzi dekoderów nadal idą do operatora. Dla operatora, który pyta nieregularnie (przejęcia zbiegają się z zacięciami). Zapytania operatora są nadal liczone w „Zapytania IGMP od operatora”. Wymaga <code>kmod-nft-bridge</code>; regułą jest tabela nftables <code>bridge isp_tester</code>."
+msgid "%d of %d IPTV freezes happened while nobody sent IGMP queries on the IPTV VLAN – the channels expire. Switch the router's querier on: Settings → IPTV → IGMP querier → Who asks."
+msgstr "%d z %d zacięć IPTV nastąpiło, gdy nikt nie wysyłał zapytań IGMP w VLAN-ie IPTV – kanały wygasają. Włącz querier routera: Ustawienia → IPTV → Querier IGMP → Kto pyta."
+
+msgid "The IGMP querier script cannot be written: %s (Settings → IPTV → IGMP querier)"
+msgstr "Nie można zapisać skryptu queriera IGMP: %s (Ustawienia → IPTV → Querier IGMP)"
+
+msgid "The bridge does not match the IGMP querier setting (%s) – a network restart without the script, or the script was changed by hand"
+msgstr "Bridge nie zgadza się z ustawieniem queriera IGMP (%s) – restart sieci bez skryptu albo skrypt zmieniony ręcznie"
+
+msgid "the ISP alone"
+msgstr "tylko operator"
+
+msgid "the ISP, the router as a backup"
+msgstr "operator, router jako rezerwa"
+
+msgid "only the router"
+msgstr "tylko router"
+
+msgid "set: %s"
+msgstr "ustawione: %s"
+
+msgid "the bridge differs (%s)"
+msgstr "bridge się różni (%s)"
+
+msgid "Settings → IPTV → IGMP querier, kept in the system script /etc/hotplug.d/iface/99-iptv-querier."
+msgstr "Ustawienia → IPTV → Querier IGMP, zapisane w skrypcie systemowym /etc/hotplug.d/iface/99-iptv-querier."
+
+msgid "the IPTV VLAN is not set"
+msgstr "VLAN IPTV nie jest ustawiony"
+
+msgid "the bridge of the IPTV VLAN was not found"
+msgstr "nie znaleziono bridge'a VLAN-u IPTV"
+
+msgid "the port towards the ISP was not found – set it under IPTV → Advanced"
+msgstr "nie znaleziono portu do operatora – ustaw go w IPTV → Zaawansowane"
+
+msgid "the bridge command is missing: install ip-bridge"
+msgstr "brakuje polecenia bridge: zainstaluj ip-bridge"
+
+msgid "the file cannot be written"
+msgstr "nie można zapisać pliku"
+
+msgid "your script cannot be backed up, so it was not replaced"
+msgstr "nie można zrobić kopii Twojego skryptu, więc nie został zastąpiony"
+
+msgid "no per-VLAN snooping"
+msgstr "brak snoopingu per VLAN"
+
+msgid "IGMP snooping off in the IPTV VLAN"
+msgstr "IGMP snooping wyłączony w VLAN-ie IPTV"
+
+msgid "the router's querier off"
+msgstr "querier routera wyłączony"
+
+msgid "another IGMP version"
+msgstr "inna wersja IGMP"
+
+msgid "the port towards the ISP is not a multicast router port"
+msgstr "port do operatora nie jest portem routera multicast"
+
+msgid "the filter of the ISP's queries is missing (kmod-nft-bridge installed?)"
+msgstr "brak filtra zapytań operatora (czy kmod-nft-bridge jest zainstalowany?)"
+
+msgid "cannot be read"
+msgstr "nie da się odczytać"
+
+msgid "Asks now: %s"
+msgstr "Teraz pyta: %s"
+
+msgid "Script %s: none"
+msgstr "Skrypt %s: brak"
+
+msgid "Script %s: %s"
+msgstr "Skrypt %s: %s"
+
+msgid "written by ISP Tester, mode %s"
+msgstr "zapisany przez ISP Tester, tryb %s"
+
+msgid "your own (not written by ISP Tester)"
+msgstr "Twój własny (nie zapisany przez ISP Tester)"
+
+msgid "kept over a firmware upgrade"
+msgstr "zachowany przy aktualizacji firmware"
+
+msgid "Your previous script was kept as %s"
+msgstr "Twój poprzedni skrypt zachowano jako %s"
+
+msgid "Cannot write the script: %s"
+msgstr "Nie można zapisać skryptu: %s"
+
+msgid "The bridge differs from the setting: %s"
+msgstr "Bridge różni się od ustawienia: %s"
+
+msgid "Who asks"
+msgstr "Kto pyta"
+
+msgid "Written into the system script <code>/etc/hotplug.d/iface/99-iptv-querier</code>, which is not part of the package: it stays when ISP Tester is removed, and it is listed in <code>/etc/sysupgrade.conf</code>, so it stays over a firmware upgrade. ISP Tester itself sets nothing, it only shows whether the bridge matches."
+msgstr "Zapisywane w skrypcie systemowym <code>/etc/hotplug.d/iface/99-iptv-querier</code>, który nie należy do pakietu: zostaje po usunięciu ISP Testera i jest wpisany do <code>/etc/sysupgrade.conf</code>, więc przetrwa aktualizację firmware. Sam ISP Tester niczego nie ustawia, tylko pokazuje, czy bridge się zgadza."
+
+msgid "<strong>Do not manage</strong> – the script is left as it is: yours, or none."
+msgstr "<strong>Nie zarządzaj</strong> – skrypt zostaje taki, jaki jest: Twój albo żaden."
+
+msgid "<strong>The ISP alone</strong> – the router does not ask. The script stays, switched off, so you can switch it on again later, also without ISP Tester (<code>MODE='backup'</code> in the file). If the ISP stops asking, the channels expire."
+msgstr "<strong>Tylko operator</strong> – router nie pyta. Skrypt zostaje, ale wyłączony, więc możesz go później włączyć, także bez ISP Testera (<code>MODE='backup'</code> w pliku). Jeśli operator przestanie pytać, kanały wygasną."
+
+msgid "<strong>The ISP, the router as a backup</strong> – the router's querier is on, but asks only when the ISP has not asked for 255 s. The ISP may let the channel expire in that time: a freeze around each hand-over."
+msgstr "<strong>Operator, router jako rezerwa</strong> – querier routera jest włączony, ale pyta dopiero, gdy operator nie pytał przez 255 s. W tym czasie operator może pozwolić kanałowi wygasnąć: zacięcie przy każdym przejęciu."
+
+msgid "<strong>Only the router</strong> – the ISP's queries arriving on the port towards the ISP are dropped (nftables table <code>bridge isp_tester</code>, needs <code>kmod-nft-bridge</code>), so the router asks every 125 s with no hand-overs; the decoders' answers still go to the ISP. For an ISP that asks irregularly. The ISP's queries are still counted under “ISP IGMP queries”."
+msgstr "<strong>Tylko router</strong> – zapytania operatora przychodzące portem od operatora są odrzucane (tabela nftables <code>bridge isp_tester</code>, wymaga <code>kmod-nft-bridge</code>), więc router pyta co 125 s bez przejęć; odpowiedzi dekoderów nadal idą do operatora. Dla operatora, który pyta nieregularnie. Zapytania operatora są dalej liczone w „Zapytania IGMP od operatora”."
+
+msgid "A script of the same name that ISP Tester did not write is kept as <code>/etc/isp-tester/99-iptv-querier.orig</code> before it is replaced."
+msgstr "Skrypt o tej samej nazwie, którego nie zapisał ISP Tester, jest przed zastąpieniem zachowywany jako <code>/etc/isp-tester/99-iptv-querier.orig</code>."
+
+msgid "Do not manage (leave the script as it is)"
+msgstr "Nie zarządzaj (zostaw skrypt w spokoju)"
+
+msgid "The ISP alone (script kept, switched off)"
+msgstr "Tylko operator (skrypt zostaje, wyłączony)"
+
+msgid "The ISP, the router as a backup"
+msgstr "Operator, router jako rezerwa"
+
+msgid "Only the router (the ISP's queries are dropped)"
+msgstr "Tylko router (zapytania operatora odrzucane)"
