@@ -521,10 +521,14 @@ function dec_quiet_proof(mac, from, to) {
 
 /* more than the decoders behind the port (any VLAN: a PC, the switch's own
  * address): a switch. Its link going down is the switch or its cable, not a
- * decoder restart. Read once a minute until known. */
+ * decoder restart. Read once a minute until known, then every 10 min (a
+ * laptop plugged in once made the port a "switch" for good). An empty
+ * table (the link is down, the port flushed) keeps what was known.
+ * An unmanaged switch with only the decoder behind it sends nothing of its
+ * own: it cannot be told from the decoder directly on the port. */
 function dec_port_shared(port) {
 	let p = dec.shared[port] ??= { m: null, v: false };
-	if (p.v || (p.m != null && mono() - p.m < 60)) return p.v;
+	if (p.m != null && mono() - p.m < (p.v ? 600 : 60)) return p.v;
 	p.m = mono();
 	let j = bridge_json(`fdb show br ${vl.bridge} brport ${port}`);
 	if (j == null) return false;
@@ -535,6 +539,7 @@ function dec_port_shared(port) {
 		if (e.state == 'permanent' || e.state == 'static' || index(e.flags ?? [], 'self') >= 0) continue;
 		if (!macs[mac]) { macs[mac] = true; n++; }
 	}
+	if (!n) return p.v;
 	let decs = 0;
 	for (let mac, d in dec.list) if (d.port == port) decs++;
 	p.v = n > max(1, decs);
