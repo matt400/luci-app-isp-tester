@@ -235,13 +235,14 @@ function dhcp_seen(x, via) {
 		lease: null, server: null, expired: false, via };
 	let src = dhcp_src(mac);
 	s.via = via;
-	if (x.type == 2) { s.offer_t = t; return; }
+	if (x.type == 2) { s.offer_t = t; s.act_t = t; return; }
 	if (x.type == 6) {
 		s.naks++;
 		C.emit('warn', 'iptv', src, 'dhcp_nak', { mac, ip: s.ip, server: x.server, via });
 		return;
 	}
 	if (x.type != 5 || !match(`${x.ip ?? ''}`, /^[0-9.]+$/) || x.ip == '0.0.0.0') return;
+	s.act_t = t;
 	let fresh = s.offer_t != null && t - s.offer_t <= 15;
 	s.offer_t = null;
 	if (s.ip == null)
@@ -396,6 +397,7 @@ function vlan_sample() {
  *   fdb   - its entry vanished from the table and came back
  *   quiet - nothing from it for dec_silence s while the stream it watched
  *           stopped, then frames again (behind a switch the port stays up)
+ *           and a trace of its start (its DHCP, see dec_quiet_proof)
  * Back within dec_off s: decoder_restart; longer: decoder_off / decoder_on.
  */
 
@@ -460,6 +462,20 @@ function dec_noquery_hit(from) {
 	return false;
 }
 
+/* a "quiet" restart (silence, stream stopped, frames again) needs more than
+ * that: a decoder that only watches speaks just when it answers the operator's
+ * IGMP query (every ~125 s, plus up to max_resp), so a silence of a minute
+ * or two is its normal rhythm, and any stall of the stream in it was taken for
+ * a restart. A real restart asks for its address on the way up: a DHCP OFFER /
+ * ACK of this decoder between the last frame before the silence and the first
+ * one after it. Where the DHCP of this decoder is not seen at all, the silence
+ * must be longer than the decoder takes to answer a query. */
+function dec_quiet_proof(mac, from, to) {
+	let s = dhl.mac[mac];
+	if (s != null && s.act_t != null) return s.act_t >= from - 5 && s.act_t <= to + 15;
+	return to - from > igmpq_expected() + ((igq.max_resp > 0) ? igq.max_resp / 10.0 : 10) + 15;
+}
+
 function dec_poll() {
 	if (!C.cfg.iptv.decoders || !C.cfg.iptv.vlan || !vl.bridge || !BRIDGE) { dec.err = null; return null; }
 	let fdb = dec_fdb(), t = now();
@@ -502,7 +518,8 @@ function dec_poll() {
 					 * (it was logged as one after every silence of 5 min, with
 					 * the whole silence as its time) */
 					let from = d.quiet_from ?? d.gone_at, qd = active - from;
-					if (qd >= C.cfg.iptv.dec_silence && qd <= C.cfg.iptv.dec_off && dec_stream_hit(from, active) && !dec_noquery_hit(from))
+					if (qd >= C.cfg.iptv.dec_silence && qd <= C.cfg.iptv.dec_off && dec_stream_hit(from, active) && !dec_noquery_hit(from) &&
+					    dec_quiet_proof(mac, from, active))
 						C.emit('info', 'iptv', src, 'decoder_restart', { mac, port: x.port, dur: qd, via: 'quiet', stream: true }, from);
 				}
 				else C.emit('info', 'iptv', src, 'decoder_restart', { mac, port: x.port, dur, via: d.via,
@@ -528,7 +545,7 @@ function dec_poll() {
 				else if (d.quiet_from != null) {
 					let dur = active - d.quiet_from;
 					if (dur >= C.cfg.iptv.dec_silence && dur <= C.cfg.iptv.dec_off && dec_stream_hit(d.quiet_from, active) &&
-					    !dec_noquery_hit(d.quiet_from))
+					    !dec_noquery_hit(d.quiet_from) && dec_quiet_proof(mac, d.quiet_from, active))
 						C.emit('info', 'iptv', src, 'decoder_restart', { mac, port: x.port, dur, via: 'quiet', stream: true }, d.quiet_from);
 					d.quiet_from = null;
 				}
