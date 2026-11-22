@@ -396,7 +396,7 @@ function eventText(e) {
 	case 'stream_stall':    return _('IPTV STREAM STOPPED (was %s)').format(fmtRate(d.avg)) + chNote(d.ch);
 	case 'stream_resume':   return _('IPTV stream resumed after %s').format(fmtDur(d.dur)) + igmpNote(d.igmp) + chNote(d.ch);
 	case 'stream_off':      return _('IPTV stream ended: decoder switched off (no channel subscribed)');
-	case 'stream_lost':     return ((d.groups > 0)
+	case 'stream_lost':     return ((d.groups > 0 && !d.left)
 		? _('IPTV stream did not come back within %s (channel still subscribed: outage)').format(fmtDur(d.dur))
 		: _('IPTV stream did not come back within %s (decoder off or outage)').format(fmtDur(d.dur))) + chNote(d.ch);
 	case 'stream_dip':      return _('IPTV bitrate dropped to %s (usual %s)').format(fmtRate(d.kbps), fmtRate(d.avg)) + chNote(d.ch);
@@ -1478,8 +1478,8 @@ return view.extend({
 
 		/* decoders found in the bridge MAC table of the IPTV VLAN */
 		(t.decoders || []).forEach(function(x) {
-			decs.push(E('span', { 'class': 'k' }, _('Decoder %s').format(x.label || x.mac)), E('span', { 'class': x.present ? '' : 'ispt-warn-text' },
-				x.present
+			decs.push(E('span', { 'class': 'k' }, _('Decoder %s').format(x.label || x.mac)), E('span', { 'class': (x.present || x.off) ? '' : 'ispt-warn-text' },
+				(x.present && !x.off)
 					? [ dot(x.quiet ? 'warn' : 'ok'), _('on %s, for %s').format(x.port, fmtDur(rnow() - x.since)) +
 						(x.quiet ? ' · ' + _('silent for %s').format(fmtDur(rnow() - x.active)) : '') ]
 					: [ dot(x.off ? 'unknown' : 'fail'), (x.off ? _('off / unplugged since %s') : _('not visible for %s')).format(
