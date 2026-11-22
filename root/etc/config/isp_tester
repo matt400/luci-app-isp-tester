@@ -125,6 +125,26 @@ config iptv 'iptv'
 	# 'channel' sections, which win over the stream.
 	option names '1'
 
+# The IGMP querier of the bridged IPTV VLAN (iptv.vlan above). Always shown
+# on the overview: who asks (the ISP, this router, nobody) and every hand-over
+# on the timeline. With enabled '1' the collector also keeps it set up - what a
+# hotplug script with `bridge vlan global set ... mcast_querier 1` did before:
+# per-VLAN snooping, the router's querier in the IPTV VLAN, the port towards
+# the ISP a permanent multicast router port. Checked every minute and right
+# away when the bridge is recreated (network restart).
+config querier 'querier'
+	option enabled '0'
+	# IGMP version of the router's queries (2 or 3)
+	option igmp_version '2'
+	# no IGMP snooping in the bridge's other VLANs (they have no querier)
+	option others_off '1'
+	# drop the ISP's IGMP general queries arriving on the port towards the
+	# ISP (nft table "bridge isp_tester", needs kmod-nft-bridge): the router
+	# stays the querier and asks every 125 s, the decoders' answers still go
+	# to the ISP. For an ISP that asks irregularly: the hand-over to the
+	# router takes 255 s, the memberships at the ISP can expire meanwhile.
+	option block_isp '0'
+
 # router load, read from /proc only to explain problems (for graphs use
 # Status -> Realtime Graphs or luci-app-statistics)
 config system 'system'

@@ -46,6 +46,7 @@ import { iptv_init, iptv_shift, vl, tsq, dec, igmp_poll, sample_proxy, dhcp_log_
 import { wan_init, wan_shift, targets, source, wansess, wanst, trace, bloat, sfp, target_why, target_level, bloat_load_peak, bloat_tick, bloat_out, sample_sfp, sfp_out, gateway_ip, sample_pings, v6_out, dns_log_line, dns_judge_servers, sample_dns, refresh_wan6, refresh_wan_device } from './lib/wan.uc';
 import { clock_init, clk, clk_fields, clk_check, ntp_poll, ntp_out, clk_init } from './lib/clock.uc';
 import { peer_init, peer_queue, peer_start, peer_hb, peer_tick, peer_out, peer_shift } from './lib/peer.uc';
+import { querier_init, querier_tick, querier_out, querier_shift } from './lib/querier.uc';
 import { RECOVERY, notify_init, notify_queue, notify_flush, notify_test, notify_status } from './lib/notify.uc';
 
 /* ------------------------------------------------------------------ state */
@@ -1111,6 +1112,31 @@ function tick() {
 		iptv_res.decoders = decs;
 		if (dec.err) push(iptv_res.reasons, { c: 'dec_' + dec.err });
 	}
+	/* who sends the IGMP queries on the IPTV VLAN (and, when managed, keep the router's querier on) */
+	if (iptv_res) {
+		querier_tick(vl);
+		let qo = querier_out();
+		if (qo) {
+			iptv_res.querier = qo;
+			for (let r in qo.reasons) {
+				iptv_res.level = worst(iptv_res.level, 'warn');
+				push(iptv_res.reasons, r);
+			}
+			/* with per-VLAN snooping the bridge-wide snooping / querier / timers
+			 * (sysfs) are not what the IPTV VLAN uses: the "querier off" hint was
+			 * shown while the VLAN's own querier asked every 125 s */
+			if (iptv_res.bridge && qo.conf?.per_vlan) {
+				let c = qo.conf;
+				iptv_res.bridge.snooping = (c.snooping != null) ? `${c.snooping}` : iptv_res.bridge.snooping;
+				iptv_res.bridge.querier = (c.querier != null) ? `${c.querier}` : iptv_res.bridge.querier;
+				if (c.version != null) iptv_res.bridge.igmp_version = `${c.version}`;
+				if (c.membership) iptv_res.bridge.membership_interval = c.membership;
+				if (c.query) iptv_res.bridge.query_interval = c.query;
+				iptv_res.bridge.per_vlan = c.snooping != null;
+			}
+			if (iptv_res.bridge) iptv_res.bridge.elected = qo.who;
+		}
+	}
 
 	/* ---- ports */
 	let ports = [];
@@ -1253,6 +1279,7 @@ function shift_run(by) {
 	peer_shift(by);
 	wan_shift(by);
 	iptv_shift(by);
+	querier_shift(by);
 }
 
 /* ------------------------------------------------------------------ main */
@@ -1280,6 +1307,7 @@ let load_hist = (name, max) => {
 	return h;
 };
 iptv_init({ cfg, emit, recent_level, events: () => events });
+querier_init({ cfg, emit });
 wan_init({ cfg, emit, ubus: () => (ubus_conn ??= require('ubus').connect()), ubus_drop: () => { ubus_conn = null; }, ubus_objects });
 clock_init({ events: () => events, history: () => history, history_min: () => history_min,
 	agg_shift: (by) => { if (agg) agg.t += by; }, shift_started: shift_run,

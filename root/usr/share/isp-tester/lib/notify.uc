@@ -26,7 +26,7 @@ const RECOVERY = { wan_up: [ 'wan_down' ], stream_resume: [ 'stream_stall' ], st
 	target_ok: [ 'target_fail', 'target_degraded' ], dev_present: [ 'dev_missing' ], peer_back: [ 'peer_lost' ],
 	bufferbloat_ok: [ 'bufferbloat' ], v6_up: [ 'v6_down' ], v6_if_up: [ 'v6_if_down' ], v6_pd_back: [ 'v6_pd_lost' ],
 	v6_route_back: [ 'v6_no_route' ], dns_ok: [ 'dns_fail' ], dns_server_ok: [ 'dns_server_bad' ],
-	igmp_noquery_ok: [ 'igmp_noquery' ], sfp_los_ok: [ 'sfp_los' ], sfp_rx_drop_ok: [ 'sfp_rx_drop' ],
+	igmp_noquery_ok: [ 'igmp_noquery' ], igmp_no_querier_ok: [ 'igmp_no_querier' ], sfp_los_ok: [ 'sfp_los' ], sfp_rx_drop_ok: [ 'sfp_rx_drop' ],
 	sfp_alarm_ok: [ 'sfp_alarm' ], sfp_gone_ok: [ 'sfp_gone' ], cpu_high_ok: [ 'cpu_high' ], mem_low_ok: [ 'mem_low' ],
 	conntrack_full_ok: [ 'conntrack_full' ], ntp_sync: [ 'ntp_unsync', 'ntp_off' ] };
 

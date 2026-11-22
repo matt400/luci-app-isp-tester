@@ -71,6 +71,12 @@ function default_config() {
 			/* DHCP of the decoders: the operator's replies seen by tsmon */
 			dhcp: true
 		},
+		/* the IGMP querier of the bridged IPTV VLAN, set by the collector
+		 * (querier.uc): off = only watched. block_isp = drop the ISP's
+		 * general queries on the port towards the ISP (nft, bridge family),
+		 * so the router stays the querier; others_off = no IGMP snooping in
+		 * the bridge's other VLANs (they have no querier) */
+		querier: { enabled: false, block_isp: false, igmp_version: 2, others_off: true },
 		system: {
 			enabled: true, cpu_warn: 90, mem_warn: 10, conntrack_warn: 90
 		},
@@ -115,6 +121,12 @@ function load_config() {
 		let pr = cur.get_all('isp_tester', 'peer') || {};
 		let ps = cur.get_all('isp_tester', 'push') || {};
 		let dn = cur.get_all('isp_tester', 'dns') || {};
+		let qr = cur.get_all('isp_tester', 'querier') || {};
+
+		c.querier.enabled      = bool(qr.enabled, false);
+		c.querier.block_isp    = bool(qr.block_isp, false);
+		c.querier.igmp_version = num(qr.igmp_version, c.querier.igmp_version);
+		c.querier.others_off   = bool(qr.others_off, true);
 
 		c.dns.enabled     = bool(dn.enabled, true);
 		c.dns.warn_pct    = num(dn.warn_pct, c.dns.warn_pct);
@@ -327,6 +339,11 @@ function load_config() {
 	if (!(c.wan.sfp_drop_db >= 1)) c.wan.sfp_drop_db = 3;
 	/* the settings page allows -50..-1 dBm: -50 was taken there and ignored here */
 	if (c.wan.sfp_rx_min != null && !(c.wan.sfp_rx_min < 0 && c.wan.sfp_rx_min >= -50)) c.wan.sfp_rx_min = null;
+
+	/* only a bridged IPTV VLAN can be managed: the VLAN's own querier */
+	c.querier.igmp_version = (int(c.querier.igmp_version) == 3) ? 3 : 2;
+	if (!c.iptv.enabled || !c.iptv.vlan) { c.querier.enabled = false; }
+	if (!c.querier.enabled) c.querier.block_isp = false;
 
 	c.peer.port = int(c.peer.port);
 	if (c.peer.port < 1 || c.peer.port > 65535) c.peer.port = 51477;

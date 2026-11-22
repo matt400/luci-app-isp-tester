@@ -25,6 +25,8 @@ const MSG = {
 		proxy_down: 'Multicast proxy %s is not running', proxy_up: 'Multicast proxy %s running again', proxy_restart: 'Multicast proxy %s restarted',
 		cpu_high: 'Router CPU busy: %d%% (softirq %d%%)', mem_low: 'Router RAM low: %d%% free', conntrack_full: 'Connection table %d%% full',
 		igmp_noquery: 'No IGMP query from the operator for %s (usually every %s)', igmp_noquery_ok: 'IGMP queries from the operator again after %s',
+		igmp_querier: 'IGMP querier of VLAN %s: %s -> %s', igmp_no_querier: 'NO IGMP querier on VLAN %s - the memberships will expire',
+		igmp_no_querier_ok: 'IGMP querier on VLAN %s again after %s: %s',
 		sfp_rx_drop: 'Optical signal weak: RX %s dBm (usually %s dBm)', sfp_los: 'NO LIGHT from the line on %s (SFP RX)',
 		sfp_alarm: 'SFP module alarm: %s', sfp_gone: 'SFP module on %s does not answer any more',
 		sfp_rx_drop_ok: 'Optical signal back to %s dBm after %s', sfp_los_ok: 'Light is back after %s (RX %s dBm)',
@@ -67,6 +69,8 @@ const MSG = {
 		proxy_down: 'Proxy multicast %s nie działa', proxy_up: 'Proxy multicast %s znów działa', proxy_restart: 'Proxy multicast %s zrestartowany',
 		cpu_high: 'Router przeciążony: CPU %d%% (softirq %d%%)', mem_low: 'Mało RAM: wolne %d%%', conntrack_full: 'Tablica połączeń zajęta w %d%%',
 		igmp_noquery: 'Brak zapytań IGMP od operatora od %s (zwykle co %s)', igmp_noquery_ok: 'Zapytania IGMP od operatora wróciły po %s',
+		igmp_querier: 'Querier IGMP w VLAN %s: %s -> %s', igmp_no_querier: 'BRAK queriera IGMP w VLAN %s - subskrypcje wygasną',
+		igmp_no_querier_ok: 'Querier IGMP w VLAN %s znów jest po %s: %s',
 		sfp_rx_drop: 'Słaby sygnał optyczny: RX %s dBm (zwykle %s dBm)', sfp_los: 'BRAK ŚWIATŁA z linii na %s (RX SFP)',
 		sfp_alarm: 'Alarm modułu SFP: %s', sfp_gone: 'Moduł SFP na %s przestał odpowiadać',
 		sfp_rx_drop_ok: 'Sygnał optyczny wrócił do %s dBm po %s', sfp_los_ok: 'Światło z linii wróciło po %s (RX %s dBm)',
@@ -116,6 +120,18 @@ function dur_txt(s) {
 	return sprintf('%ds', s);
 }
 
+/* who asks on the IPTV VLAN (querier.uc) */
+function querier_name(who, addr, port, lang) {
+	let pl = (lang == 'pl');
+	switch (who) {
+	case 'isp': return (pl ? 'operator' : 'ISP') + (addr ? ` (${addr})` : '');
+	case 'other': return (pl ? 'inne urządzenie' : 'another device') + ` (${addr ?? '?'}${port ? ', ' + port : ''})`;
+	case 'router': return pl ? 'router' : 'the router';
+	case 'off': return pl ? 'snooping wyłączony' : 'snooping off';
+	default: return pl ? 'brak' : 'none';
+	}
+}
+
 function event_text(e, lang) {
 	let m = MSG[lang] ?? MSG.en, d = e.d ?? {}, f = m[e.type];
 	if (!f) return e.type;
@@ -150,6 +166,9 @@ function event_text(e, lang) {
 		return sprintf(f, dur_txt(d.dur));
 	case 'igmp_noquery': return sprintf(f, dur_txt(d.silent), dur_txt(d.expected));
 	case 'igmp_noquery_ok': return sprintf(f, dur_txt(d.dur));
+	case 'igmp_querier': return sprintf(f, d.vlan ?? '?', querier_name(d.from, d.prev_addr, d.prev_port, lang), querier_name(d.to, d.addr, d.port, lang));
+	case 'igmp_no_querier': return sprintf(f, d.vlan ?? '?');
+	case 'igmp_no_querier_ok': return sprintf(f, d.vlan ?? '?', dur_txt(d.dur), querier_name(d.to, d.addr, d.port, lang));
 	case 'conntrack_full': return sprintf(f, d.pct);
 	/* what was picked ("TV froze"), and the note when there is one: without
 	 * a note the message said only "Problem reported by user: -" */
