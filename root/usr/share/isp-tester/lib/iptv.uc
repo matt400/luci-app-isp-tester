@@ -304,7 +304,10 @@ function dhcp_tick() {
 	let t = now(), out = [];
 	for (let mac, s in dhl.mac) {
 		let d = dec.list[mac];
-		if (s.lease && s.last_ack != null && !s.expired && t - s.last_ack > s.lease + 30 && d?.present !== false) {
+		/* not for a decoder switched off: in standby (still in the MAC table
+		 * by its stray frames) it may well not renew - that is no fault of the
+		 * operator's DHCP (it was a dhcp_bad against the operator) */
+		if (s.lease && s.last_ack != null && !s.expired && t - s.last_ack > s.lease + 30 && d?.present !== false && !d?.off) {
 			s.expired = true;
 			C.emit('warn', 'iptv', dhcp_src(mac), 'dhcp_expired', { mac, ip: s.ip, lease: s.lease, last: s.last_ack });
 		}
