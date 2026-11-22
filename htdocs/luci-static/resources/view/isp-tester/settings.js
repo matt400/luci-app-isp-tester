@@ -565,6 +565,57 @@ return view.extend({
 		o.optional = true;
 		o.depends({ igmp: '1', vlan: '' });
 
+		/* ---- IGMP querier of the IPTV VLAN */
+		s = m.section(form.NamedSection, 'querier', 'querier', _('IGMP querier'),
+			_('Somebody has to send IGMP queries on the IPTV VLAN, or the decoders\' channels expire: the ISP, or this router. Of several queriers the bridge elects one and stays silent while it asks; when the ISP stops, the router takes over only after 255 s – by then the ISP may have dropped the channel, and the picture stops although the decoder still watches. The overview shows who asks right now, and every hand-over is logged. Works with the IPTV VLAN set above (bridged VLAN).'));
+		place(s, 'iptv', true);
+
+		o = s.option(form.DummyValue, '_querier_now', _('Now'));
+		o.rawhtml = true;
+		o.cfgvalue = function() {
+			var q = state.iptv && state.iptv.querier;
+			if (!q) return '<em>' + _('unknown – the IPTV VLAN is not set or monitoring is off') + '</em>';
+			var who = {
+				isp: _('the ISP') + (q.addr ? ' (' + q.addr + (q.port ? ', ' + q.port : '') + ')' : ''),
+				other: _('another device') + ' (' + (q.addr || '?') + (q.port ? ', ' + q.port : '') + ')',
+				router: _('this router'),
+				none: _('nobody – the channels will expire'),
+				off: _('nobody needed – IGMP snooping is off')
+			}[q.who] || _('unknown');
+			var t = _('Elected querier: %s').format(who);
+			var mg = q.managed;
+			if (mg && mg.err) t += '<br>' + _('Cannot set the querier: %s').format(mg.err === 'no_upstream' ? _('the port towards the ISP is not known') : mg.err === 'no_ip' ? _('the ip command is missing') : mg.err);
+			if (mg && mg.nft) {
+				if (mg.nft.err) t += '<br>' + _('ISP query filter not set: %s').format(mg.nft.err === 'no_bridge_family' ? _('install kmod-nft-bridge') : mg.nft.err === 'no_nft' ? _('nft is missing') : mg.nft.err);
+				else if (mg.nft.ok) t += '<br>' + _('ISP queries dropped so far: %d').format(mg.nft.drops || 0);
+			}
+			return t;
+		};
+
+		o = s.option(form.Flag, 'enabled', _('Set up the querier'),
+			_('The router keeps its own querier on in the IPTV VLAN (IGMP snooping per VLAN, the port towards the ISP as a permanent multicast router port, so the decoders\' answers reach the ISP). Checked every minute and at once when the bridge is recreated (network restart). Replaces a hotplug script with <code>bridge vlan global set … mcast_querier 1</code> – remove that one. Switching this off leaves the bridge as it is.'));
+		o.default = '0';
+		o.rmempty = false;
+
+		o = s.option(form.ListValue, 'igmp_version', _('IGMP version'),
+			_('Of the router\'s queries. Version 2 unless the ISP asks with version 3.'));
+		o.value('2', 'IGMPv2');
+		o.value('3', 'IGMPv3');
+		o.default = '2';
+		o.depends('enabled', '1');
+
+		o = s.option(form.Flag, 'others_off', _('Snooping only in the IPTV VLAN'),
+			_('Switches IGMP snooping off in the bridge\'s other VLANs: they have no querier, and with snooping on their multicast (e.g. device discovery) could time out.'));
+		o.default = '1';
+		o.rmempty = false;
+		o.depends('enabled', '1');
+
+		o = s.option(form.Flag, 'block_isp', _('Block the ISP\'s IGMP queries'),
+			_('Drops the ISP\'s general queries arriving on the port towards the ISP, so the router stays the only querier and asks every 125 s; the decoders\' answers still go to the ISP. For an ISP that asks irregularly (the hand-overs coincide with freezes). The ISP queries are still counted under “ISP IGMP queries”. Needs <code>kmod-nft-bridge</code>; the rule is the nftables table <code>bridge isp_tester</code>.'));
+		o.default = '0';
+		o.rmempty = false;
+		o.depends('enabled', '1');
+
 		/* ---- router load */
 		s = m.section(form.NamedSection, 'system', 'system', _('Router load'),
 			_('An overloaded router drops packets too. Only read from /proc to explain problems in the timeline; for graphs use Status → Realtime Graphs or luci-app-statistics.'));

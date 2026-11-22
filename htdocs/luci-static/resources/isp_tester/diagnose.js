@@ -210,6 +210,11 @@ return baseclass.extend({
 		};
 		/* the operator stopped sending IGMP queries: from the first silent moment until they were back */
 		var noQuery = periods(sorted, [ 'igmp_noquery' ], to);
+		/* the bridge's querier went from the ISP to this router: the ISP did
+		 * not ask for 255 s, and it may have dropped the channels meanwhile */
+		var qSwitch = by(function(e) { return e.type === 'igmp_querier' && e.d && (e.d.from === 'isp' || e.d.from === 'other') && e.d.to === 'router'; });
+		/* nobody asked at all on the IPTV VLAN */
+		var noQuerier = periods(sorted, [ 'igmp_no_querier' ], to);
 		var zaps = [], stalls = [], igmpLeft = [], igmpJoined = [], decStalls = [];
 		allStalls.forEach(function(s) {
 			var ig = igmpOf(s);
@@ -321,12 +326,15 @@ return baseclass.extend({
 				(e.type === 'log' && e.d && [ 'conntrack_drop', 'oom', 'dns_limit' ].indexOf(e.d.kind) >= 0); }));
 
 		/* ---- IPTV: classify every stall by what happened at the same time */
-		var withWan = [], withPort = [], withDev = [], withProxy = [], withNoQuery = [], lonely = [];
+		var withWan = [], withPort = [], withDev = [], withProxy = [], withNoQuery = [], withQSwitch = [], withNoQuerier = [], lonely = [];
 		stalls.forEach(function(s) {
 			if (near(proxyBad, s.ts, 60)) withProxy.push(s);
 			else if (near(anyWan, s.ts)) withWan.push(s);
 			else if (near(anyPort, s.ts)) withPort.push(s);
 			else if (near(iptvDevErr, s.ts)) withDev.push(s);
+			/* the ISP lets the membership expire about when the router takes over: just before or after it */
+			else if (near(qSwitch, s.ts, 90)) withQSwitch.push(s);
+			else if (inPeriods(noQuerier, s.ts, 30)) withNoQuerier.push(s);
 			else if (inPeriods(noQuery, s.ts, 30)) withNoQuery.push(s);
 			else lonely.push(s);
 		});
@@ -358,6 +366,10 @@ return baseclass.extend({
 		/* the memberships expired because the operator's queries stopped: not the router's timers */
 		add('isp', 3, 'stall_no_query', withNoQuery, { total: stalls.length });
 		add('info', 0, 'igmp_noquery', by(function(e) { return e.type === 'igmp_noquery'; }).filter(function(e) { return withNoQuery.length === 0; }));
+		add('isp', 3, 'stall_querier_switch', withQSwitch, { total: stalls.length });
+		add('home', 3, 'stall_no_querier', withNoQuerier, { total: stalls.length });
+		if (!withQSwitch.length)
+			add('info', 0, 'querier_switches', qSwitch);
 		/* the operator never asked at all while the freezes went on */
 		var iq = ctx.igmpq;
 		if (stalls.length && iq && iq.gen === 0 && iq.never)
@@ -383,7 +395,10 @@ return baseclass.extend({
 			}
 		}
 
-		if (stalls.length && ctx.bridge && ctx.bridge.snooping === '1' && ctx.bridge.querier !== '1')
+		/* not while the ISP (or another device) is the elected querier: then
+		 * the router's own one is not needed */
+		if (stalls.length && ctx.bridge && ctx.bridge.snooping === '1' && ctx.bridge.querier !== '1' &&
+		    ctx.bridge.elected !== 'isp' && ctx.bridge.elected !== 'other')
 			findings.push({ side: 'home', code: 'no_querier', n: 1, last: 0, weight: 1, args: { bridge: ctx.bridge.name } });
 		if (stalls.length && ctx.igmp && ctx.igmp.dev && ctx.igmp.proxy_seen === false && ctx.iptv_direction !== 'tx')
 			findings.push({ side: 'info', code: 'no_proxy', n: 1, last: 0, weight: 0, args: {} });
@@ -520,6 +535,9 @@ return baseclass.extend({
 			: _('IPTV freezes repeat every ~%d s – typical IGMP membership timeout: check the IGMP querier / snooping / proxy on the router.').format(a.period);
 		case 'stall_no_query':  return _('%d of %d IPTV freezes happened while the operator sent no IGMP queries – the memberships expire without them: ISP multicast side, not the router.').format(f.n, a.total);
 		case 'igmp_noquery':    return _('The operator\'s IGMP queries stopped %d× (see the timeline).').format(f.n);
+		case 'stall_querier_switch': return _('%d of %d IPTV freezes came within a minute and a half of the IGMP querier passing from the ISP to the router – the ISP asks irregularly, and during the 255 s hand-over it lets the channel expire. Fix on the router: Settings → IPTV → IGMP querier → “Block the ISP\'s IGMP queries”; also worth reporting to the ISP.').format(f.n, a.total);
+		case 'stall_no_querier': return _('%d of %d IPTV freezes happened while nobody sent IGMP queries on the IPTV VLAN – the channels expire. Switch the router\'s querier on: Settings → IPTV → IGMP querier.').format(f.n, a.total);
+		case 'querier_switches': return _('The IGMP querier passed from the ISP to the router %d× – the ISP\'s queries paused for over 4 minutes (no freeze at those moments).').format(f.n);
 		case 'isp_no_queries':  return _('No IGMP query from the operator was seen in %d min although IPTV freezes occurred – the ISP side does not keep the memberships alive (check that the capture port faces the ISP).').format(a.mins);
 		case 'stall_igmp_left': return _('%d of %d IPTV freezes started when the IGMP membership was dropped, then the decoder joined again – IGMP timeout on the router/switch (querier, snooping, proxy).').format(f.n, a.total);
 		case 'stall_upstream_joined': return _('%d of %d IPTV freezes: the router stayed subscribed to the channel but the ISP stopped sending – ISP multicast side.').format(f.n, a.total);

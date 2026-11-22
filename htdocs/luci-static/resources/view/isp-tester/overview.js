@@ -325,6 +325,10 @@ function reasonText(r) {
 	case 'no_ping_source':  return _('No ping data: enable the Ping plugin of luci-app-statistics (collectd) and add the ISP gateway and far hosts there.');
 	case 'proxy_down':      return _('Multicast proxy %s is not running').format(r.name || '');
 	case 'igmp_noquery':    return _('The operator has stopped sending IGMP queries');
+	case 'querier_err':     return _('The router\'s IGMP querier cannot be set: %s').format(r.err === 'no_upstream' ? _('the port towards the ISP is not known') : r.err === 'no_ip' ? _('the ip command is missing') : r.err);
+	case 'querier_nft_err': return _('The filter of the ISP\'s IGMP queries cannot be set: %s').format(r.err === 'no_bridge_family' ? _('install kmod-nft-bridge') : r.err === 'no_nft' ? _('nft is missing') : r.err);
+	case 'querier_block_fail': return _('The ISP (%s) is still the IGMP querier although its queries should be blocked – the filter does not catch them').format(r.addr || '?');
+	case 'querier_none':    return _('No IGMP querier on VLAN %d for %s – the channels expire').format(r.vlan, fmtDur(rnow() - r.since));
 	case 'stream_stalled':  return _('Stream stopped %s ago').format(fmtDur(rnow() - r.since));
 	case 'stream_dip':      return _('Bitrate is much lower than usual');
 	case 'ts_errors':       return _('Picture errors in the incoming IPTV stream (see timeline)');
@@ -351,6 +355,17 @@ function reasonText(r) {
 	case 'sfp_weak':        return _('Optical signal weaker: RX %s dBm, usually %s dBm').format(r.rx, r.base != null ? r.base : '?');
 	case 'sfp_alarm':       return _('SFP module alarm: %s').format((r.flags || []).join(', '));
 	default:                return r.c;
+	}
+}
+
+/* who asks on the IPTV VLAN (igmp_querier events) */
+function querierName(who, addr, port) {
+	switch (who) {
+	case 'isp':    return _('the ISP') + (addr ? ' (' + addr + ')' : '');
+	case 'other':  return _('another device') + ' (' + (addr || '?') + (port ? ', ' + port : '') + ')';
+	case 'router': return _('this router');
+	case 'off':    return _('snooping off');
+	default:       return _('nobody');
 	}
 }
 
@@ -393,6 +408,14 @@ function eventText(e) {
 	case 'wan_ip_change':   return _('WAN address changed %s → %s').format(d.from, d.to);
 	case 'igmp_noquery':    return _('No IGMP query from the operator for %s (usually every %s)').format(fmtDur(d.silent), fmtDur(d.expected));
 	case 'igmp_noquery_ok': return _('IGMP queries from the operator again after %s').format(fmtDur(d.dur));
+	case 'igmp_querier':    return _('IGMP querier of VLAN %s: %s → %s').format(d.vlan || '?', querierName(d.from, d.prev_addr, d.prev_port), querierName(d.to, d.addr, d.port)) +
+		(d.from === 'isp' && d.to === 'router' && d.after ? ' · ' + _('no query from the ISP for %s').format(fmtDur(d.after)) : '') +
+		(d.held ? ' · ' + _('the previous one asked for %s').format(fmtDur(d.held)) : '') +
+		((d.to === 'isp' || d.to === 'other') && d.blocked ? ' · ' + _('its queries should be blocked: the filter does not catch them') : '');
+	case 'igmp_no_querier': return _('NO IGMP querier on VLAN %s – the channels will expire').format(d.vlan || '?');
+	case 'igmp_no_querier_ok': return d.to === 'off'
+		? _('IGMP snooping switched off on VLAN %s – no querier needed (after %s)').format(d.vlan || '?', fmtDur(d.dur))
+		: _('IGMP querier on VLAN %s again after %s: %s').format(d.vlan || '?', fmtDur(d.dur), querierName(d.to, d.addr, d.port));
 	case 'proxy_down':      return _('Multicast proxy %s STOPPED').format(d.name);
 	case 'proxy_up':        return _('Multicast proxy %s running again after %s').format(d.name, fmtDur(d.dur));
 	case 'proxy_restart':   return _('Multicast proxy %s restarted').format(d.name);
@@ -1083,6 +1106,7 @@ return view.extend({
 			query_interval: br && br.query_interval,
 			igmp: st.iptv && st.iptv.igmp,
 			igmpq: st.iptv && st.iptv.igmpq,
+			querier: st.iptv && st.iptv.querier,
 			iptv_on: !!st.iptv
 		});
 	},
@@ -1509,10 +1533,35 @@ return view.extend({
 		}
 
 		if (t.bridge) {
-			igmp.push(E('span', { 'class': 'k' }, _('IGMP snooping (%s)').format(t.bridge.name)),
+			igmp.push(E('span', { 'class': 'k' }, t.bridge.per_vlan && t.vlan
+					? _('IGMP snooping (%s, VLAN %d)').format(t.bridge.name, t.vlan.id) : _('IGMP snooping (%s)').format(t.bridge.name)),
 				E('span', {}, t.bridge.snooping == null ? '–' : (t.bridge.snooping === '1' ? _('on') : _('off'))));
-			igmp.push(E('span', { 'class': 'k' }, _('IGMP querier')),
+			igmp.push(E('span', { 'class': 'k', 'title': _('Whether this router\'s own querier is switched on. It asks only while no other querier (the ISP) is elected.') }, _('Router\'s querier')),
 				E('span', {}, t.bridge.querier == null ? '–' : (t.bridge.querier === '1' ? _('on') : _('off'))));
+		}
+		if (t.querier && t.querier.who && t.querier.who !== 'off') {
+			var qr = t.querier, qwho, qlvl = 'ok';
+			switch (qr.who) {
+			case 'isp':    qwho = _('the ISP') + (qr.addr ? ' · ' + qr.addr : '') + (qr.port ? ' (' + qr.port + ')' : ''); break;
+			case 'other':  qwho = _('another device') + ' · ' + (qr.addr || '?') + (qr.port ? ' (' + qr.port + ')' : ''); qlvl = 'warn'; break;
+			case 'router': qwho = _('this router'); break;
+			default:       qwho = _('nobody – the channels will expire'); qlvl = 'fail';
+			}
+			if ((qr.reasons || []).some(function(r) { return r.c === 'querier_block_fail'; })) qlvl = 'warn';
+			var qv = [ dot(qlvl), qwho ];
+			if (qr.since) qv.push(' · ' + _('since %s').format(fmtWhen(qr.since)));
+			igmp.push(E('span', { 'class': 'k', 'title': _('Who sends the IGMP queries on the IPTV VLAN right now, as elected by the bridge. Every change is in the timeline.') }, _('Asks now')),
+				E('span', {}, qv));
+			var mg = qr.managed;
+			if (mg) {
+				var mv = [ dot(mg.err ? 'warn' : 'ok'), mg.err ? _('cannot be set: %s').format(mg.err) : _('kept on by ISP Tester (IGMPv%d)').format(mg.version) ];
+				if (mg.nft) {
+					if (mg.nft.err) mv.push(' · ', dot('warn'), _('ISP query filter not set: %s').format(mg.nft.err === 'no_bridge_family' ? _('install kmod-nft-bridge') : mg.nft.err));
+					else if (mg.nft.ok) mv.push(' · ' + _('ISP queries blocked: %d').format(mg.nft.drops || 0) +
+						(mg.nft.last ? ' (' + _('last %s ago').format(fmtDur(rnow() - mg.nft.last)) + ')' : ''));
+				}
+				igmp.push(E('span', { 'class': 'k' }, _('Querier setup')), E('span', {}, mv));
+			}
 		}
 
 		if (t.igmpq) {

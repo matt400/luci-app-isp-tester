@@ -114,7 +114,9 @@ The panel looks at what happened **at the same time** (within 30 s) in the selec
 | Link full while you (a host at home) download or upload | your own traffic: named in the bufferbloat finding, no weight |
 | Your "Problem now" reports with / without anything measured around them | context (no weight) |
 | LAN link drops, CRC errors, renegotiation to 100 Mbit/s | cabling / devices at home |
-| IGMP snooping on, querier off (with freezes) | router configuration |
+| IGMP snooping on, querier off, no other querier elected (with freezes) | router configuration |
+| IPTV freeze within 90 s of the IGMP querier passing from the ISP to the router | ISP (irregular queries); fix: block the ISP's queries |
+| IPTV freeze while nobody asked on the IPTV VLAN | router configuration (querier off) |
 
 Each finding is weighted (repeated occurrences count up to 5×). The verdict is "ISP" or "home" when one side has at least twice the weight of the other, otherwise "mixed". It is a hint, not proof. The timeline is the evidence you show the ISP.
 
@@ -249,6 +251,23 @@ The operator's router keeps the IPTV memberships alive with an IGMP *general que
 `isp-tester-tsmon -Q` notes the general queries (IGMPv1/v2/v3) on the port facing the ISP (needs *Measure incoming traffic*; on a decoder's port nothing is seen). The *ISP IGMP queries* row of the IPTV card shows *last query 41 s ago · every ~125 s · 10.1.0.1 (IGMPv2)*. When more than two intervals (plus the response time) pass without one, a warning event *No IGMP query from the operator for 4 min* is logged (dated from when the memberships began to expire), and *queries from the operator again after …* when they return. The interval is the median of the gaps seen (else the query's own interval, else 125 s). Freezes inside such a silence are named in the analysis as an ISP-side fault; if no query is seen at all for more than 5 min while freezes happen, the analysis says so (check that the capture port faces the ISP). It warns about a *stop* only after queries were seen before. Without *Identify channel names* / *Picture quality* the helper runs queries-only (`-I`) and does not look at the streams.
 
 *Settings → IPTV → Watch the operator's IGMP queries* (`iptv.igmp_query`). Needs the `isp-tester-tsmon` package; rebuild it for `-Q`/`-I`.
+
+### Who asks: the ISP or the router (IGMP querier)
+
+On a bridged IPTV VLAN two devices can send the queries: the ISP, and this router's bridge (its querier, e.g. switched on with `bridge vlan global set vid 236 dev br-lan mcast_querier 1`). The bridge elects one – its own queries go out from `0.0.0.0`, so the ISP always wins – and stays silent while the elected one keeps asking. When the ISP stops, the bridge waits its *other querier present* interval (255 s) before it asks itself. The ISP may let the channel expire meanwhile: the picture stops for up to a minute although the decoder still watches and the router is still subscribed.
+
+The IPTV card shows who asks now (*Asks now: the ISP · 10.206.86.1 (eth1)* / *this router* / *nobody*), read every interval from the kernel (`bridge -d vlan global show`, `mcast_querier_state_ipv4`). Every hand-over is a timeline event (*IGMP querier of VLAN 236: the ISP → this router · no query from the ISP for 4 min 15 s*), and *NO IGMP querier* is a warning. A freeze within 90 s of a hand-over from the ISP to the router is a finding of its own (ISP side, with the fix below). With per-VLAN snooping the card and the analysis use the VLAN's own snooping / querier / timers, not the bridge-wide ones.
+
+*Settings → IPTV → IGMP querier* (section `querier`, off by default) lets the collector keep it set up, instead of a hotplug script:
+
+- **Set up the querier** (`enabled`): per-VLAN snooping on the bridge, the router's querier in the IPTV VLAN (IGMP version `igmp_version`), the port towards the ISP a permanent multicast router port (the decoders' reports go to the ISP) and, with `others_off`, no snooping in the bridge's other VLANs. Checked every minute and at once when the kernel shows something else (network restart). Switching it off leaves the bridge as it is. Remove an old hotplug script that does the same.
+- **Block the ISP's IGMP queries** (`block_isp`, needs `kmod-nft-bridge`): the nftables table `bridge isp_tester` drops the ISP's general queries (to 224.0.0.1) arriving on the port towards the ISP, so the router stays the only querier and asks every 125 s. The decoders' answers still reach the ISP. The rule matches by offsets from the Ethernet header, so it works whether the network card strips the VLAN tag or not. `isp-tester-tsmon` still sees the dropped queries (*ISP IGMP queries* keeps working). The card shows how many were dropped; if the ISP is still elected more than 255 s after the filter was set, it warns that the filter does not catch them.
+
+```sh
+opkg install kmod-nft-bridge
+nft list table bridge isp_tester        # the rule and its counter
+nft delete table bridge isp_tester      # by hand, e.g. after removing the package
+```
 
 ## Two routers, one timeline
 
