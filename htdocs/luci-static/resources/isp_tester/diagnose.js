@@ -395,10 +395,11 @@ return baseclass.extend({
 			}
 		}
 
-		/* not while the ISP (or another device) is the elected querier: then
-		 * the router's own one is not needed */
+		/* not while the ISP (or another device) is the elected querier, or a
+		 * querier the bridge does not elect (0.0.0.0) still asks: then the
+		 * router's own one is not needed */
 		if (stalls.length && ctx.bridge && ctx.bridge.snooping === '1' && ctx.bridge.querier !== '1' &&
-		    ctx.bridge.elected !== 'isp' && ctx.bridge.elected !== 'other')
+		    ctx.bridge.elected !== 'isp' && ctx.bridge.elected !== 'other' && ctx.bridge.elected !== 'wire')
 			findings.push({ side: 'home', code: 'no_querier', n: 1, last: 0, weight: 1, args: { bridge: ctx.bridge.name } });
 		if (stalls.length && ctx.igmp && ctx.igmp.dev && ctx.igmp.proxy_seen === false && ctx.iptv_direction !== 'tx')
 			findings.push({ side: 'info', code: 'no_proxy', n: 1, last: 0, weight: 0, args: {} });

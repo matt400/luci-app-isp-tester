@@ -365,6 +365,7 @@ function querierName(who, addr, port) {
 	case 'isp':    return _('the ISP') + (addr ? ' (' + addr + ')' : '');
 	case 'other':  return _('another device') + ' (' + (addr || '?') + (port ? ', ' + port : '') + ')';
 	case 'router': return _('this router');
+	case 'wire':   return _('an unelected querier') + ' (' + (addr || '0.0.0.0') + ')';
 	case 'off':    return _('snooping off');
 	default:       return _('nobody');
 	}
@@ -1546,6 +1547,7 @@ return view.extend({
 			case 'isp':    qwho = _('the ISP') + (qr.addr ? ' · ' + qr.addr : '') + (qr.port ? ' (' + qr.port + ')' : ''); break;
 			case 'other':  qwho = _('another device') + ' · ' + (qr.addr || '?') + (qr.port ? ' (' + qr.port + ')' : ''); qlvl = 'warn'; break;
 			case 'router': qwho = _('this router'); break;
+			case 'wire':   qwho = _('an unelected querier') + ' · ' + (qr.addr || '0.0.0.0'); break;
 			default:       qwho = _('nobody – the channels will expire'); qlvl = 'fail';
 			}
 			if ((qr.reasons || []).some(function(r) { return r.c === 'querier_block_fail'; })) qlvl = 'warn';

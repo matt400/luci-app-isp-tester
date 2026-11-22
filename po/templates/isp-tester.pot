@@ -2681,6 +2681,9 @@ msgstr ""
 msgid "another device"
 msgstr ""
 
+msgid "an unelected querier"
+msgstr ""
+
 msgid "this router"
 msgstr ""
 

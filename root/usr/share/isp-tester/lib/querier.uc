@@ -17,6 +17,14 @@
  * (bridge vlan global show: mcast_querier_state_ipv4) every tick; every
  * change is a timeline event, so a freeze can be matched to a hand-over.
  *
+ * A querier on a bridge without an address in the VLAN (a second router that
+ * only bridges the IPTV VLAN) also asks from 0.0.0.0, and the bridge does not
+ * elect it: the kernel then says "nobody" although general queries arrive
+ * every ~125 s and the decoders keep their channels. isp-tester-tsmon -Q sees
+ * them on the wire (iq, igmpq_out() of the IPTV module), so "nobody" is
+ * believed only when no general query was seen either - otherwise the querier
+ * is 'wire' (asks, not elected by the bridge).
+ *
  * Set up by the system, not here: Settings -> IPTV -> IGMP querier writes a
  * hotplug script (querier-gen.uc, run by the init script), which stays when
  * the package is removed. This module only compares the bridge with the
@@ -115,6 +123,17 @@ function elected(st, own_on, up) {
 	}
 	if (own_on) return { who: 'router', addr, port: null };
 	return { who: 'none', addr: null, port: null };
+}
+
+/* "nobody" by the kernel, yet general queries are on the wire: iq is the
+ * helper's report (igmpq_out(), null without isp-tester-tsmon -Q). A querier
+ * sending from 0.0.0.0 is never elected by the bridge, but it keeps the
+ * memberships alive - that is what matters. The silence limit is the one of
+ * the IPTV module (twice the interval seen plus the response time). */
+function wire_querier(iq) {
+	if (type(iq) != 'object' || iq.silent || !(iq.gen > 0) || iq.age == null) return null;
+	if (iq.age > (iq.limit ?? 0)) return null;
+	return { who: 'wire', addr: iq.src || '0.0.0.0', port: null };
 }
 
 /* without per-VLAN snooping the bridge has one querier for all VLANs */
@@ -230,8 +249,9 @@ function note(t, el) {
 
 /* ---------------------------------------------------------------- tick */
 
-/* once per main tick, after the IPTV sample (vl knows the bridge and the port) */
-function querier_tick(vl) {
+/* once per main tick, after the IPTV sample (vl knows the bridge and the port;
+ * iq = the queries the helper saw on the wire, igmpq_out(), may be null) */
+function querier_tick(vl, iq) {
 	let t = now(), m = mono(), Q = C.cfg.querier;
 	let br = C.cfg.iptv.bridge || vl?.bridge || null;
 	let vid = C.cfg.iptv.vlan || 0;
@@ -269,6 +289,7 @@ function querier_tick(vl) {
 		}
 		else q.conf = null;
 	}
+	if (el?.who == 'none') el = wire_querier(iq) ?? el;
 	if (el && q.conf?.snooping === 1) note(t, el);
 	else {
 		/* snooping off: nobody needs a querier; unreadable: start over when it can be read */

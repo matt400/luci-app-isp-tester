@@ -127,6 +127,7 @@ function querier_name(who, addr, port, lang) {
 	case 'isp': return (pl ? 'operator' : 'ISP') + (addr ? ` (${addr})` : '');
 	case 'other': return (pl ? 'inne urządzenie' : 'another device') + ` (${addr ?? '?'}${port ? ', ' + port : ''})`;
 	case 'router': return pl ? 'router' : 'the router';
+	case 'wire': return (pl ? 'niewybrany querier' : 'an unelected querier') + ` (${addr ?? '0.0.0.0'})`;
 	case 'off': return pl ? 'snooping wyłączony' : 'snooping off';
 	default: return pl ? 'brak' : 'none';
 	}
