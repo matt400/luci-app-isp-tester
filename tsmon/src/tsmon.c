@@ -34,7 +34,6 @@
  */
 #define _GNU_SOURCE
 #include <errno.h>
-#include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -113,7 +112,7 @@ static struct group groups[MAX_GROUPS];
 #define DHCP_RING 16
 struct dhcp_ev {
 	unsigned seq;
-	long wall;
+	long long wall;
 	int type;                        /* 2 OFFER, 5 ACK, 6 NAK */
 	uint8_t mac[6];
 	uint32_t ip, server, mask, router, lease;
@@ -460,8 +459,8 @@ static struct group *group_get(uint32_t addr, double t)
 	g->used = 1;
 	g->addr = addr;
 	g->id = next_id++;
-	g->t_first = g->t_last = g->t_psi = g->rep_t = t;
-	g->t_last = -1;
+	g->t_first = g->t_psi = g->rep_t = t;
+	g->t_last = -1;             /* no datagram yet */
 	cc_reset(g);
 	psi_reset(g);
 	return g;
@@ -503,7 +502,7 @@ static void dhcp_frame(const uint8_t *b, int n)
 	memcpy(e.mac, b + 28, 6);
 	memcpy(&e.ip, b + 16, 4);
 	e.seq = ++dhcp_seq;
-	e.wall = (long)time(NULL);
+	e.wall = (long long)time(NULL);
 	dhcp_ring[e.seq % DHCP_RING] = e;
 }
 
@@ -561,8 +560,8 @@ static void handle_frame(const uint8_t *f, int caplen, int wirelen, double t)
 	if ((h[0] >> 4) != 4 || h[9] != 17) return;
 	int ihl = (h[0] & 15) * 4;
 	if (ihl < 20) return;
-	/* fragments cannot be parsed without reassembly */
-	if ((h[6] & 0x3f) || h[7] || (h[6] & 0x20)) { other++; return; }
+	/* fragments (MF flag or an offset) cannot be parsed without reassembly */
+	if ((h[6] & 0x3f) || h[7]) { other++; return; }
 	if ((h[16] & 0xf0) != 0xe0) {
 		int u = ip + ihl;
 		if (want_dhcp && caplen >= u + 8 && be16(f + u) == 67 && be16(f + u + 2) == 68)
@@ -715,12 +714,12 @@ static void json_str(FILE *o, const char *s)
 	fputc('"', o);
 }
 
-static void write_json(FILE *o, double t, double up, const char *dev, int vid, int wall)
+static void write_json(FILE *o, double t, double up, const char *dev, int vid, time_t wall)
 {
 	char ip[INET_ADDRSTRLEN];
 	int first = 1;
 
-	fprintf(o, "{\"v\":1,\"pid\":%d,\"ts\":%ld,\"up\":%.1f,", (int)getpid(), (long)wall, up);
+	fprintf(o, "{\"v\":1,\"pid\":%d,\"ts\":%lld,\"up\":%.1f,", (int)getpid(), (long long)wall, up);
 	fputs("\"dev\":", o);
 	json_str(o, dev ? dev : "");
 	fprintf(o, ",\"vid\":%d,\"gap_ms\":%u,\"drops\":%llu,\"other\":%llu,\"groups\":[",
@@ -770,7 +769,7 @@ static void write_json(FILE *o, double t, double up, const char *dev, int vid, i
 			inet_ntop(AF_INET, &e->server, a[1], sizeof(a[1]));
 			inet_ntop(AF_INET, &e->mask, a[2], sizeof(a[2]));
 			inet_ntop(AF_INET, &e->router, a[3], sizeof(a[3]));
-			fprintf(o, "%s{\"seq\":%u,\"t\":%ld,\"type\":%d,\"mac\":\"%02x:%02x:%02x:%02x:%02x:%02x\","
+			fprintf(o, "%s{\"seq\":%u,\"t\":%lld,\"type\":%d,\"mac\":\"%02x:%02x:%02x:%02x:%02x:%02x\","
 				"\"ip\":\"%s\",\"server\":\"%s\",\"mask\":\"%s\",\"router\":\"%s\",\"lease\":%u}",
 				first ? "" : ",", e->seq, e->wall, e->type,
 				e->mac[0], e->mac[1], e->mac[2], e->mac[3], e->mac[4], e->mac[5],
@@ -812,7 +811,7 @@ static int write_state(const char *path, double t, double up, const char *dev, i
 	if (snprintf(tmp, sizeof(tmp), "%s.tmp", path) >= (int)sizeof(tmp)) return -1;
 	FILE *o = fopen(tmp, "w");
 	if (!o) return -1;
-	write_json(o, t, up, dev, vid, (int)time(NULL));
+	write_json(o, t, up, dev, vid, time(NULL));
 	if (fclose(o) != 0) { unlink(tmp); return -1; }
 	return rename(tmp, path);
 }
@@ -855,7 +854,7 @@ static int run_pcap(const char *file)
 	for (int i = 0; i < MAX_GROUPS; i++)
 		if (groups[i].used) groups[i].rep_t = groups[i].t_first;
 	update_rates(t);
-	write_json(stdout, t, t0 >= 0 ? t - t0 : 0, file, 0, (int)time(NULL));
+	write_json(stdout, t, t0 >= 0 ? t - t0 : 0, file, 0, time(NULL));
 	return 0;
 }
 

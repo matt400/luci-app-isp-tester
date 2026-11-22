@@ -12,7 +12,7 @@ let C = null;
 function clock_init(ctx) { C = ctx; }
 
 let clk = { on: false, off: null, steps: 0, last: null, run_hist: 0, run_min: 0, m0: 0 };
-let ntp = { state: 'unknown', client: null, checked: null, sync_ts: null, stratum: null, offset: null, poll: null, action: null };
+let ntp = { state: 'unknown', client: null, pid: null, checked: null, checks: 0, sync_ts: null, stratum: null, offset: null, poll: null, action: null };
 
 function clk_fields(typ, d) {
 	/* a gap found while running (a late tick) lies wholly in this run; one
@@ -156,7 +156,7 @@ function ntp_client() {
 	}
 	let was = ntp.client;
 	ntp.client = c;
-	ntp.checks = (ntp.checks ?? 0) + 1;
+	ntp.checks++;
 	/* gone since the last check, or none at all from the second check on
 	 * (a minute after the start, when sysntpd had time to come up): before,
 	 * a router without any NTP client was never reported */

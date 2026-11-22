@@ -251,6 +251,21 @@ function bloat_out() {
 
 /* ----------------------------------------------- optical signal (SFP / ONT) */
 
+/*
+ * "Is the light from the line weaker?": when the WAN goes through an SFP
+ * module (or an ONT in an SFP cage) the router can read the module's own
+ * measurements - `ethtool -m <port>`: RX / TX power (dBm), temperature,
+ * voltage, laser current and the module's alarm flags. A fall in the received
+ * power is a hard proof of a fault in the line (fibre, connector, splitter,
+ * the ISP's side) that no ping can give. Read every sfp_interval s (the
+ * EEPROM is slow); without a module (ethtool says so) it is asked again
+ * every 10 minutes and nothing is shown. Only reads.
+ *   no light (RX at the noise floor)            -> sfp_los
+ *   RX sfp_drop_db below its usual level, or below the module's low-power
+ *   warning / sfp_rx_min                         -> sfp_rx_drop
+ *   any other alarm/warning flag of the module  -> sfp_alarm
+ *   the module stopped answering                 -> sfp_gone
+ */
 const SFP_RING = 20;         /* readings behind "its usual level" */
 const SFP_NOLIGHT = -40;     /* dBm: at or below it there is no light */
 let sfp = { dev: null, ok: null, err: null, next: 0, last: null, ts: null, ring: [], fails: 0,

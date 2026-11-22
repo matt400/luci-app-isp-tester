@@ -47,6 +47,9 @@ const TRACEROUTE6 = find_bin('ISP_TESTER_TRACEROUTE6', [ '/usr/bin/traceroute6',
 
 const TIMEOUT = find_bin('ISP_TESTER_TIMEOUT', [ '/usr/bin/timeout', '/bin/timeout' ]);
 
+/* the SFP / ONT module's own measurements (ethtool -m), see wan.uc */
+const ETHTOOL = find_bin('ISP_TESTER_ETHTOOL', [ '/usr/sbin/ethtool', '/sbin/ethtool', '/usr/bin/ethtool' ]);
+
 const STAT_KEYS = [
 	'rx_bytes', 'tx_bytes', 'rx_packets', 'tx_packets',
 	'rx_errors', 'tx_errors', 'rx_dropped', 'tx_dropped',
@@ -135,22 +138,5 @@ function kill_pids(sig, pids) {
 function worst(a, b) {
 	return (LEVEL[b] > LEVEL[a]) ? b : a;
 }
-
-/*
- * "Is the light from the line weaker?": when the WAN goes through an SFP
- * module (or an ONT in an SFP cage) the router can read the module's own
- * measurements - `ethtool -m <port>`: RX / TX power (dBm), temperature,
- * voltage, laser current and the module's alarm flags. A fall in the received
- * power is a hard proof of a fault in the line (fibre, connector, splitter,
- * the ISP's side) that no ping can give. Read every sfp_interval s (the
- * EEPROM is slow); without a module (ethtool says so) it is asked again
- * every 10 minutes and nothing is shown. Only reads.
- *   no light (RX at the noise floor)            -> sfp_los
- *   RX sfp_drop_db below its usual level, or below the module's low-power
- *   warning / sfp_rx_min                         -> sfp_rx_drop
- *   any other alarm/warning flag of the module  -> sfp_alarm
- *   the module stopped answering                 -> sfp_gone
- */
-const ETHTOOL = find_bin('ISP_TESTER_ETHTOOL', [ '/usr/sbin/ethtool', '/sbin/ethtool', '/usr/bin/ethtool' ]);
 
 export { RUNDIR, NO_UBUS, VARDIR, SYSNET, ROUTE, PROC, find_bin, FETCH, LOGREAD, RRDTOOL, BRIDGE, PROXIES, TSMON, MTR, TRACEROUTE, TRACEROUTE6, TIMEOUT, STAT_KEYS, LEVEL, now, mono, num, bool, aslist, valid_host, valid_dev, valid_group, valid_ip, mc_ignored, write_atomic, round, absf, kill_pids, worst, ETHTOOL };
