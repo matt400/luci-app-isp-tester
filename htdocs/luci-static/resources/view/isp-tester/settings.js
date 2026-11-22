@@ -607,6 +607,7 @@ return view.extend({
 				isp: _('the ISP') + (q.addr ? ' (' + esc(q.addr) + (q.port ? ', ' + esc(q.port) : '') + ')' : ''),
 				other: _('another device') + ' (' + esc(q.addr || '?') + (q.port ? ', ' + esc(q.port) : '') + ')',
 				router: _('this router'),
+				wire: _('an unelected querier') + ' (' + esc(q.addr || '0.0.0.0') + ')',
 				none: _('nobody – the channels will expire'),
 				off: _('nobody needed – IGMP snooping is off')
 			}[q.who] || _('unknown');

@@ -2684,6 +2684,9 @@ msgstr "operator"
 msgid "another device"
 msgstr "inne urządzenie"
 
+msgid "an unelected querier"
+msgstr "niewybrany querier"
+
 msgid "this router"
 msgstr "ten router"
 

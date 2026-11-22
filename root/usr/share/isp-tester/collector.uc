@@ -1114,7 +1114,7 @@ function tick() {
 	}
 	/* who sends the IGMP queries on the IPTV VLAN (and, when managed, keep the router's querier on) */
 	if (iptv_res) {
-		querier_tick(vl);
+		querier_tick(vl, iptv_res.igmpq);
 		let qo = querier_out();
 		if (qo) {
 			iptv_res.querier = qo;

@@ -258,6 +258,8 @@ On a bridged IPTV VLAN two devices can send the queries: the ISP, and this route
 
 The IPTV card shows who asks now (*Asks now: the ISP · 10.206.86.1 (eth1)* / *this router* / *nobody*), read every interval from the kernel (`bridge -d vlan global show`, `mcast_querier_state_ipv4`). Every hand-over is a timeline event (*IGMP querier of VLAN 236: the ISP → this router · no query from the ISP for 4 min 15 s*), and *NO IGMP querier* is a warning. A freeze within 90 s of a hand-over from the ISP to the router is a finding of its own (ISP side, with the fix below). With per-VLAN snooping the card and the analysis use the VLAN's own snooping / querier / timers, not the bridge-wide ones.
 
+A querier that sends from `0.0.0.0` is never elected by the bridge – typically a second router that only bridges the IPTV VLAN (an access point) and has no address in it. The kernel then reports nobody, although general queries arrive every ~125 s and the decoders keep their channels. With `isp-tester-tsmon` (*ISP IGMP queries*) the card shows *an unelected querier · 0.0.0.0* instead of the *NO IGMP querier* warning as long as general queries are seen on the wire. Without the helper the kernel state is all there is, and such a setup still shows *nobody*.
+
 *Settings → IPTV → IGMP querier → Who asks* (`querier.mode`) sets it up. The setting is written into a **system** hotplug script, `/etc/hotplug.d/iface/99-iptv-querier`: it is not part of the package, so it **stays when ISP Tester is removed**, and it is added to `/etc/sysupgrade.conf`, so it stays over a firmware upgrade. The collector itself sets nothing; it only shows whether the bridge matches the setting (*the bridge differs: querier, filter …*).
 
 | Who asks | What the script does |
