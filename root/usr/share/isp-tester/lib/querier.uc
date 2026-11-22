@@ -354,8 +354,15 @@ function querier_none() {
 	return q.br != null && (q.none_open || q.none_from != null);
 }
 
+/* the router's own querier is the one the decoders answer now (mode router,
+ * or backup after it took over): the operator's queries pausing then lets
+ * no membership expire - in mode router they are dropped anyway */
+function querier_router() {
+	return q.br != null && q.who == 'router';
+}
+
 function querier_query() {
 	return (q.br != null && q.who == 'router' && q.conf?.query > 0) ? q.conf.query : null;
 }
 
-export { querier_init, querier_tick, querier_out, querier_shift, querier_none, querier_query };
+export { querier_init, querier_tick, querier_out, querier_shift, querier_none, querier_query, querier_router };

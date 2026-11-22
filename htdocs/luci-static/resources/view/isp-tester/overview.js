@@ -408,7 +408,8 @@ function eventText(e) {
 	case 'wan_if_up':       return _('WAN interface %s up again after %s').format(d.iface, fmtDur(d.dur)) + (d.ip ? ' · ' + d.ip : '');
 	case 'wan_reconnect':   return _('WAN session restarted (previous one lasted %s)').format(fmtDur(d.prev));
 	case 'wan_ip_change':   return _('WAN address changed %s → %s').format(d.from, d.to);
-	case 'igmp_noquery':    return _('No IGMP query from the operator for %s (usually every %s)').format(fmtDur(d.silent), fmtDur(d.expected));
+	case 'igmp_noquery':    return _('No IGMP query from the operator for %s (usually every %s)').format(fmtDur(d.silent), fmtDur(d.expected)) +
+		(d.router ? ' – ' + _('the router asks the decoders itself, the channels are not affected') : '');
 	case 'igmp_noquery_ok': return _('IGMP queries from the operator again after %s').format(fmtDur(d.dur));
 	case 'igmp_querier':    return _('IGMP querier of VLAN %s: %s → %s').format(d.vlan || '?', querierName(d.from, d.prev_addr, d.prev_port), querierName(d.to, d.addr, d.port)) +
 		(d.from === 'isp' && d.to === 'router' && d.after ? ' · ' + _('no query from the ISP for %s').format(fmtDur(d.after)) : '') +
@@ -1987,13 +1988,14 @@ return view.extend({
 		 * decoder that only watches is silent then and looks restarted */
 		var noQ = [], qOpen = null;
 		ownAll.forEach(function(e) {
-			if (e.type === 'igmp_noquery') { if (qOpen == null) qOpen = e.ts; }
+			if ((e.type === 'igmp_noquery' || e.type === 'igmp_noquery_ok') && e.d && e.d.router) { /* the router asked: no effect */ }
+			else if (e.type === 'igmp_noquery') { if (qOpen == null) qOpen = e.ts; }
 			else if (qOpen != null && (e.type === 'igmp_noquery_ok' || e.type === 'monitor_start' || e.type === 'data_gap')) { noQ.push([ qOpen, e.ts ]); qOpen = null; }
 		});
 		if (qOpen != null) noQ.push([ qOpen, w.to ]);
 		var byDecoder = function(s) {
 			if (noQ.some(function(p) { return s.ts >= p[0] - 30 && s.ts <= p[1] + 30; })) return false;
-			return decR.some(function(r) { return s.ts >= r.ts - 15 && s.ts <= r.ts + ((r.d && r.d.dur) || 0) + 10; });
+			return decR.some(function(r) { return !(r.d && r.d.alone === false) && s.ts >= r.ts - 15 && s.ts <= r.ts + ((r.d && r.d.dur) || 0) + 10; });
 		};
 
 		/* outage / freeze durations from start/end pairs (this router's
@@ -2104,7 +2106,7 @@ return view.extend({
 			row(_('Related messages in the system log'), _('%d×').format(count(function(e) { return e.type === 'log'; }))) +
 			(st.iptv && st.iptv.dhcp && st.iptv.dhcp.length ? row(_('Decoder DHCP: address changes / refused / expired'), _('%d× / %d× / %d×').format(
 				count(function(e) { return e.type === 'dhcp_ip_change'; }), count(function(e) { return e.type === 'dhcp_nak'; }),
-				count(function(e) { return e.type === 'dhcp_expired' || e.type === 'dhcp_late'; }))) : '') +
+				count(function(e) { return (e.type === 'dhcp_expired' || e.type === 'dhcp_late') && !(e.d && e.d.unk); }))) : '') +
 			row(_('DNS failing (no answer from the upstream server)'), (function() { var v = sum('dns_fail', [ 'dns_ok', 'monitor_start' ]); return _('%d, total %s, longest %s').format(v.n, fmtDur(v.total), fmtDur(v.longest)); })() +
 				(count(function(e) { return e.type === 'dns_server_bad'; }) ? ' · ' + _('servers with many failed queries: %s').format(own.filter(function(e) { return e.type === 'dns_server_bad'; }).map(function(e) { return e.src; }).filter(function(v, i, a) { return a.indexOf(v) === i; }).join(', ')) : '')) +
 			row(_('IPTV freezes'), _('%d, total %s, longest %s').format(tv.n, fmtDur(tv.total), fmtDur(tv.longest)) + (r.zaps ? ' · ' + _('%d channel changes not counted').format(r.zaps) : '')) +

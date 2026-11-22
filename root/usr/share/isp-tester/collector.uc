@@ -46,7 +46,7 @@ import { iptv_init, iptv_shift, vl, tsq, dec, igmp_poll, sample_proxy, dhcp_log_
 import { wan_init, wan_shift, targets, source, wansess, wanst, trace, bloat, sfp, target_why, target_level, bloat_load_peak, bloat_tick, bloat_out, sample_sfp, sfp_out, gateway_ip, sample_pings, v6_out, dns_log_line, dns_judge_servers, sample_dns, refresh_wan6, refresh_wan_device } from './lib/wan.uc';
 import { clock_init, clk, clk_fields, clk_check, ntp_poll, ntp_out, clk_init } from './lib/clock.uc';
 import { peer_init, peer_queue, peer_start, peer_hb, peer_tick, peer_out, peer_shift } from './lib/peer.uc';
-import { querier_init, querier_tick, querier_out, querier_shift, querier_none, querier_query } from './lib/querier.uc';
+import { querier_init, querier_tick, querier_out, querier_shift, querier_none, querier_query, querier_router } from './lib/querier.uc';
 import { RECOVERY, notify_init, notify_queue, notify_flush, notify_test, notify_status } from './lib/notify.uc';
 
 /* ------------------------------------------------------------------ state */
@@ -1306,7 +1306,7 @@ let load_hist = (name, max) => {
 	}
 	return h;
 };
-iptv_init({ cfg, emit, recent_level, events: () => events, querier_none, querier_query });
+iptv_init({ cfg, emit, recent_level, events: () => events, querier_none, querier_query, querier_router });
 querier_init({ cfg, emit });
 wan_init({ cfg, emit, ubus: () => (ubus_conn ??= require('ubus').connect()), ubus_drop: () => { ubus_conn = null; }, ubus_objects });
 clock_init({ events: () => events, history: () => history, history_min: () => history_min,

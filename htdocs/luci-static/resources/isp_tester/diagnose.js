@@ -91,19 +91,26 @@ function fmtSec(s) {
 	return _('%d s').format(s);
 }
 
-/* regular spacing of stalls -> IGMP membership/query timeout */
+/* regular spacing of stalls -> IGMP membership/query timeout. Judged on the
+ * usual gap (median), not the mean: the hours with the TV off between two
+ * evenings, or one freeze of another cause, made the spread huge and a clear
+ * timeout cycle was never found - its freezes went to the ISP instead.
+ * Gaps far above the usual one (another viewing session) are left out; most
+ * of the rest must be close to it. */
 function periodicity(list) {
 	if (list.length < 4) return null;
 	var ts = list.map(function(e) { return e.ts; }).sort(function(a, b) { return a - b; });
 	var gaps = [];
 	for (var i = 1; i < ts.length; i++) gaps.push(ts[i] - ts[i - 1]);
-	var mean = gaps.reduce(function(a, b) { return a + b; }, 0) / gaps.length;
-	if (mean <= 0) return null;
-	var sd = Math.sqrt(gaps.reduce(function(a, g) { return a + (g - mean) * (g - mean); }, 0) / gaps.length);
-	/* IGMP timers are minutes, not seconds: dense random freezes are not periodic.
-	 * The absolute tolerance covers the sampling interval jitter. */
-	if (mean < 60) return null;
-	return (sd / mean < 0.2 || sd <= 12) ? Math.round(mean) : null;
+	var med = gaps.slice().sort(function(a, b) { return a - b; })[gaps.length >> 1];
+	/* IGMP timers are minutes, not seconds: dense random freezes are not periodic */
+	if (!(med >= 60)) return null;
+	/* the absolute tolerance covers the sampling interval jitter */
+	var tol = Math.max(12, med * 0.15);
+	var inSess = gaps.filter(function(g) { return g <= med * 2.5; });
+	var hit = inSess.filter(function(g) { return Math.abs(g - med) <= tol; });
+	if (hit.length < 3 || hit.length < inSess.length * 0.6) return null;
+	return Math.round(hit.reduce(function(a, b) { return a + b; }, 0) / hit.length);
 }
 
 return baseclass.extend({
@@ -205,11 +212,19 @@ return baseclass.extend({
 		};
 		/* decoder restarts (both routers): a freeze while a decoder was away is the decoder, not the stream */
 		var decRestarts = byAll(function(e) { return e.type === 'decoder_restart'; });
+		/* only a decoder that was the only one watching (d.alone): with another
+		 * one watching, the freeze stopped its channel too - the stream's */
+		var covers = function(r, s) {
+			return !(r.d && r.d.alone === false) && s.ts >= r.ts - 15 && s.ts <= r.ts + ((r.d && r.d.dur) || 0) + 10;
+		};
 		var duringRestart = function(s) {
-			return decRestarts.some(function(r) { return s.ts >= r.ts - 15 && s.ts <= r.ts + ((r.d && r.d.dur) || 0) + 10; });
+			return decRestarts.some(function(r) { return covers(r, s); });
 		};
 		/* the operator stopped sending IGMP queries: from the first silent moment until they were back */
-		var noQuery = periods(sorted, [ 'igmp_noquery' ], to);
+		/* not while the router asked the decoders itself (d.router): then no
+		 * membership expires, the operator's pause did not matter */
+		var qRouter = function(e) { return (e.type === 'igmp_noquery' || e.type === 'igmp_noquery_ok') && e.d && e.d.router; };
+		var noQuery = periods(sorted.filter(function(e) { return !qRouter(e); }), [ 'igmp_noquery' ], to);
 		/* the bridge's querier went from the ISP to this router: the ISP did
 		 * not ask for 255 s, and it may have dropped the channels meanwhile */
 		var qSwitch = by(function(e) { return e.type === 'igmp_querier' && e.d && (e.d.from === 'isp' || e.d.from === 'other') && e.d.to === 'router'; });
@@ -326,10 +341,14 @@ return baseclass.extend({
 				(e.type === 'log' && e.d && [ 'conntrack_drop', 'oom', 'dns_limit' ].indexOf(e.d.kind) >= 0); }));
 
 		/* ---- IPTV: classify every stall by what happened at the same time */
+		/* only an Internet problem that stops traffic (loss, outage, session):
+		 * a high ping alone does not stop multicast, and a freeze within 30 s
+		 * of one was a "shared cause on the ISP line" */
+		var wanHard = anyWan.filter(function(e) { return !(e.type === 'target_degraded' && e.d && !(e.d.loss > 0)); });
 		var withWan = [], withPort = [], withDev = [], withProxy = [], withNoQuery = [], withQSwitch = [], withNoQuerier = [], lonely = [];
 		stalls.forEach(function(s) {
 			if (near(proxyBad, s.ts, 60)) withProxy.push(s);
-			else if (near(anyWan, s.ts)) withWan.push(s);
+			else if (near(wanHard, s.ts)) withWan.push(s);
 			else if (near(anyPort, s.ts)) withPort.push(s);
 			else if (near(iptvDevErr, s.ts)) withDev.push(s);
 			/* the ISP lets the membership expire about when the router takes over: just before or after it */
@@ -344,13 +363,14 @@ return baseclass.extend({
 
 		add('info', 0, 'stall_zap', zaps, { total: allStalls.length });
 		add('info', 0, 'stall_decoder', decStalls, { total: allStalls.length,
-			devs: uniq(decRestarts.filter(function(r) { return decStalls.some(function(s) { return s.ts >= r.ts - 15 && s.ts <= r.ts + ((r.d && r.d.dur) || 0) + 10; }); }), 'src').join(', ') });
+			devs: uniq(decRestarts.filter(function(r) { return decStalls.some(function(s) { return covers(r, s); }); }), 'src').join(', ') });
 		/* a decoder that restarts by itself: power supply, firmware, overheating */
 		add('home', 1, 'decoder_restarts', decRestarts, { devs: uniq(decRestarts, 'src').join(', ') });
 
 		/* the decoders' lease at the operator */
 		var dhChange = by(function(e) { return e.type === 'dhcp_ip_change'; });
-		var dhBad = by(function(e) { return e.type === 'dhcp_nak' || e.type === 'dhcp_expired' || e.type === 'dhcp_late'; });
+		/* not the ones without decoder data (d.unk): maybe just switched off overnight */
+		var dhBad = by(function(e) { return e.type === 'dhcp_nak' || ((e.type === 'dhcp_expired' || e.type === 'dhcp_late') && !(e.d && e.d.unk)); });
 		add('isp', 1.5, 'dhcp_change', dhChange, { devs: uniq(dhChange, 'src').join(', ') });
 		add('isp', 1.5, 'dhcp_bad', dhBad, { devs: uniq(dhBad, 'src').join(', ') });
 		var proxyStop = proxyBad.filter(function(e) { return e.type !== 'log'; });
@@ -365,7 +385,7 @@ return baseclass.extend({
 		add('edge', 1.5, 'stall_with_dev', withDev, { total: stalls.length });
 		/* the memberships expired because the operator's queries stopped: not the router's timers */
 		add('isp', 3, 'stall_no_query', withNoQuery, { total: stalls.length });
-		add('info', 0, 'igmp_noquery', by(function(e) { return e.type === 'igmp_noquery'; }).filter(function(e) { return withNoQuery.length === 0; }));
+		add('info', 0, 'igmp_noquery', by(function(e) { return e.type === 'igmp_noquery' && !qRouter(e); }).filter(function(e) { return withNoQuery.length === 0; }));
 		add('isp', 3, 'stall_querier_switch', withQSwitch, { total: stalls.length });
 		add('home', 3, 'stall_no_querier', withNoQuerier, { total: stalls.length });
 		if (!withQSwitch.length)
@@ -381,6 +401,12 @@ return baseclass.extend({
 			[ [ 'membership', ctx.membership_interval ], [ 'query', ctx.query_interval ] ].forEach(function(x) {
 				if (!timer && x[1] > 0 && Math.abs(period - x[1]) <= Math.max(15, x[1] * 0.15)) timer = x;
 			});
+			/* IGMP timers are minutes: a cycle of more than 15 min that matches
+			 * no timer here is not one (random freezes about once an hour were
+			 * "a typical IGMP membership timeout", weight 3 for the home side) */
+			if (!timer && period > 900) period = null;
+		}
+		if (period) {
 			add('home', timer ? 4 : 3, 'stall_periodic', lonely.concat(left), { period: period, total: stalls.length, timer: timer && timer[0], timer_s: timer && timer[1] });
 		}
 		else {
@@ -560,7 +586,7 @@ return baseclass.extend({
 		case 'sfp_gone':        return _('The SFP module stopped answering %d× – taken out, or it hung (power, a faulty module).').format(f.n);
 		case 'router_load':     return _('The router was overloaded %d× (no problems at those moments).').format(f.n);
 		case 'marks_seen':      return _('%d of %d of your reports match a measured problem.').format(f.n, a.total);
-		case 'marks_unseen':    return _('%d of %d of your reports have nothing measured around them – the problem is not visible on this router: check the IPTV device setting, or the cause is the decoder, the TV or Wi-Fi.').format(f.n, a.total);
+		case 'marks_unseen':    return _('%d of %d of your reports have nothing measured around them – the problem is not visible on this router: check the IPTV device setting, or the cause is the decoder, the TV or Wi-Fi. With a bridged IPTV VLAN the stream is measured as it comes from the ISP: when the router stops passing a channel to one port only (another decoder keeps it), that is not seen either.').format(f.n, a.total);
 		case 'bufferbloat':     return _('Bufferbloat %d×: the ping went up by as much as %d ms only while the link was full (%s) – your own traffic fills a buffer in the modem or at the ISP. Not an outage and not the ISP\'s fault: SQM (luci-app-sqm, cake) set a bit below the line speed fixes it.').format(f.n, a.add,
 			a.dir === 'up' ? _('upload') : a.dir === 'down' ? _('download') : _('download and upload')) +
 			(a.lags ? ' ' + _('%d high-ping warnings at those times are not counted against the ISP.').format(a.lags) : '');

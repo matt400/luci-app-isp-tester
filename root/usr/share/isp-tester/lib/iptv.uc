@@ -37,7 +37,17 @@ let igmp = { groups: null, joined: {}, hist: [], proxy: null, proxy_seen: false,
  * dropped/drop_ts = packets the router could not count */
 const IGQ_RING = 8;
 let igq = { on: false, pid: null, gen: 0, total: 0, last_ts: null, ivals: [], src: null, ver: null, qqic: null,
-	max_resp: null, since: null, silent: false, silent_ref: 0, ever: false };
+	max_resp: null, since: null, silent: false, silent_ref: 0, silent_router: false, ever: false };
+
+/* declared here, before their first use: ucode does not hoist functions */
+function igmpq_expected() {
+	let e = (length(igq.ivals) >= 3) ? median(igq.ivals) : (igq.qqic > 0 ? igq.qqic : 125);
+	return max(10, round(e, 0));
+}
+function igmpq_limit() {
+	/* max_resp is in 1/10 s: / 10.0, two ints are divided as integers (2.5 s -> 2) */
+	return 2 * igmpq_expected() + ((igq.max_resp > 0) ? igq.max_resp / 10.0 : 10);
+}
 
 let tsq = { proc: null, args: null, started: 0, fails: 0, next: 0, err: null, seen: {}, drops: null, flow: null,
 	win: [], last: null, pend: {}, last_ev: {}, last_lvl: {}, cc_acc: null, dropped: 0, drop_ts: 0 };
@@ -141,8 +151,11 @@ function igmp_poll() {
  * What IGMP did around a freeze that started at `from` (called when the
  * stream comes back):
  *   zap    - other groups after than before: a channel change, not a fault
- *   left   - the membership was dropped (and joined again): IGMP timeout
- *   joined - subscribed the whole time: the data just stopped coming
+ *   left   - the membership was dropped when the data stopped (and joined
+ *            again): IGMP timeout
+ *   joined - subscribed when the data stopped (also when the decoder left
+ *            and joined the same channel later, retrying): the data just
+ *            stopped coming
  */
 function igmp_classify(from) {
 	if (!C.cfg.iptv.igmp || !(C.cfg.iptv.igmp_dev || C.cfg.iptv.vlan) || igmp.groups == null) return null;
@@ -152,10 +165,20 @@ function igmp_classify(from) {
 		return length(igmp.groups) ? 'joined' : null;
 
 	let before = rel[0].before, after = igmp.groups;
-	let emptied = length(filter(rel, (h) => !length(h.after))) > 0;
+	/* dropped when the data stopped (a timeout comes with the stop), not
+	 * seconds later: many decoders leave and join the same channel again
+	 * when no data comes - an operator-side stop was "IGMP timeout at home"
+	 * (stall_igmp_left, weight 3 for the home side) */
+	/* h.ts is when the change was read, up to one sample after it happened
+	 * (sample_interval with the fast sampler, else the main interval) */
+	/* (iptv_fast() is declared further down: ucode does not hoist it) */
+	let step = (C.cfg.iptv.sample_interval > 0) ? C.cfg.iptv.sample_interval : C.cfg.interval;
+	let lim = from + C.cfg.iptv.stall_after + step + 2;
+	let emptied = length(filter(rel, (h) => !length(h.after) && h.ts <= lim)) > 0;
 	if (length(before) && length(after) && join(',', before) != join(',', after)) return 'zap';
 	if (emptied || !length(before)) return 'left';
-	return null;
+	/* left and joined again later: subscribed when the data stopped */
+	return length(after) ? 'joined' : null;
 }
 
 function proxy_process() {
@@ -221,7 +244,7 @@ function sample_proxy() {
  */
 let dhl = { pid: null, seq: 0, mac: {} };
 /* decoders seen in the IPTV VLAN (see dec_poll) */
-let dec = { list: {}, err: null, t: 0, shared: {} };
+let dec = { list: {}, err: null, t: 0, shared: {}, t0: null };
 
 function dhcp_src(mac) {
 	return C.cfg.iptv.dec_labels[mac] || mac;
@@ -243,12 +266,22 @@ function dhcp_seen(x, via) {
 		return;
 	}
 	if (x.type != 5 || !match(`${x.ip ?? ''}`, /^[0-9.]+$/) || x.ip == '0.0.0.0') return;
-	/* an ACK off the renewal schedule (before T1, half the lease) is a
+	/* an ACK off the renewal schedule (before T1: the server's option 58,
+	 * else half the lease) is a
 	 * decoder that booted and asked for its old address (INIT-REBOOT, no
 	 * OFFER). A renewal is not: it was taken for a restart proof, and every
 	 * renewal at the end of the normal silence between two IGMP reports
 	 * with a stall in it was logged as a restart */
-	if (s.last_ack != null && s.lease && t - s.last_ack > 30 && t - s.last_ack < s.lease * 0.45)
+	/* (with a T1 shorter than half the lease every renewal was a "boot") */
+	let ren = (s.t1 > 0 && s.t1 < (s.lease ?? 0)) ? s.t1 : (s.lease ?? 0) * 0.5;
+	/* tsmon tells it from the ACK itself (ciaddr): a renewal has it set, a
+	 * start not. Trusted only once a renewal of this decoder came with it
+	 * set - a server that never copies it would make every ACK a start.
+	 * Without it (dnsmasq log, an older helper) by the schedule above */
+	if (x.renew === true) s.ci_ok = true;
+	let start = (s.ci_ok && x.renew === false) ? true : (s.ci_ok && x.renew === true) ? false : null;
+	if (start === true ||
+	    (start == null && s.last_ack != null && s.lease && t - s.last_ack > 30 && t - s.last_ack < ren * 0.9))
 		s.boot_t = t;
 	let fresh = s.offer_t != null && t - s.offer_t <= 15;
 	s.offer_t = null;
@@ -258,17 +291,32 @@ function dhcp_seen(x, via) {
 		s.changes++;
 		C.emit('warn', 'iptv', src, 'dhcp_ip_change', { mac, from: s.ip, to: x.ip, lease: x.lease, server: x.server, via });
 	}
-	else if (s.lease && s.last_ack != null && t - s.last_ack > s.lease + 5) {
-		s.renew++;
-		C.emit('warn', 'iptv', src, 'dhcp_late', { mac, ip: x.ip, late: t - s.last_ack - s.lease, lease: s.lease, via });
-	}
+	/* an OFFER before it: the decoder started from scratch - after a night
+	 * switched off its lease ran out, and every such morning start was a
+	 * "renewed too late" (warning, counted against the operator) */
 	else if (fresh)
 		C.emit('info', 'iptv', src, 'dhcp_new', { mac, ip: x.ip, lease: x.lease, via });
+	/* nor a start with INIT-REBOOT (asks for its old address, no OFFER):
+	 * seen by ciaddr, else by it being switched off meanwhile or on again
+	 * only shortly ago (without membership data "on" comes with its first
+	 * frame, before the ACK) */
+	else if (s.lease && s.last_ack != null && t - s.last_ack > s.lease + 5 && start !== true &&
+	         !dec.list[mac]?.off && !(dec.list[mac]?.on_t != null && t - dec.list[mac].on_t <= 120)) {
+		s.renew++;
+		/* not known to have been on the whole time (no decoder data: routed
+		 * IPTV, decoder detection off) and no ciaddr proof of a renewal: it
+		 * may just have been switched off overnight - noted only (unk), not
+		 * counted against the operator (every morning start was a warning) */
+		let unk = start !== false && dec.list[mac] == null;
+		C.emit(unk ? 'info' : 'warn', 'iptv', src, 'dhcp_late', { mac, ip: x.ip, late: t - s.last_ack - s.lease, lease: s.lease, via,
+			unk: unk ? 1 : null });
+	}
 	else s.renew++;
 	s.acks++;
 	s.ip = x.ip;
 	s.last_ack = t;
 	s.lease = (x.lease > 0) ? x.lease : null;
+	s.t1 = (x.t1 > 0) ? x.t1 : null;
 	s.server = x.server ?? s.server;
 	s.expired = false;
 }
@@ -299,9 +347,15 @@ function dhcp_tick() {
 	let t = now(), out = [];
 	for (let mac, s in dhl.mac) {
 		let d = dec.list[mac];
-		if (s.lease && s.last_ack != null && !s.expired && t - s.last_ack > s.lease + 30 && d?.present !== false) {
+		/* not for a decoder switched off: in standby (still in the MAC table
+		 * by its stray frames) it may well not renew - that is no fault of the
+		 * operator's DHCP (it was a dhcp_bad against the operator) */
+		if (s.lease && s.last_ack != null && !s.expired && t - s.last_ack > s.lease + 30 && d?.present !== false && !d?.off) {
 			s.expired = true;
-			C.emit('warn', 'iptv', dhcp_src(mac), 'dhcp_expired', { mac, ip: s.ip, lease: s.lease, last: s.last_ack });
+			/* without decoder data it cannot be told from a decoder switched
+			 * off for the night: noted only (unk), not counted against the operator */
+			C.emit(d == null ? 'info' : 'warn', 'iptv', dhcp_src(mac), 'dhcp_expired', { mac, ip: s.ip, lease: s.lease, last: s.last_ack,
+				unk: d == null ? 1 : null });
 		}
 		push(out, { mac, label: C.cfg.iptv.dec_labels[mac] ?? '', ip: s.ip, lease: s.lease, server: s.server, last_ack: s.last_ack,
 			acks: s.acks, renew: s.renew, changes: s.changes, naks: s.naks, expired: s.expired, via: s.via });
@@ -464,11 +518,18 @@ function dec_stream_hit(from, to) {
 function dec_noquery_hit(from) {
 	/* nobody asks on the VLAN (the router's querier in mode router / backup
 	 * is the one the decoders answer, not the operator): the same silence */
-	if (igq.silent || C.querier_none()) return true;
+	if (C.querier_none()) return true;
+	/* the router's own querier keeps the decoders talking: the operator's
+	 * queries pausing (dropped anyway in mode router) silences nobody.
+	 * Judged by who asked when the pause began, not now: in mode backup the
+	 * router takes over only after the memberships expired, and the
+	 * decoders' silence before that was the operator's pause */
+	if (igq.silent && !igq.silent_router) return true;
 	let evs = C.events();
 	for (let i = length(evs) - 1; i >= 0; i--) {
 		let e = evs[i];
 		if (e.ts < from - 5) break;
+		if (e.d?.router && (e.type == 'igmp_noquery' || e.type == 'igmp_noquery_ok')) continue;
 		if (!e.host && (e.type == 'igmp_noquery' || e.type == 'igmp_noquery_ok' ||
 		    e.type == 'igmp_no_querier' || e.type == 'igmp_no_querier_ok')) return true;
 	}
@@ -496,13 +557,20 @@ function dec_quiet_proof(mac, from, to) {
 
 /* more than the decoders behind the port (any VLAN: a PC, the switch's own
  * address): a switch. Its link going down is the switch or its cable, not a
- * decoder restart. Read once a minute until known. */
+ * decoder restart. Read once a minute until known, then every 10 min (a
+ * laptop plugged in once made the port a "switch" for good; back to "the
+ * decoder alone" after an hour without other devices). An empty
+ * table (the link is down, the port flushed) keeps what was known.
+ * An unmanaged switch with only the decoder behind it sends nothing of its
+ * own: it cannot be told from the decoder directly on the port. */
 function dec_port_shared(port) {
 	let p = dec.shared[port] ??= { m: null, v: false };
-	if (p.v || (p.m != null && mono() - p.m < 60)) return p.v;
+	if (p.m != null && mono() - p.m < (p.v ? 600 : 60)) return p.v;
 	p.m = mono();
 	let j = bridge_json(`fdb show br ${vl.bridge} brport ${port}`);
-	if (j == null) return false;
+	/* the table could not be read: keep what was known (a switch turned
+	 * into a decoder on the port for a minute) */
+	if (j == null) return p.v;
 	let macs = {}, n = 0;
 	for (let e in j) {
 		let mac = lc(`${e?.mac ?? ''}`);
@@ -510,10 +578,40 @@ function dec_port_shared(port) {
 		if (e.state == 'permanent' || e.state == 'static' || index(e.flags ?? [], 'self') >= 0) continue;
 		if (!macs[mac]) { macs[mac] = true; n++; }
 	}
+	if (!n) return p.v;
 	let decs = 0;
 	for (let mac, d in dec.list) if (d.port == port) decs++;
-	p.v = n > max(1, decs);
+	let v = n > max(1, decs);
+	/* a switch becomes "the decoder alone" only after an hour without other
+	 * devices: a PC or laptop behind it asleep for a while ages out of the
+	 * table, and the switch losing power then was logged as the decoder off */
+	if (v || !p.v) { p.v = v; p.no = null; }
+	else if ((p.no ??= p.m) != null && p.m - p.no >= 3600) { p.v = false; p.no = null; }
 	return p.v;
+}
+
+/* was this decoder the only one watching? Another port with a channel, or
+ * another decoder on its own port that is on: then a freeze while it
+ * restarted is the stream's (the bitrate is the whole VLAN's - below
+ * min_kbps the others' channels stopped too), not the restart's */
+function dec_alone(mac, port) {
+	for (let p in vl.ports)
+		if (p != port && length(port_groups(p))) return false;
+	for (let m, o in dec.list)
+		if (m != mac && o.port == port && o.present && !o.off) return false;
+	return true;
+}
+
+/* the last on/off event of this decoder in the log is "off" */
+function dec_off_logged(mac) {
+	let evs = C.events();
+	for (let i = length(evs) - 1; i >= 0; i--) {
+		let e = evs[i];
+		if (e.d?.mac != mac) continue;
+		if (e.type == 'decoder_off') return true;
+		if (e.type == 'decoder_on' || e.type == 'decoder_restart') return false;
+	}
+	return false;
 }
 
 function dec_poll() {
@@ -521,6 +619,8 @@ function dec_poll() {
 	let fdb = dec_fdb(), t = now();
 	if (fdb == null) { dec.err = 'fdb_failed'; return null; }
 	dec.err = null;
+	/* the first reading of this run: a decoder silent since before it was off then already */
+	dec.t0 ??= t;
 
 	for (let mac, x in fdb) {
 		let d = dec.list[mac] ??= { mac, present: true, since: t, port: x.port, gone_at: null, quiet_from: null, off: false };
@@ -575,6 +675,7 @@ function dec_poll() {
 					if (!mdb_ok || length(port_groups(x.port))) {
 						C.emit('info', 'iptv', src, 'decoder_on', { mac, port: x.port, dur });
 						d.off = false;
+						d.on_t = t;
 						d.since = t;
 					}
 				}
@@ -585,14 +686,15 @@ function dec_poll() {
 					let from = d.quiet_from ?? d.gone_at, qd = active - from;
 					if (qd >= C.cfg.iptv.dec_silence && qd <= C.cfg.iptv.dec_off && dec_stream_hit(from, active) && !dec_noquery_hit(from) &&
 					    dec_quiet_proof(mac, from, active))
-						C.emit('info', 'iptv', src, 'decoder_restart', { mac, port: x.port, dur: qd, via: 'quiet', stream: true }, from);
+						C.emit('info', 'iptv', src, 'decoder_restart', { mac, port: x.port, dur: qd, via: 'quiet', stream: true,
+							alone: dec_alone(mac, x.port) }, from);
 					d.since = t;
 				}
 				/* the switch it is behind lost its link: not the decoder */
 				else if (d.via == 'port') d.since = t;
 				else {
 					C.emit('info', 'iptv', src, 'decoder_restart', { mac, port: x.port, dur, via: d.via,
-						stream: dec_stream_hit(d.gone_at, t) }, d.gone_at);
+						stream: dec_stream_hit(d.gone_at, t), alone: dec_alone(mac, x.port) }, d.gone_at);
 					d.since = t;
 				}
 				d.quiet_from = null;
@@ -603,6 +705,7 @@ function dec_poll() {
 				if (x.age != null && x.age < C.cfg.iptv.dec_silence && (!mdb_ok || length(port_groups(d.port)))) {
 					C.emit('info', 'iptv', src, 'decoder_on', { mac, port: x.port, dur: max(1, t - d.gone_at) });
 					d.off = false;
+					d.on_t = t;
 					d.since = t;
 					d.quiet_from = null;
 				}
@@ -614,7 +717,8 @@ function dec_poll() {
 					let dur = active - d.quiet_from;
 					if (dur >= C.cfg.iptv.dec_silence && dur <= C.cfg.iptv.dec_off && dec_stream_hit(d.quiet_from, active) &&
 					    !dec_noquery_hit(d.quiet_from) && dec_quiet_proof(mac, d.quiet_from, active))
-						C.emit('info', 'iptv', src, 'decoder_restart', { mac, port: x.port, dur, via: 'quiet', stream: true }, d.quiet_from);
+						C.emit('info', 'iptv', src, 'decoder_restart', { mac, port: x.port, dur, via: 'quiet', stream: true,
+							alone: dec_alone(mac, x.port) }, d.quiet_from);
 					d.quiet_from = null;
 				}
 			}
@@ -642,7 +746,13 @@ function dec_poll() {
 				d.off = true;
 				d.gone_at = last;
 				d.quiet_from = null;
-				C.emit('info', 'iptv', src, 'decoder_off', { mac, port: d.port, via: 'leave' }, last);
+				/* off already and logged by the run before (it was logged again
+				 * after every restart of the collector - each Save & Apply - dated
+				 * before monitor_start). Judged by the log, not by the start time:
+				 * switched off less than dec_silence before a restart it was never
+				 * logged by either run */
+				if (last >= dec.t0 - 5 || !dec_off_logged(mac))
+					C.emit('info', 'iptv', src, 'decoder_off', { mac, port: d.port, via: 'leave' }, last);
 			}
 		}
 		/* auto-found and gone for a day: forget it */
@@ -862,7 +972,9 @@ function igmpq_ingest(m, t, pid) {
 		}
 		if (igq.silent) {
 			igq.silent = false;
-			C.emit('info', 'iptv', 'igmp', 'igmp_noquery_ok', { dur: round(ts - igq.silent_ref, 0), src: m.src }, ts);
+			C.emit('info', 'iptv', 'igmp', 'igmp_noquery_ok', { dur: round(ts - igq.silent_ref, 0), src: m.src,
+				router: igq.silent_router ? 1 : null }, ts);
+			igq.silent_router = false;
 		}
 		igq.total += gen - igq.gen;
 		igq.gen = gen;
@@ -877,16 +989,8 @@ function igmpq_ingest(m, t, pid) {
 }
 
 /* the interval between the operator's general queries, in s */
-function igmpq_expected() {
-	let e = (length(igq.ivals) >= 3) ? median(igq.ivals) : (igq.qqic > 0 ? igq.qqic : 125);
-	return max(10, round(e, 0));
-}
 
 /* silence longer than this lets the memberships expire (s) */
-function igmpq_limit() {
-	/* max_resp is in 1/10 s: / 10.0, two ints are divided as integers (2.5 s -> 2) */
-	return 2 * igmpq_expected() + ((igq.max_resp > 0) ? igq.max_resp / 10.0 : 10);
-}
 
 function igmpq_check(t) {
 	if (!igq.on || !igq.ever || igq.silent) return;
@@ -895,9 +999,14 @@ function igmpq_check(t) {
 	if (sil > igmpq_limit()) {
 		igq.silent = true;
 		igq.silent_ref = ref;
+		/* the router asks the decoders itself (mode router: the operator's
+		 * queries are dropped; backup: it took over): no membership expires,
+		 * so the pause is only noted - it was a warning, it kept the card
+		 * yellow and every freeze and switch-off in it went to the operator */
+		igq.silent_router = C.querier_router();
 		/* dated from when the memberships began to expire, so a freeze at that moment falls inside the period */
-		C.emit('warn', 'iptv', 'igmp', 'igmp_noquery', { silent: round(sil, 0), expected: igmpq_expected(), src: igq.src,
-			ver: igq.ver, since: ref }, min(t, ref + 2 * igmpq_expected()));
+		C.emit(igq.silent_router ? 'info' : 'warn', 'iptv', 'igmp', 'igmp_noquery', { silent: round(sil, 0), expected: igmpq_expected(), src: igq.src,
+			ver: igq.ver, since: ref, router: igq.silent_router ? 1 : null }, min(t, ref + 2 * igmpq_expected()));
 	}
 }
 
@@ -909,7 +1018,7 @@ function igmpq_check(t) {
  * Worked out here, not from igq.silent: that is set on the main tick, up to
  * an interval after the expiry the 1 s sampler sees first. */
 function igq_expired(t) {
-	if (!C.cfg.iptv.igmp_query || !igq.on || !igq.ever) return false;
+	if (!C.cfg.iptv.igmp_query || !igq.on || !igq.ever || C.querier_router()) return false;
 	return igq.silent || t - max(igq.last_ts ?? 0, igq.since ?? t) > igmpq_limit() - 5;
 }
 
@@ -917,7 +1026,7 @@ function igmpq_out() {
 	if (!C.cfg.iptv.igmp_query || !igq.on) return null;
 	let t = now(), seen_for = t - (igq.since ?? t);
 	return { gen: igq.total, last: igq.last_ts, age: igq.last_ts != null ? round(t - igq.last_ts, 0) : null,
-		expected: igmpq_expected(), limit: igmpq_limit(), silent: igq.silent, since: igq.silent ? igq.silent_ref : null,
+		expected: igmpq_expected(), limit: igmpq_limit(), silent: igq.silent, router: igq.silent ? igq.silent_router : null, since: igq.silent ? igq.silent_ref : null,
 		src: igq.src, ver: igq.ver, qqic: igq.qqic, max_resp: igq.max_resp, seen_for: round(seen_for, 0),
 		/* nothing at all in more than the time the memberships last */
 		never: !igq.ever && seen_for > igmpq_limit() + 60 };
@@ -1009,7 +1118,7 @@ function iptv_out(devres) {
 			o.level = level;
 		}
 		o.igmpq = igmpq_out();
-		if (o.igmpq?.silent) {
+		if (o.igmpq?.silent && !o.igmpq.router) {
 			level = worst(level, 'warn');
 			push(reasons, { c: 'igmp_noquery', since: o.igmpq.since });
 			o.level = level;
@@ -1017,25 +1126,6 @@ function iptv_out(devres) {
 	}
 	o.channels = chn_out(o);
 	return o;
-}
-
-/*
- * Stream state machine, fed with one bitrate measurement covering the time
- * from iptv.prev_m/prev_w to m/w. Runs every second with the fast sampler
- * (or once per tick when it is off). A stall is logged when the bitrate stays
- * below min_kbps for at least stall_after seconds; its timestamp is the
- * moment the data stopped, not the moment it was noticed.
- */
-/* true when the membership data works (groups were seen before) and
- * nobody is subscribed to any channel right now: a decoder that is switched
- * off leaves its groups, a freeze with the decoder on does not (or the
- * decoder joins again within seconds) */
-function nobody_subscribed() {
-	if (!C.cfg.iptv.igmp || !(C.cfg.iptv.off_after > 0) || !igmp.seen || igmp.groups == null || igq_expired(now()))
-		return false;
-	/* nothing subscribed, or the channel that was being watched was left
-	 * (another decoder or a service group may keep other groups joined) */
-	return length(igmp.groups) == 0 || watch_left();
 }
 
 /* the channel watched while the stream played is no longer subscribed, and
@@ -1047,6 +1137,18 @@ function watch_left() {
 		for (let g in igmp.groups)
 			if ((igmp.joined[g] ?? 0) > 0 && igmp.joined[g] >= from - 5) return false;
 	return true;
+}
+
+/* true when the membership data works (groups were seen before) and
+ * nobody is subscribed to any channel right now: a decoder that is switched
+ * off leaves its groups, a freeze with the decoder on does not (or the
+ * decoder joins again within seconds) */
+function nobody_subscribed() {
+	if (!C.cfg.iptv.igmp || !(C.cfg.iptv.off_after > 0) || !igmp.seen || igmp.groups == null || igq_expired(now()))
+		return false;
+	/* nothing subscribed, or the channel that was being watched was left
+	 * (another decoder or a service group may keep other groups joined) */
+	return length(igmp.groups) == 0 || watch_left();
 }
 
 /* log the start of a stall (ts = moment the data stopped) */
@@ -1063,6 +1165,13 @@ function iptv_flag_stall(kbps) {
 	iptv.hold_def = 0;
 }
 
+/*
+ * Stream state machine, fed with one bitrate measurement covering the time
+ * from iptv.prev_m/prev_w to m/w. Runs every second with the fast sampler
+ * (or once per tick when it is off). A stall is logged when the bitrate stays
+ * below min_kbps for at least stall_after seconds; its timestamp is the
+ * moment the data stopped, not the moment it was noticed.
+ */
 function iptv_update(kbps, m, w, from_m, from_w) {
 	kbps = round(kbps, 0);
 	let active = kbps >= C.cfg.iptv.min_kbps;
@@ -1528,7 +1637,8 @@ function iptv_shift(by) {
 	mv(tsq, [ 'started', 'drop_ts' ]);
 	for (let g, t in igmp.joined) if (t > 0) igmp.joined[g] = t + by;
 	for (let h in igmp.hist) h.ts += by;
-	for (let mac, d in dec.list) mv(d, [ 'since', 'gone_at', 'seen', 'last_active', 'quiet_from' ]);
+	for (let mac, d in dec.list) mv(d, [ 'since', 'gone_at', 'seen', 'last_active', 'quiet_from', 'on_t' ]);
+	mv(dec, [ 't0' ]);
 	/* the operator's queries: a step forward would look like a long silence
 	 * (a false igmp_noquery), the decoders' leases like expired ones */
 	mv(igq, [ 'last_ts', 'since', 'silent_ref' ]);

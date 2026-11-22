@@ -1115,8 +1115,8 @@ msgstr "Router był przeciążony %d× (bez problemów w tych chwilach)."
 msgid "%d of %d of your reports match a measured problem."
 msgstr "%d z %d Twoich zgłoszeń pokrywa się ze zmierzonym problemem."
 
-msgid "%d of %d of your reports have nothing measured around them – the problem is not visible on this router: check the IPTV device setting, or the cause is the decoder, the TV or Wi-Fi."
-msgstr "%d z %d Twoich zgłoszeń nie ma wokół siebie żadnego pomiaru – problemu nie widać na tym routerze: sprawdź ustawienie urządzenia IPTV albo przyczyną jest dekoder, telewizor lub Wi-Fi."
+msgid "%d of %d of your reports have nothing measured around them – the problem is not visible on this router: check the IPTV device setting, or the cause is the decoder, the TV or Wi-Fi. With a bridged IPTV VLAN the stream is measured as it comes from the ISP: when the router stops passing a channel to one port only (another decoder keeps it), that is not seen either."
+msgstr "%d z %d Twoich zgłoszeń nie ma wokół siebie żadnego pomiaru – problemu nie widać na tym routerze: sprawdź ustawienie urządzenia IPTV albo przyczyną jest dekoder, telewizor lub Wi-Fi. Przy mostkowanym VLAN-ie IPTV strumień jest mierzony tak, jak przychodzi od operatora: gdy router przestaje przekazywać kanał tylko na jeden port (inny dekoder go trzyma), tego też nie widać."
 
 msgid "%d of %d IPTV freezes: the router stopped sending to the decoder while everything else was fine – IGMP snooping/querier on the router."
 msgstr "%d z %d zawieszeń IPTV: router przestał wysyłać do dekodera, choć reszta działała – IGMP snooping/querier na routerze."
@@ -2905,3 +2905,6 @@ msgstr "Zatrzymane dotąd własne zapytania routera do operatora: %d"
 
 msgid "own queries kept from the ISP: %d"
 msgstr "zatrzymane zapytania routera do operatora: %d"
+
+msgid "the router asks the decoders itself, the channels are not affected"
+msgstr "router sam pyta dekodery, kanały nie są zagrożone"
