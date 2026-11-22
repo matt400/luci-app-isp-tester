@@ -622,6 +622,7 @@ return view.extend({
 			}
 			if (q.diff && q.diff.length) out.push('<strong>' + _('The bridge differs from the setting: %s').format(q.diff.map(diffText).join(', ')) + '</strong>');
 			if (q.nft && q.nft.ok) out.push(_('ISP queries dropped so far: %d').format(q.nft.drops || 0));
+			if (q.nft && q.nft.ok && q.nft.out != null) out.push(_('The router\'s own queries kept from the ISP so far: %d').format(q.nft.out));
 			return out.join('<br>');
 		};
 
@@ -631,7 +632,7 @@ return view.extend({
 			'<li>' + _('<strong>Do not manage</strong> – the script is left as it is: yours, or none.') + '</li>' +
 			'<li>' + _('<strong>The ISP alone</strong> – the router does not ask. The script stays, switched off, so you can switch it on again later, also without ISP Tester (<code>MODE=\'backup\'</code> in the file). If the ISP stops asking, the channels expire.') + '</li>' +
 			'<li>' + _('<strong>The ISP, the router as a backup</strong> – the router\'s querier is on, but asks only when the ISP has not asked for 255 s. The ISP may let the channel expire in that time: a freeze around each hand-over.') + '</li>' +
-			'<li>' + _('<strong>Only the router</strong> – the ISP\'s queries arriving on the port towards the ISP are dropped (nftables table <code>bridge isp_tester</code>, needs <code>kmod-nft-bridge</code>), so the router asks every 125 s with no hand-overs; the decoders\' answers still go to the ISP. For an ISP that asks irregularly. The ISP\'s queries are still counted under “ISP IGMP queries”.') + '</li>' +
+			'<li>' + _('<strong>Only the router</strong> – the ISP\'s queries arriving on the port towards the ISP are dropped (nftables table <code>bridge isp_tester</code>, needs <code>kmod-nft-bridge</code>), so the router asks every 125 s with no hand-overs. The router\'s own queries are not sent to the ISP either: towards the ISP go only the decoders\' answers, as before. For an ISP that asks irregularly. The ISP\'s queries are still counted under “ISP IGMP queries”.') + '</li>' +
 			'</ul>' +
 			_('A script of the same name that ISP Tester did not write is kept as <code>/etc/isp-tester/99-iptv-querier.orig</code> before it is replaced.'));
 		o.value('unmanaged', _('Do not manage (leave the script as it is)'));

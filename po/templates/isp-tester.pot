@@ -2876,9 +2876,6 @@ msgstr ""
 msgid "<strong>The ISP, the router as a backup</strong> – the router's querier is on, but asks only when the ISP has not asked for 255 s. The ISP may let the channel expire in that time: a freeze around each hand-over."
 msgstr ""
 
-msgid "<strong>Only the router</strong> – the ISP's queries arriving on the port towards the ISP are dropped (nftables table <code>bridge isp_tester</code>, needs <code>kmod-nft-bridge</code>), so the router asks every 125 s with no hand-overs; the decoders' answers still go to the ISP. For an ISP that asks irregularly. The ISP's queries are still counted under “ISP IGMP queries”."
-msgstr ""
-
 msgid "A script of the same name that ISP Tester did not write is kept as <code>/etc/isp-tester/99-iptv-querier.orig</code> before it is replaced."
 msgstr ""
 
@@ -2892,4 +2889,13 @@ msgid "The ISP, the router as a backup"
 msgstr ""
 
 msgid "Only the router (the ISP's queries are dropped)"
+msgstr ""
+
+msgid "<strong>Only the router</strong> – the ISP's queries arriving on the port towards the ISP are dropped (nftables table <code>bridge isp_tester</code>, needs <code>kmod-nft-bridge</code>), so the router asks every 125 s with no hand-overs. The router's own queries are not sent to the ISP either: towards the ISP go only the decoders' answers, as before. For an ISP that asks irregularly. The ISP's queries are still counted under “ISP IGMP queries”."
+msgstr ""
+
+msgid "The router's own queries kept from the ISP so far: %d"
+msgstr ""
+
+msgid "own queries kept from the ISP: %d"
 msgstr ""

@@ -1560,6 +1560,7 @@ return view.extend({
 				if (qr.diff && qr.diff.length) mv.push(' · ' + _('the bridge differs (%s)').format(qr.diff.join(', ')));
 				if (qr.nft && qr.nft.ok) mv.push(' · ' + _('ISP queries blocked: %d').format(qr.nft.drops || 0) +
 					(qr.nft.last ? ' (' + _('last %s ago').format(fmtDur(rnow() - qr.nft.last)) + ')' : ''));
+				if (qr.nft && qr.nft.ok && qr.nft.out != null) mv.push(' · ' + _('own queries kept from the ISP: %d').format(qr.nft.out));
 				igmp.push(E('span', { 'class': 'k', 'title': _('Settings → IPTV → IGMP querier, kept in the system script /etc/hotplug.d/iface/99-iptv-querier.') }, _('Querier setup')), E('span', {}, mv));
 			}
 		}
