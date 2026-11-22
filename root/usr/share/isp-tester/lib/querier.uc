@@ -202,7 +202,7 @@ function nft_ensure(t, m) {
 		if (r.code != 0) {
 			/* "No such file or directory" on the bridge family = kmod-nft-bridge missing */
 			q.nft_since = null;
-		q.nft_err = match(r.out, /No such file|not supported|Operation not supported/i) ? 'no_bridge_family' : (substr(split(r.out, '\n')[0] ?? '', 0, 120) || 'failed');
+			q.nft_err = match(r.out, /No such file|not supported|Operation not supported/i) ? 'no_bridge_family' : (substr(split(r.out, '\n')[0] ?? '', 0, 120) || 'failed');
 			q.nft_ok = false;
 			return;
 		}
