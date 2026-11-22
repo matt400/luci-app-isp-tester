@@ -91,19 +91,26 @@ function fmtSec(s) {
 	return _('%d s').format(s);
 }
 
-/* regular spacing of stalls -> IGMP membership/query timeout */
+/* regular spacing of stalls -> IGMP membership/query timeout. Judged on the
+ * usual gap (median), not the mean: the hours with the TV off between two
+ * evenings, or one freeze of another cause, made the spread huge and a clear
+ * timeout cycle was never found - its freezes went to the ISP instead.
+ * Gaps far above the usual one (another viewing session) are left out; most
+ * of the rest must be close to it. */
 function periodicity(list) {
 	if (list.length < 4) return null;
 	var ts = list.map(function(e) { return e.ts; }).sort(function(a, b) { return a - b; });
 	var gaps = [];
 	for (var i = 1; i < ts.length; i++) gaps.push(ts[i] - ts[i - 1]);
-	var mean = gaps.reduce(function(a, b) { return a + b; }, 0) / gaps.length;
-	if (mean <= 0) return null;
-	var sd = Math.sqrt(gaps.reduce(function(a, g) { return a + (g - mean) * (g - mean); }, 0) / gaps.length);
-	/* IGMP timers are minutes, not seconds: dense random freezes are not periodic.
-	 * The absolute tolerance covers the sampling interval jitter. */
-	if (mean < 60) return null;
-	return (sd / mean < 0.2 || sd <= 12) ? Math.round(mean) : null;
+	var med = gaps.slice().sort(function(a, b) { return a - b; })[gaps.length >> 1];
+	/* IGMP timers are minutes, not seconds: dense random freezes are not periodic */
+	if (!(med >= 60)) return null;
+	/* the absolute tolerance covers the sampling interval jitter */
+	var tol = Math.max(12, med * 0.15);
+	var inSess = gaps.filter(function(g) { return g <= med * 2.5; });
+	var hit = inSess.filter(function(g) { return Math.abs(g - med) <= tol; });
+	if (hit.length < 3 || hit.length < inSess.length * 0.6) return null;
+	return Math.round(hit.reduce(function(a, b) { return a + b; }, 0) / hit.length);
 }
 
 return baseclass.extend({
