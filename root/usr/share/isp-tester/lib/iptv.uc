@@ -252,12 +252,15 @@ function dhcp_seen(x, via) {
 		return;
 	}
 	if (x.type != 5 || !match(`${x.ip ?? ''}`, /^[0-9.]+$/) || x.ip == '0.0.0.0') return;
-	/* an ACK off the renewal schedule (before T1, half the lease) is a
+	/* an ACK off the renewal schedule (before T1: the server's option 58,
+	 * else half the lease) is a
 	 * decoder that booted and asked for its old address (INIT-REBOOT, no
 	 * OFFER). A renewal is not: it was taken for a restart proof, and every
 	 * renewal at the end of the normal silence between two IGMP reports
 	 * with a stall in it was logged as a restart */
-	if (s.last_ack != null && s.lease && t - s.last_ack > 30 && t - s.last_ack < s.lease * 0.45)
+	/* (with a T1 shorter than half the lease every renewal was a "boot") */
+	let ren = (s.t1 > 0 && s.t1 < (s.lease ?? 0)) ? s.t1 : (s.lease ?? 0) * 0.5;
+	if (s.last_ack != null && s.lease && t - s.last_ack > 30 && t - s.last_ack < ren * 0.9)
 		s.boot_t = t;
 	let fresh = s.offer_t != null && t - s.offer_t <= 15;
 	s.offer_t = null;
@@ -283,6 +286,7 @@ function dhcp_seen(x, via) {
 	s.ip = x.ip;
 	s.last_ack = t;
 	s.lease = (x.lease > 0) ? x.lease : null;
+	s.t1 = (x.t1 > 0) ? x.t1 : null;
 	s.server = x.server ?? s.server;
 	s.expired = false;
 }
