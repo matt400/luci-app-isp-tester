@@ -258,12 +258,17 @@ function dhcp_seen(x, via) {
 		s.changes++;
 		C.emit('warn', 'iptv', src, 'dhcp_ip_change', { mac, from: s.ip, to: x.ip, lease: x.lease, server: x.server, via });
 	}
-	else if (s.lease && s.last_ack != null && t - s.last_ack > s.lease + 5) {
+	/* an OFFER before it: the decoder started from scratch - after a night
+	 * switched off its lease ran out, and every such morning start was a
+	 * "renewed too late" (warning, counted against the operator) */
+	else if (fresh)
+		C.emit('info', 'iptv', src, 'dhcp_new', { mac, ip: x.ip, lease: x.lease, via });
+	/* nor when it was switched off meanwhile (a start with INIT-REBOOT) */
+	else if (s.lease && s.last_ack != null && t - s.last_ack > s.lease + 5 && !dec.list[mac]?.off &&
+	         !(s.boot_t != null && s.boot_t >= t - 15)) {
 		s.renew++;
 		C.emit('warn', 'iptv', src, 'dhcp_late', { mac, ip: x.ip, late: t - s.last_ack - s.lease, lease: s.lease, via });
 	}
-	else if (fresh)
-		C.emit('info', 'iptv', src, 'dhcp_new', { mac, ip: x.ip, lease: x.lease, via });
 	else s.renew++;
 	s.acks++;
 	s.ip = x.ip;
