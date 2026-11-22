@@ -1935,7 +1935,16 @@ return view.extend({
 
 		/* a freeze while a decoder restarted (on either router) is not the ISP's */
 		var decR = inWin.filter(function(e) { return e.type === 'decoder_restart'; });
+		/* (as in the analysis) not while the operator sent no IGMP queries: a
+		 * decoder that only watches is silent then and looks restarted */
+		var noQ = [], qOpen = null;
+		ownAll.forEach(function(e) {
+			if (e.type === 'igmp_noquery') { if (qOpen == null) qOpen = e.ts; }
+			else if (qOpen != null && (e.type === 'igmp_noquery_ok' || e.type === 'monitor_start' || e.type === 'data_gap')) { noQ.push([ qOpen, e.ts ]); qOpen = null; }
+		});
+		if (qOpen != null) noQ.push([ qOpen, w.to ]);
 		var byDecoder = function(s) {
+			if (noQ.some(function(p) { return s.ts >= p[0] - 30 && s.ts <= p[1] + 30; })) return false;
 			return decR.some(function(r) { return s.ts >= r.ts - 15 && s.ts <= r.ts + ((r.d && r.d.dur) || 0) + 10; });
 		};
 

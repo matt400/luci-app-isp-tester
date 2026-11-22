@@ -380,9 +380,21 @@ function vlan_sample() {
  * Back within dec_off s: decoder_restart; longer: decoder_off / decoder_on.
  */
 
+/* does the bridge tool take "vlan" in fdb show: null = not known yet */
+let fdb_vlan = null;
+
 /* MAC -> { port, age } of the decoders in the IPTV VLAN */
 function dec_fdb() {
-	let j = bridge_json(`-s fdb show br ${vl.bridge}`);
+	/* only the IPTV VLAN: when it is part of the LAN bridge (br-lan / br-all)
+	 * the whole table is every phone and PC at home, read and parsed every
+	 * interval for the few decoders in it */
+	let j = (fdb_vlan !== false) ? bridge_json(`-s fdb show br ${vl.bridge} vlan ${int(C.cfg.iptv.vlan)}`) : null;
+	if (j == null && fdb_vlan !== true) {
+		j = bridge_json(`-s fdb show br ${vl.bridge}`);
+		/* the whole table answers, the filtered one did not: no filter from now on */
+		if (j != null && fdb_vlan == null) fdb_vlan = false;
+	}
+	else if (j != null) fdb_vlan = true;
 	if (j == null) return null;
 	let out = {};
 	for (let e in j) {
@@ -412,6 +424,23 @@ function dec_stream_hit(from, to) {
 	return false;
 }
 
+/* were the operator's IGMP queries missing between from and now? A decoder
+ * that only receives sends nothing but its IGMP reports, which answer the
+ * queries: without them it goes silent and the bridge forgets it, and when it
+ * speaks again (the queries are back, or a channel change) that is no
+ * restart - taken for one, the freezes of the silence (the operator's fault)
+ * were put down to the decoder and left out of the analysis */
+function dec_noquery_hit(from) {
+	if (igq.silent) return true;
+	let evs = C.events();
+	for (let i = length(evs) - 1; i >= 0; i--) {
+		let e = evs[i];
+		if (e.ts < from - 5) break;
+		if (!e.host && (e.type == 'igmp_noquery' || e.type == 'igmp_noquery_ok')) return true;
+	}
+	return false;
+}
+
 function dec_poll() {
 	if (!C.cfg.iptv.decoders || !C.cfg.iptv.vlan || !vl.bridge || !BRIDGE) { dec.err = null; return null; }
 	let fdb = dec_fdb(), t = now();
@@ -434,7 +463,11 @@ function dec_poll() {
 				d.present = false;
 				/* the last frame, not the moment the entry aged out */
 				d.gone_at = (link == '0') ? t : (d.last_active ?? t);
-				d.via = (link == '0') ? 'link' : 'fdb';
+				/* silent already before it vanished: the bridge aged the entry
+				 * out (ageing_time, 300 s) - a decoder that is only watching
+				 * sends nothing between its IGMP reports. Not a sign of a
+				 * restart by itself: judged as "quiet" when it is back */
+				d.via = (link == '0') ? 'link' : (d.quiet_from != null) ? 'aged' : 'fdb';
 			}
 			if (!d.off && t - d.gone_at > C.cfg.iptv.dec_off) {
 				d.off = true;
@@ -445,6 +478,14 @@ function dec_poll() {
 			if (!d.present) {
 				let dur = max(1, t - d.gone_at);
 				if (d.off) C.emit('info', 'iptv', src, 'decoder_on', { mac, port: x.port, dur });
+				else if (d.via == 'aged') {
+					/* back after a silence: a restart only as by "quiet" below
+					 * (it was logged as one after every silence of 5 min, with
+					 * the whole silence as its time) */
+					let from = d.quiet_from ?? d.gone_at, qd = active - from;
+					if (qd >= C.cfg.iptv.dec_silence && qd <= C.cfg.iptv.dec_off && dec_stream_hit(from, active) && !dec_noquery_hit(from))
+						C.emit('info', 'iptv', src, 'decoder_restart', { mac, port: x.port, dur: qd, via: 'quiet', stream: true }, from);
+				}
 				else C.emit('info', 'iptv', src, 'decoder_restart', { mac, port: x.port, dur, via: d.via,
 					stream: dec_stream_hit(d.gone_at, t) }, d.gone_at);
 				d.present = true;
@@ -457,7 +498,8 @@ function dec_poll() {
 				if (x.age >= C.cfg.iptv.dec_silence) d.quiet_from ??= active;
 				else if (d.quiet_from != null) {
 					let dur = active - d.quiet_from;
-					if (dur >= C.cfg.iptv.dec_silence && dur <= C.cfg.iptv.dec_off && dec_stream_hit(d.quiet_from, active))
+					if (dur >= C.cfg.iptv.dec_silence && dur <= C.cfg.iptv.dec_off && dec_stream_hit(d.quiet_from, active) &&
+					    !dec_noquery_hit(d.quiet_from))
 						C.emit('info', 'iptv', src, 'decoder_restart', { mac, port: x.port, dur, via: 'quiet', stream: true }, d.quiet_from);
 					d.quiet_from = null;
 				}
@@ -671,7 +713,11 @@ function igmpq_ingest(m, t, pid) {
 	}
 	let gen = m.gen ?? 0;
 	if (gen > igq.gen) {
-		let ts = t - ((m.gen_age ?? -1) >= 0 ? m.gen_age : 0);
+		/* whole seconds: the helper's age has a decimal, and a time like
+		 * 1763793600.7 was the timestamp of igmp_noquery(_ok) and the "since"
+		 * in it - a fraction that the clock fix (which moves int fields only)
+		 * left behind on a clock step */
+		let ts = int(t - ((m.gen_age ?? -1) >= 0 ? m.gen_age : 0) + 0.5);
 		if (gen - igq.gen == 1 && !igq.fresh && igq.last_ts != null && ts > igq.last_ts) {
 			push(igq.ivals, round(ts - igq.last_ts, 0));
 			if (length(igq.ivals) > IGQ_RING) shift(igq.ivals);
@@ -715,6 +761,18 @@ function igmpq_check(t) {
 		C.emit('warn', 'iptv', 'igmp', 'igmp_noquery', { silent: round(sil, 0), expected: igmpq_expected(), src: igq.src,
 			ver: igq.ver, since: ref }, min(t, ref + 2 * igmpq_expected()));
 	}
+}
+
+/* the operator has been silent long enough for the memberships to expire.
+ * Then the groups vanish (from the bridge's table, which is not refreshed
+ * without the queries) and the stream stops - exactly what a decoder being
+ * switched off looks like: the freeze was logged as "decoder switched off"
+ * (info), not counted, while it is the operator-side fault this is about.
+ * Worked out here, not from igq.silent: that is set on the main tick, up to
+ * an interval after the expiry the 1 s sampler sees first. */
+function igq_expired(t) {
+	if (!C.cfg.iptv.igmp_query || !igq.on || !igq.ever) return false;
+	return igq.silent || t - max(igq.last_ts ?? 0, igq.since ?? t) > igmpq_limit() - 5;
 }
 
 function igmpq_out() {
@@ -835,7 +893,8 @@ function iptv_out(devres) {
  * off leaves its groups, a freeze with the decoder on does not (or the
  * decoder joins again within seconds) */
 function nobody_subscribed() {
-	return C.cfg.iptv.igmp && C.cfg.iptv.off_after > 0 && igmp.seen && igmp.groups != null && length(igmp.groups) == 0;
+	return C.cfg.iptv.igmp && C.cfg.iptv.off_after > 0 && igmp.seen && igmp.groups != null && length(igmp.groups) == 0 &&
+		!igq_expired(now());
 }
 
 /* log the start of a stall (ts = moment the data stopped) */
@@ -874,6 +933,9 @@ function iptv_update(kbps, m, w, from_m, from_w) {
 				C.emit('info', 'iptv', 'stream', 'stream_off', { avg: round(iptv.avg, 0) }, iptv.low_w);
 				iptv.state = 'idle';
 				iptv.since = w;
+				/* (a dip noticed while it was going off kept the card yellow -
+				 * "bitrate much lower than usual" - for as long as it stayed off) */
+				iptv.dip = false;
 				iptv.low_m = iptv.low_w = null;
 				iptv.held = false;
 				iptv.hold_def = 0;
@@ -934,6 +996,7 @@ function iptv_update(kbps, m, w, from_m, from_w) {
 				groups: igmp.groups != null ? length(igmp.groups) : null, ch: chn_now() });
 			iptv.state = 'idle';
 			iptv.since = w;
+			iptv.dip = false;
 		}
 		break;
 	}
@@ -1021,7 +1084,11 @@ function sample_iptv(devres) {
 
 	/* bitrate dip relative to the running average; only on whole ticks
 	 * without a stall, so normal VBR jitter and freezes don't count */
-	if (ok && iptv.state == 'playing' && !(iptv.tick?.stall_s > 0) && kbps >= C.cfg.iptv.min_kbps) {
+	/* not while a stop with nobody subscribed is being decided (held): its
+	 * seconds go to hold_def, not stall_s, so the tick in which a decoder was
+	 * switched off looked like a whole tick at a third of the usual rate - a
+	 * stream_dip at every switch-off, and that tick lowered the average */
+	if (ok && iptv.state == 'playing' && !iptv.held && !(iptv.tick?.stall_s > 0) && kbps >= C.cfg.iptv.min_kbps) {
 		/* another channel has its own bitrate: from an HD channel (8 Mbit/s)
 		 * to an SD one (3) was a "dip", and as the average is held during a
 		 * dip, the card stayed yellow for as long as the SD channel played */
