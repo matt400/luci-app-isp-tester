@@ -2911,3 +2911,9 @@ msgstr ""
 
 msgid "%d errors right after a channel change not counted (zapping away and back restarts the stream at the operator)"
 msgstr ""
+
+msgid "reports %s"
+msgstr ""
+
+msgid "channels on its port: %s"
+msgstr ""
