@@ -230,7 +230,7 @@ function sample_proxy() {
  */
 let dhl = { pid: null, seq: 0, mac: {} };
 /* decoders seen in the IPTV VLAN (see dec_poll) */
-let dec = { list: {}, err: null, t: 0, shared: {} };
+let dec = { list: {}, err: null, t: 0, shared: {}, t0: null };
 
 function dhcp_src(mac) {
 	return C.cfg.iptv.dec_labels[mac] || mac;
@@ -563,6 +563,8 @@ function dec_poll() {
 	let fdb = dec_fdb(), t = now();
 	if (fdb == null) { dec.err = 'fdb_failed'; return null; }
 	dec.err = null;
+	/* the first reading of this run: a decoder silent since before it was off then already */
+	dec.t0 ??= t;
 
 	for (let mac, x in fdb) {
 		let d = dec.list[mac] ??= { mac, present: true, since: t, port: x.port, gone_at: null, quiet_from: null, off: false };
@@ -686,7 +688,11 @@ function dec_poll() {
 				d.off = true;
 				d.gone_at = last;
 				d.quiet_from = null;
-				C.emit('info', 'iptv', src, 'decoder_off', { mac, port: d.port, via: 'leave' }, last);
+				/* silent since before this run started: off already, logged by
+				 * the run before (it was logged again after every restart of the
+				 * collector - each Save & Apply - dated before monitor_start) */
+				if (last >= dec.t0 - 5)
+					C.emit('info', 'iptv', src, 'decoder_off', { mac, port: d.port, via: 'leave' }, last);
 			}
 		}
 		/* auto-found and gone for a day: forget it */
@@ -1580,6 +1586,7 @@ function iptv_shift(by) {
 	for (let g, t in igmp.joined) if (t > 0) igmp.joined[g] = t + by;
 	for (let h in igmp.hist) h.ts += by;
 	for (let mac, d in dec.list) mv(d, [ 'since', 'gone_at', 'seen', 'last_active', 'quiet_from' ]);
+	mv(dec, [ 't0' ]);
 	/* the operator's queries: a step forward would look like a long silence
 	 * (a false igmp_noquery), the decoders' leases like expired ones */
 	mv(igq, [ 'last_ts', 'since', 'silent_ref' ]);
