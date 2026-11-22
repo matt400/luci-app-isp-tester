@@ -579,7 +579,7 @@ return baseclass.extend({
 		case 'sfp_gone':        return _('The SFP module stopped answering %d× – taken out, or it hung (power, a faulty module).').format(f.n);
 		case 'router_load':     return _('The router was overloaded %d× (no problems at those moments).').format(f.n);
 		case 'marks_seen':      return _('%d of %d of your reports match a measured problem.').format(f.n, a.total);
-		case 'marks_unseen':    return _('%d of %d of your reports have nothing measured around them – the problem is not visible on this router: check the IPTV device setting, or the cause is the decoder, the TV or Wi-Fi.').format(f.n, a.total);
+		case 'marks_unseen':    return _('%d of %d of your reports have nothing measured around them – the problem is not visible on this router: check the IPTV device setting, or the cause is the decoder, the TV or Wi-Fi. With a bridged IPTV VLAN the stream is measured as it comes from the ISP: when the router stops passing a channel to one port only (another decoder keeps it), that is not seen either.').format(f.n, a.total);
 		case 'bufferbloat':     return _('Bufferbloat %d×: the ping went up by as much as %d ms only while the link was full (%s) – your own traffic fills a buffer in the modem or at the ISP. Not an outage and not the ISP\'s fault: SQM (luci-app-sqm, cake) set a bit below the line speed fixes it.').format(f.n, a.add,
 			a.dir === 'up' ? _('upload') : a.dir === 'down' ? _('download') : _('download and upload')) +
 			(a.lags ? ' ' + _('%d high-ping warnings at those times are not counted against the ISP.').format(a.lags) : '');
