@@ -54,6 +54,11 @@ setup_data_dir() {
 }
 
 start_service() {
+	# the IGMP querier of the IPTV VLAN lives in a system hotplug script
+	# (written only when the setting changed; not part of the package, so it
+	# stays when the package is removed) - also with monitoring switched off
+	/usr/bin/ucode /usr/share/isp-tester/querier-gen.uc >/dev/null 2>&1
+
 	config_load isp_tester
 	local enabled
 	config_get_bool enabled general enabled 1

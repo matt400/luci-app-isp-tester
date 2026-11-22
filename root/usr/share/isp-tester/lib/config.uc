@@ -71,6 +71,13 @@ function default_config() {
 			/* DHCP of the decoders: the operator's replies seen by tsmon */
 			dhcp: true
 		},
+		/* who asks on the bridged IPTV VLAN (IGMP querier). Not set by the
+		 * collector: querier-gen.uc writes it into a system hotplug script
+		 * (kept when the package is removed); the collector only compares.
+		 * mode: unmanaged = the script is left alone | off = the ISP alone
+		 * (script kept, switched off) | backup = the router asks when the
+		 * ISP does not | router = only the router, the ISP's queries dropped */
+		querier: { mode: 'unmanaged', igmp_version: 2, others_off: true },
 		system: {
 			enabled: true, cpu_warn: 90, mem_warn: 10, conntrack_warn: 90
 		},
@@ -115,6 +122,11 @@ function load_config() {
 		let pr = cur.get_all('isp_tester', 'peer') || {};
 		let ps = cur.get_all('isp_tester', 'push') || {};
 		let dn = cur.get_all('isp_tester', 'dns') || {};
+		let qr = cur.get_all('isp_tester', 'querier') || {};
+
+		c.querier.mode         = qr.mode ?? c.querier.mode;
+		c.querier.igmp_version = num(qr.igmp_version, c.querier.igmp_version);
+		c.querier.others_off   = bool(qr.others_off, true);
 
 		c.dns.enabled     = bool(dn.enabled, true);
 		c.dns.warn_pct    = num(dn.warn_pct, c.dns.warn_pct);
@@ -327,6 +339,9 @@ function load_config() {
 	if (!(c.wan.sfp_drop_db >= 1)) c.wan.sfp_drop_db = 3;
 	/* the settings page allows -50..-1 dBm: -50 was taken there and ignored here */
 	if (c.wan.sfp_rx_min != null && !(c.wan.sfp_rx_min < 0 && c.wan.sfp_rx_min >= -50)) c.wan.sfp_rx_min = null;
+
+	c.querier.igmp_version = (int(c.querier.igmp_version) == 3) ? 3 : 2;
+	if (index([ 'unmanaged', 'off', 'backup', 'router' ], c.querier.mode) < 0) c.querier.mode = 'unmanaged';
 
 	c.peer.port = int(c.peer.port);
 	if (c.peer.port < 1 || c.peer.port > 65535) c.peer.port = 51477;

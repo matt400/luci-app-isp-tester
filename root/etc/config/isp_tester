@@ -125,6 +125,24 @@ config iptv 'iptv'
 	# 'channel' sections, which win over the stream.
 	option names '1'
 
+# Who sends the IGMP queries on the bridged IPTV VLAN (iptv.vlan above), so
+# the decoders keep their channels. Always shown on the overview: who asks
+# now, and every hand-over on the timeline. The setting is written into a
+# system hotplug script, /etc/hotplug.d/iface/99-iptv-querier (also listed in
+# /etc/sysupgrade.conf): it is not part of the package, so it stays when the
+# package is removed. The collector sets nothing, it only compares.
+#   unmanaged  the script is left alone (yours, or none)
+#   off        the ISP alone; the script stays, switched off
+#   backup     the ISP, and the router when the ISP stops (after 255 s)
+#   router     only the router; the ISP's queries are dropped on the port
+#              towards the ISP (nft table "bridge isp_tester", kmod-nft-bridge)
+config querier 'querier'
+	option mode 'unmanaged'
+	# IGMP version of the router's queries (2 or 3)
+	option igmp_version '2'
+	# no IGMP snooping in the bridge's other VLANs (they have no querier)
+	option others_off '1'
+
 # router load, read from /proc only to explain problems (for graphs use
 # Status -> Realtime Graphs or luci-app-statistics)
 config system 'system'

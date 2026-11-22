@@ -33,6 +33,12 @@ const RRDTOOL = find_bin('ISP_TESTER_RRDTOOL', [ '/usr/bin/rrdtool' ]);
 
 const BRIDGE = find_bin('ISP_TESTER_BRIDGE', [ '/usr/sbin/bridge', '/sbin/bridge' ]);
 
+/* the IGMP querier of the IPTV VLAN (querier.uc): ip for the bridge's own
+ * multicast options, nft for the filter of the ISP's queries */
+const IPCMD = find_bin('ISP_TESTER_IP', [ '/sbin/ip', '/usr/sbin/ip', '/usr/bin/ip' ]);
+
+const NFT = find_bin('ISP_TESTER_NFT', [ '/usr/sbin/nft', '/sbin/nft' ]);
+
 const PROXIES = [ 'igmpproxy', 'mcproxy', 'omcproxy', 'improxy' ];
 
 /* picture quality and channel names: the helper of package isp-tester-tsmon */
@@ -139,4 +145,4 @@ function worst(a, b) {
 	return (LEVEL[b] > LEVEL[a]) ? b : a;
 }
 
-export { RUNDIR, NO_UBUS, VARDIR, SYSNET, ROUTE, PROC, find_bin, FETCH, LOGREAD, RRDTOOL, BRIDGE, PROXIES, TSMON, MTR, TRACEROUTE, TRACEROUTE6, TIMEOUT, STAT_KEYS, LEVEL, now, mono, num, bool, aslist, valid_host, valid_dev, valid_group, valid_ip, mc_ignored, write_atomic, round, absf, kill_pids, worst, ETHTOOL };
+export { RUNDIR, NO_UBUS, VARDIR, SYSNET, ROUTE, PROC, find_bin, FETCH, LOGREAD, RRDTOOL, BRIDGE, PROXIES, TSMON, MTR, TRACEROUTE, TRACEROUTE6, TIMEOUT, STAT_KEYS, LEVEL, now, mono, num, bool, aslist, valid_host, valid_dev, valid_group, valid_ip, mc_ignored, write_atomic, round, absf, kill_pids, worst, ETHTOOL, IPCMD, NFT };

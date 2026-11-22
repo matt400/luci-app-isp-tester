@@ -220,6 +220,33 @@ function renderPush() {
 	]);
 }
 
+/* the querier script's errors (querier-gen.uc) */
+function querierErr(e) {
+	switch (e) {
+	case 'no_vlan':        return _('the IPTV VLAN is not set');
+	case 'no_bridge':      return _('the bridge of the IPTV VLAN was not found');
+	case 'no_upstream':    return _('the port towards the ISP was not found – set it under IPTV → Advanced');
+	case 'no_bridge_tool': return _('the bridge command is missing: install ip-bridge');
+	case 'write_failed':   return _('the file cannot be written');
+	case 'backup_failed':  return _('your script cannot be backed up, so it was not replaced');
+	default:               return e;
+	}
+}
+
+/* what of the bridge differs from the chosen mode */
+function diffText(d) {
+	switch (d) {
+	case 'vlan_snooping': return _('no per-VLAN snooping');
+	case 'snooping':      return _('IGMP snooping off in the IPTV VLAN');
+	case 'querier':       return _('the router\'s querier off');
+	case 'version':       return _('another IGMP version');
+	case 'router_port':   return _('the port towards the ISP is not a multicast router port');
+	case 'filter':        return _('the filter of the ISP\'s queries is missing (kmod-nft-bridge installed?)');
+	case 'unreadable':    return _('cannot be read');
+	default:              return d;
+	}
+}
+
 /* tabs of the settings page, in this order; sections are put into them by place() */
 var TABS = [
 	[ 'general',  _('General') ],
@@ -564,6 +591,70 @@ return view.extend({
 		o.noaliases = true;
 		o.optional = true;
 		o.depends({ igmp: '1', vlan: '' });
+
+		/* ---- IGMP querier of the IPTV VLAN */
+		s = m.section(form.NamedSection, 'querier', 'querier', _('IGMP querier'),
+			_('Somebody has to send IGMP queries on the IPTV VLAN, or the decoders\' channels expire: the ISP, or this router. Of several queriers the bridge elects one and stays silent while it asks; when the ISP stops, the router takes over only after 255 s – by then the ISP may have dropped the channel, and the picture stops although the decoder still watches. The overview shows who asks right now, and every hand-over is logged. Works with the IPTV VLAN set above (bridged VLAN).'));
+		place(s, 'iptv', true);
+
+		o = s.option(form.DummyValue, '_querier_now', _('Now'));
+		o.rawhtml = true;
+		o.cfgvalue = function() {
+			var q = state.iptv && state.iptv.querier, out = [];
+			var esc = function(x) { return String(x == null ? '' : x).replace(/[&<>"]/g, function(c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+			if (!q) return '<em>' + _('unknown – the IPTV VLAN is not set or monitoring is off') + '</em>';
+			var who = {
+				isp: _('the ISP') + (q.addr ? ' (' + esc(q.addr) + (q.port ? ', ' + esc(q.port) : '') + ')' : ''),
+				other: _('another device') + ' (' + esc(q.addr || '?') + (q.port ? ', ' + esc(q.port) : '') + ')',
+				router: _('this router'),
+				none: _('nobody – the channels will expire'),
+				off: _('nobody needed – IGMP snooping is off')
+			}[q.who] || _('unknown');
+			out.push(_('Asks now: %s').format(who));
+			var sc = q.script;
+			if (sc) {
+				if (!sc.exists) out.push(_('Script %s: none').format('<code>' + esc(sc.path) + '</code>'));
+				else out.push(_('Script %s: %s').format('<code>' + esc(sc.path) + '</code>',
+					sc.ours ? _('written by ISP Tester, mode %s').format('<code>' + esc(sc.file_mode || '?') + '</code>') : _('your own (not written by ISP Tester)')) +
+					(sc.sysupgrade ? ' · ' + _('kept over a firmware upgrade') : ''));
+				if (sc.backup) out.push(_('Your previous script was kept as %s').format('<code>' + esc(sc.backup) + '</code>'));
+				if (sc.err && sc.mode !== 'unmanaged') out.push('<strong>' + _('Cannot write the script: %s').format(querierErr(sc.err)) + '</strong>');
+			}
+			if (q.diff && q.diff.length) out.push('<strong>' + _('The bridge differs from the setting: %s').format(q.diff.map(diffText).join(', ')) + '</strong>');
+			if (q.nft && q.nft.ok) out.push(_('ISP queries dropped so far: %d').format(q.nft.drops || 0));
+			return out.join('<br>');
+		};
+
+		o = s.option(form.ListValue, 'mode', _('Who asks'),
+			_('Written into the system script <code>/etc/hotplug.d/iface/99-iptv-querier</code>, which is not part of the package: it stays when ISP Tester is removed, and it is listed in <code>/etc/sysupgrade.conf</code>, so it stays over a firmware upgrade. ISP Tester itself sets nothing, it only shows whether the bridge matches.') +
+			'<ul style="margin:.4em 0 0 1.2em;list-style:disc">' +
+			'<li>' + _('<strong>Do not manage</strong> – the script is left as it is: yours, or none.') + '</li>' +
+			'<li>' + _('<strong>The ISP alone</strong> – the router does not ask. The script stays, switched off, so you can switch it on again later, also without ISP Tester (<code>MODE=\'backup\'</code> in the file). If the ISP stops asking, the channels expire.') + '</li>' +
+			'<li>' + _('<strong>The ISP, the router as a backup</strong> – the router\'s querier is on, but asks only when the ISP has not asked for 255 s. The ISP may let the channel expire in that time: a freeze around each hand-over.') + '</li>' +
+			'<li>' + _('<strong>Only the router</strong> – the ISP\'s queries arriving on the port towards the ISP are dropped (nftables table <code>bridge isp_tester</code>, needs <code>kmod-nft-bridge</code>), so the router asks every 125 s with no hand-overs; the decoders\' answers still go to the ISP. For an ISP that asks irregularly. The ISP\'s queries are still counted under “ISP IGMP queries”.') + '</li>' +
+			'</ul>' +
+			_('A script of the same name that ISP Tester did not write is kept as <code>/etc/isp-tester/99-iptv-querier.orig</code> before it is replaced.'));
+		o.value('unmanaged', _('Do not manage (leave the script as it is)'));
+		o.value('off', _('The ISP alone (script kept, switched off)'));
+		o.value('backup', _('The ISP, the router as a backup'));
+		o.value('router', _('Only the router (the ISP\'s queries are dropped)'));
+		o.default = 'unmanaged';
+		o.rmempty = false;
+
+		o = s.option(form.ListValue, 'igmp_version', _('IGMP version'),
+			_('Of the router\'s queries. Version 2 unless the ISP asks with version 3.'));
+		o.value('2', 'IGMPv2');
+		o.value('3', 'IGMPv3');
+		o.default = '2';
+		o.depends('mode', 'backup');
+		o.depends('mode', 'router');
+
+		o = s.option(form.Flag, 'others_off', _('Snooping only in the IPTV VLAN'),
+			_('Switches IGMP snooping off in the bridge\'s other VLANs: they have no querier, and with snooping on their multicast (e.g. device discovery) could time out.'));
+		o.default = '1';
+		o.rmempty = false;
+		o.depends('mode', 'backup');
+		o.depends('mode', 'router');
 
 		/* ---- router load */
 		s = m.section(form.NamedSection, 'system', 'system', _('Router load'),
