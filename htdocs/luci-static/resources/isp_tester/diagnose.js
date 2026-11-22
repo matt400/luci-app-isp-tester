@@ -82,7 +82,6 @@ function inPeriods(list, ts, slack) {
 	return false;
 }
 
-/* regular spacing of stalls -> IGMP membership/query timeout */
 /* "1 h 5 min" without the view's helpers (this module has none) */
 function fmtSec(s) {
 	s = Math.max(0, Math.round(s || 0));
@@ -92,6 +91,7 @@ function fmtSec(s) {
 	return _('%d s').format(s);
 }
 
+/* regular spacing of stalls -> IGMP membership/query timeout */
 function periodicity(list) {
 	if (list.length < 4) return null;
 	var ts = list.map(function(e) { return e.ts; }).sort(function(a, b) { return a - b; });

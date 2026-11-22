@@ -325,9 +325,6 @@ function reasonText(r) {
 	case 'no_ping_source':  return _('No ping data: enable the Ping plugin of luci-app-statistics (collectd) and add the ISP gateway and far hosts there.');
 	case 'proxy_down':      return _('Multicast proxy %s is not running').format(r.name || '');
 	case 'igmp_noquery':    return _('The operator has stopped sending IGMP queries');
-	case 'cpu_high':        return (r.cpu == null) ? _('Router CPU busy') : _('Router CPU busy: %d%% (%s)').format(r.cpu, r.core || 'cpu');
-	case 'mem_low':         return _('Router is low on RAM: %d%% free').format(r.pct);
-	case 'conntrack_full':  return _('Connection table %d%% full').format(r.pct);
 	case 'stream_stalled':  return _('Stream stopped %s ago').format(fmtDur(rnow() - r.since));
 	case 'stream_dip':      return _('Bitrate is much lower than usual');
 	case 'ts_errors':       return _('Picture errors in the incoming IPTV stream (see timeline)');
@@ -1164,7 +1161,6 @@ return view.extend({
 			: (o === 'warn') ? _('Works, but there were problems')
 			: _('Fault right now');
 
-		var age = rnow() - st.ts;
 		var c1 = st.counts && st.counts.h1 || { warn: 0, err: 0 };
 		var c24 = st.counts && st.counts.h24 || { warn: 0, err: 0 };
 
@@ -1177,10 +1173,10 @@ return view.extend({
 			E('div', { 'class': 'meta' }, [
 				E('div', {}, _('Last hour: %d errors, %d warnings').format(c1.err, c1.warn)),
 				E('div', {}, _('Last 24 h: %d errors, %d warnings').format(c24.err, c24.warn)),
-				E('div', { 'class': age > st.interval * 3 ? 'ispt-warn-text' : '' },
-					_('Updated %s ago · running for %s').format(fmtDur(age), fmtDur(st.ts - st.started))),
-					st.self && st.self.cpu != null ? E('div', { 'class': 'ispt-muted', 'style': 'font-size:.85em',
-						'title': selfTitle(st.self) }, _('Tester itself: CPU %s%% · RAM %s').format(fmtPct(st.self.total), fmtKB(st.self.rss_total))) : '',
+				E('div', { 'class': stale > st.interval * 3 ? 'ispt-warn-text' : '' },
+					_('Updated %s ago · running for %s').format(fmtDur(stale), fmtDur(st.ts - st.started))),
+				st.self && st.self.cpu != null ? E('div', { 'class': 'ispt-muted', 'style': 'font-size:.85em',
+					'title': selfTitle(st.self) }, _('Tester itself: CPU %s%% · RAM %s').format(fmtPct(st.self.total), fmtKB(st.self.rss_total))) : '',
 				E('button', { 'class': 'cbi-button cbi-button-action ispt-markbtn', 'style': 'margin-top:.4em',
 					'title': _('Click the moment you notice a problem (TV freezes, Internet slow). It is logged and compared with the measurements.'),
 					'click': ui.createHandlerFn(this, 'showMark') }, _('⚑ Problem now')),
@@ -1520,12 +1516,12 @@ return view.extend({
 		}
 
 		if (t.igmpq) {
-			var q = t.igmpq, qs;
-			if (q.gen > 0)
-				qs = [ dot(q.silent ? 'fail' : 'ok'), _('last query %s ago').format(fmtDur(q.age)) + ' · ' + _('every ~%s').format(fmtDur(q.expected)) +
-					(q.src ? ' · ' + q.src : '') + (q.ver ? ' (IGMPv' + q.ver + ')' : '') + (q.silent ? ' · ' + _('SILENT, memberships can expire') : '') ];
+			var iq = t.igmpq, qs;
+			if (iq.gen > 0)
+				qs = [ dot(iq.silent ? 'fail' : 'ok'), _('last query %s ago').format(fmtDur(iq.age)) + ' · ' + _('every ~%s').format(fmtDur(iq.expected)) +
+					(iq.src ? ' · ' + iq.src : '') + (iq.ver ? ' (IGMPv' + iq.ver + ')' : '') + (iq.silent ? ' · ' + _('SILENT, memberships can expire') : '') ];
 			else
-				qs = [ dot(q.never ? 'warn' : 'ok'), q.never ? _('none seen in %s').format(fmtDur(q.seen_for)) : _('waiting for the first query') ];
+				qs = [ dot(iq.never ? 'warn' : 'ok'), iq.never ? _('none seen in %s').format(fmtDur(iq.seen_for)) : _('waiting for the first query') ];
 			igmp.push(E('span', { 'class': 'k', 'title': _('General IGMP queries sent by the operator on the IPTV VLAN, seen by the router. Without them the memberships time out.') },
 				_('ISP IGMP queries')), E('span', {}, qs));
 		}
@@ -2247,7 +2243,7 @@ return view.extend({
 
 	toggleEnabled: function(on) {
 		var self = this;
-		return callSetEnabled(on).then(function(r) {
+		return callSetEnabled(on).then(function() {
 			return callStatus().then(function(st) {
 				self.last = [ st, self.last[1] ];
 				self.redraw();

@@ -86,16 +86,7 @@ msgstr ""
 msgid "Multicast proxy %s is not running"
 msgstr ""
 
-msgid "Router CPU busy"
-msgstr ""
-
-msgid "Router CPU busy: %d%% (%s)"
-msgstr ""
-
 msgid "Router is low on RAM: %d%% free"
-msgstr ""
-
-msgid "Connection table %d%% full"
 msgstr ""
 
 msgid "Stream stopped %s ago"
@@ -372,9 +363,6 @@ msgid "Optional note, e.g. channel, room, what you saw"
 msgstr ""
 
 msgid "Logged. It will appear in the timeline within one interval."
-msgstr ""
-
-msgid "(logged %d s after you clicked)"
 msgstr ""
 
 msgid "Could not log the report."

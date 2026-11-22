@@ -179,13 +179,13 @@ function renderPush() {
 		E('div', { 'class': 'cbi-value-field' }, [
 			E('div', { 'class': 'cbi-value-description' }, _('Save & Apply the settings first, then add the public key to <code>~/.ssh/authorized_keys</code> of the user on the other device. The first login also trusts that device\'s host key; a changed one is refused.')),
 			E('div', { 'style': 'display:flex;gap:.5em;flex-wrap:wrap;margin:.4em 0' }, [
-				E('button', { 'class': 'cbi-button', 'click': ui.createHandlerFn(this, function() {
+				E('button', { 'class': 'cbi-button', 'click': ui.createHandlerFn(null, function() {
 					return callPushPubkey().then(function(r) {
 						if (r && r.result) { key.value = r.pubkey; key.style.display = ''; key.select(); }
 						else note(pushError(r), 'danger');
 					}, function(e) { note(pushError({ error: 'rpc', out: e && e.message }), 'danger'); });
 				}) }, _('Show the public key')),
-				E('button', { 'class': 'cbi-button cbi-button-action', 'click': ui.createHandlerFn(this, function() {
+				E('button', { 'class': 'cbi-button cbi-button-action', 'click': ui.createHandlerFn(null, function() {
 					test.textContent = _('Logging in to the other device…');
 					test.style.color = '';
 					return callPushTest().then(function(r) {
@@ -204,7 +204,7 @@ function renderPush() {
 						note(pushError({ error: 'rpc', out: e && e.message }), 'danger');
 					});
 				}) }, _('Test the login')),
-				E('button', { 'class': 'cbi-button cbi-button-apply', 'click': ui.createHandlerFn(this, function() {
+				E('button', { 'class': 'cbi-button cbi-button-apply', 'click': ui.createHandlerFn(null, function() {
 					return callPushNow().then(function() {
 						status.textContent = _('Sending…');
 						return waitPush(function(st) { return st && st.last && st.last.state !== 'running'; }, 300).then(function(st) {
@@ -314,12 +314,13 @@ return view.extend({
 
 		o = s.option(form.Value, 'warn_window', _('Stay yellow for'),
 			_('Seconds an area stays marked as “Warning” after a problem was logged.'));
-		o.datatype = 'uinteger';
+		/* the collector takes at least 60 s (and 1 dropped packet below) */
+		o.datatype = 'and(uinteger,min(60))';
 		o.placeholder = '900';
 
 		o = s.option(form.Value, 'drop_warn', _('Dropped packets threshold'),
 			_('Dropped packets per interval needed to log an entry. Some drops are normal (unknown protocols).'));
-		o.datatype = 'uinteger';
+		o.datatype = 'and(uinteger,min(1))';
 		o.placeholder = '50';
 
 		o = s.option(form.Value, 'data_dir', _('Keep data on'),
@@ -428,7 +429,8 @@ return view.extend({
 
 		o = s.option(form.Value, 'sfp_drop_db', _('Weaker signal from (dB)'),
 			_('A fall of the received power below its usual level by this much, two readings in a row.'));
-		o.datatype = 'ufloat';
+		/* below 1 dB the collector uses 3 */
+		o.datatype = 'and(ufloat,min(1))';
 		o.placeholder = '3';
 		o.depends('sfp', '1');
 

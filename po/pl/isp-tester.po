@@ -89,17 +89,8 @@ msgstr "Brak danych ping: włącz wtyczkę Ping w luci-app-statistics (collectd)
 msgid "Multicast proxy %s is not running"
 msgstr "Proxy multicast %s nie działa"
 
-msgid "Router CPU busy"
-msgstr "Router przeciążony"
-
-msgid "Router CPU busy: %d%% (%s)"
-msgstr "Router przeciążony: CPU %d%% (%s)"
-
 msgid "Router is low on RAM: %d%% free"
 msgstr "Routerowi brakuje RAM: wolne %d%%"
-
-msgid "Connection table %d%% full"
-msgstr "Tablica połączeń zajęta w %d%%"
 
 msgid "Stream stopped %s ago"
 msgstr "Strumień zatrzymany %s temu"
@@ -376,9 +367,6 @@ msgstr "Opcjonalna notatka, np. kanał, pokój, co widać"
 
 msgid "Logged. It will appear in the timeline within one interval."
 msgstr "Zapisano. Pojawi się na osi czasu w ciągu jednego interwału."
-
-msgid "(logged %d s after you clicked)"
-msgstr "(zapisano %d s po kliknięciu)"
 
 msgid "Could not log the report."
 msgstr "Nie udało się zapisać zgłoszenia."

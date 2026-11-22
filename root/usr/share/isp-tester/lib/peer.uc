@@ -42,7 +42,7 @@ const PEER_MAXPKT = 1350;       /* bytes of one datagram, below the usual MTU */
 const PEER_OUTBOX = 300;        /* events kept for sending */
 
 let peer = { sk: null, socket: null, h: null, err: null, ipad: null, opad: null, bad: 0, bad_addr: null, bad_ts: null,
-	/* sender */ out: [], seq: 0, ep: 0, dropped: 0, last_send: 0, last_ack: null, kick: null,
+	/* sender */ out: [], seq: 0, ep: 0, dropped: 0, last_send: 0, last_ack: null, send_err: null, kick: null,
 	/* receiver */ peers: {} };
 let peer_flush_fn = null;       /* set once uloop runs (see peer_start) */
 let digest = null;
@@ -83,9 +83,6 @@ function peer_queue(e) {
 	if (peer_flush_fn && !peer.kick)
 		peer.kick = uloop.timer(300, () => { peer.kick = null; peer_flush_fn(null); });
 }
-
-
-/* ------------------------------------------------- second router (2/2) */
 
 function peer_pack(o) {
 	let j = sprintf('%J', o);
@@ -337,7 +334,7 @@ function peer_tick(hb) {
 		let pl = p.online ? (p.hb?.lvl ?? 'unknown') : (t - p.seen < 3600 ? 'warn' : 'unknown');
 		if (!p.online && pl == 'warn') push(reasons, { c: 'peer_offline', name: n, since: p.seen });
 		else if (pl == 'warn' || pl == 'fail') push(reasons, { c: 'peer_level', name: n, lvl: pl });
-		if (LEVEL[pl] != null) level = worst(level, pl == 'fail' ? 'fail' : pl);
+		if (LEVEL[pl] != null) level = worst(level, pl);
 		push(list, { name: n, addr: p.addr, online: p.online, seen: p.seen, off: p.off, iv: p.iv, level: pl, hb: p.online ? p.hb : null });
 	}
 	if (changed) peer_save(true);
