@@ -74,9 +74,14 @@ function cd_unixsock(path) {
 		return { error: 'connect' };
 	}
 
-	let buf = '';
-	/* one command, answer: "<n> <text>\n" followed by n lines */
+	let buf = '', broken = false;
+	/* one command, answer: "<n> <text>\n" followed by n lines. An answer cut
+	 * short (the 2 s receive timeout) is null, and nothing more is asked on
+	 * this connection: the rest of that answer would still arrive and be read
+	 * as the answer to the next command - its first line taken for the
+	 * count, every later value read from the wrong lines */
 	let query = (cmd) => {
+		if (broken) return null;
 		sk.send(cmd + '\n');
 		let lines = null, need = null;
 		for (let tries = 0; tries < 200; tries++) {
@@ -94,14 +99,20 @@ function cd_unixsock(path) {
 				nl = index(buf, '\n');
 			}
 			let chunk = sk.recv(4096);
-			if (chunk == null || chunk == '') return lines ?? [];
+			if (chunk == null || chunk == '') break;
 			buf += chunk;
 		}
-		return lines ?? [];
+		broken = true;
+		return null;
 	};
 
+	let list = query('LISTVAL');
+	if (list == null) {
+		sk.close();
+		return { error: 'read' };
+	}
 	let out = {}, cache = {};
-	for (let line in query('LISTVAL')) {
+	for (let line in list) {
 		/* "<time> <host>/ping/ping_droprate-1.1.1.1" */
 		let m = match(line, /^([0-9.]+) [^\/]+\/ping\/(ping|ping_droprate|ping_stddev)-(.+)$/);
 		if (!m) continue;
@@ -113,7 +124,7 @@ function cd_unixsock(path) {
 		if (c && c.t == m[1]) val = c.v;
 		else {
 			val = null;
-			for (let r in query(`GETVAL "${ident}"`)) {
+			for (let r in (query(`GETVAL "${ident}"`) ?? [])) {
 				let v = match(r, /^value=(.*)$/);
 				if (v) val = cd_parse_val(v[1]);
 			}

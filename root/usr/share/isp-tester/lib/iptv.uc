@@ -700,7 +700,8 @@ function igmpq_expected() {
 
 /* silence longer than this lets the memberships expire (s) */
 function igmpq_limit() {
-	return 2 * igmpq_expected() + ((igq.max_resp > 0) ? igq.max_resp / 10 : 10);
+	/* max_resp is in 1/10 s: / 10.0, two ints are divided as integers (2.5 s -> 2) */
+	return 2 * igmpq_expected() + ((igq.max_resp > 0) ? igq.max_resp / 10.0 : 10);
 }
 
 function igmpq_check(t) {
@@ -785,7 +786,8 @@ function iptv_out(devres) {
 	let brname = C.cfg.iptv.bridge || (C.cfg.iptv.vlan ? vl.bridge : null);
 	if (brname) {
 		let b = `${brname}`;
-		let cs = (f) => { let v = num(rd(b, `bridge/${f}`), null); return (v == null) ? null : round(v / 100, 0); };
+		/* (/ 100.0: as integers 25999 cs were 259 s, not rounded to 260) */
+		let cs = (f) => { let v = num(rd(b, `bridge/${f}`), null); return (v == null) ? null : round(v / 100.0, 0); };
 		o.bridge = {
 			name: b,
 			snooping: rd(b, 'bridge/multicast_snooping'),

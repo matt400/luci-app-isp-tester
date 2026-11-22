@@ -231,7 +231,10 @@ function load_config() {
 	}
 
 	c.interval = int(c.interval);
-	if (c.interval < 2) c.interval = 2;
+	/* not a number (a JSON test config): NaN < 2 is false, so it stayed NaN
+	 * and the main timer was set to NaN ms */
+	if (c.interval != c.interval) c.interval = 10;
+	else if (c.interval < 2) c.interval = 2;
 	/* sizes and times that would empty the lists or keep nothing on screen
 	 * (0 events kept, a 0 s warning window) or rewrite a file on every tick */
 	let at_least = (k, lo, dflt) => { let v = int(c[k]); c[k] = (v != v) ? dflt : max(v, lo); };
@@ -257,7 +260,8 @@ function load_config() {
 	if (c.iptv.bridge && !valid_dev(c.iptv.bridge)) c.iptv.bridge = '';
 	if (c.iptv.upstream && !valid_dev(c.iptv.upstream)) c.iptv.upstream = '';
 	c.iptv.vlan = int(c.iptv.vlan);
-	if (c.iptv.vlan < 1 || c.iptv.vlan > 4094) c.iptv.vlan = 0;
+	/* (written so that NaN - "" or a word in a JSON config - also becomes 0) */
+	if (!(c.iptv.vlan >= 1 && c.iptv.vlan <= 4094)) c.iptv.vlan = 0;
 	/* VLAN mode: the VLAN number replaces the device; the counters come from
 	 * the bridge, read on the fast timer only */
 	if (c.iptv.vlan) {
@@ -321,7 +325,8 @@ function load_config() {
 	if (c.wan.sfp_device && !valid_dev(c.wan.sfp_device)) c.wan.sfp_device = '';
 	if (c.wan.sfp_interval < 10) c.wan.sfp_interval = 10;
 	if (!(c.wan.sfp_drop_db >= 1)) c.wan.sfp_drop_db = 3;
-	if (c.wan.sfp_rx_min != null && !(c.wan.sfp_rx_min < 0 && c.wan.sfp_rx_min > -50)) c.wan.sfp_rx_min = null;
+	/* the settings page allows -50..-1 dBm: -50 was taken there and ignored here */
+	if (c.wan.sfp_rx_min != null && !(c.wan.sfp_rx_min < 0 && c.wan.sfp_rx_min >= -50)) c.wan.sfp_rx_min = null;
 
 	c.peer.port = int(c.peer.port);
 	if (c.peer.port < 1 || c.peer.port > 65535) c.peer.port = 51477;

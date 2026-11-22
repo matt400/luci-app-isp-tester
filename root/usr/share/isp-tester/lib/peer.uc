@@ -138,7 +138,11 @@ function peer_flush(hb) {
 		let size = length(sprintf('%J', o));
 		while (i < length(peer.out)) {
 			let x = peer_fit(peer.out[i]), xl = length(sprintf('%J', x)) + 2;
-			if (length(o.ev) && size + xl > PEER_MAXPKT) break;
+			/* the first event always goes in - but not into the packet with the
+			 * status: status (up to 1200 bytes) plus an event (up to 1100) made
+			 * a datagram of twice the MTU, fragmented, and lost whole when one
+			 * fragment was lost; the event waits for the next packet */
+			if ((length(o.ev) || o.hb) && size + xl > PEER_MAXPKT) break;
 			push(o.ev, x);
 			size += xl;
 			i++;
@@ -288,7 +292,14 @@ function peer_start() {
 	}
 	peer.sk = sk;
 	peer.socket = socket;
-	peer.ep = C.started();
+	/* the run's epoch: its start time x 1000 plus a random part. In whole
+	 * seconds two runs could share it (a router without a clock starts each
+	 * boot from about the same saved time, a quick restart): the receiver
+	 * then kept the last sequence number of the old run and dropped the new
+	 * run's events (numbered from 1 again) until they passed it. Still
+	 * ordered by time, as the receiver's replay check expects */
+	let rnd = fs.readfile('/dev/urandom', 2) ?? '';
+	peer.ep = C.started() * 1000 + ((length(rnd) == 2) ? (ord(rnd, 0) * 256 + ord(rnd, 1)) % 1000 : 0);
 	peer.h = uloop.handle(sk, () => {
 		try { peer_recv(); }
 		catch (e) { warn(`isp-tester: peer receive failed: ${e}\n`); }

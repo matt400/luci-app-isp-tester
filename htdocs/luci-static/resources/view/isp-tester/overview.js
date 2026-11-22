@@ -62,7 +62,7 @@ var callClear = rpc.declare({
 var callMark = rpc.declare({
 	object: 'luci.isp_tester',
 	method: 'mark',
-	params: [ 'what', 'note' ],
+	params: [ 'what', 'note', 'ago' ],
 	expect: { '': {} }
 });
 
@@ -916,13 +916,26 @@ function readJson(path) {
 	}).catch(function() { return null; });
 }
 
-function mergeEvents(a, b) {
-	var seen = {}, out = [];
-	a.concat(b).forEach(function(e) {
-		/* the details too: picture errors of two channels in one tick (both
-		 * from source "quality") had the same time, type and source, and the
-		 * second one vanished from the timeline, the charts and the report */
-		var k = e.ts + '|' + e.type + '|' + e.src + '|' + (e.host || '') + '|' + JSON.stringify(e.d || null);
+/* the details too: picture errors of two channels in one tick (both from
+ * source "quality") had the same time, type and source, and the second one
+ * vanished from the timeline, the charts and the report */
+function evKey(e) {
+	return e.ts + '|' + e.type + '|' + e.src + '|' + (e.host || '') + '|' + JSON.stringify(e.d || null);
+}
+
+/* recent: the newest events (rpcd, every 5 s), base: the whole timeline
+ * file. They overlap only from the oldest recent event on, so only that part
+ * is compared: every event of the file was turned into a JSON key on every
+ * poll (thousands of them, every 5 s) */
+function mergeEvents(recent, base) {
+	var lo = Infinity, seen = {}, out = [];
+	recent.forEach(function(e) { if (e.ts < lo) lo = e.ts; });
+	base.forEach(function(e) {
+		if (e.ts >= lo) seen[evKey(e)] = true;
+		out.push(e);
+	});
+	recent.forEach(function(e) {
+		var k = evKey(e);
 		if (!seen[k]) { seen[k] = true; out.push(e); }
 	});
 	return out.sort(function(x, y) { return y.ts - x.ts; });
@@ -1184,11 +1197,13 @@ return view.extend({
 			'placeholder': _('Optional note, e.g. channel, room, what you saw') });
 		var send = function(what) {
 			ui.hideModal();
-			/* the time of the click counts, not of the choice */
-			return callMark(what, note.value || '').then(function(r) {
-				var late = Math.round((Date.now() - clicked) / 1000);
+			/* the time of the click counts, not of the choice: the router dates
+			 * the mark back by the seconds spent in this dialog (it used the
+			 * moment of the choice, and only said how late that was) */
+			var late = Math.max(0, Math.round((Date.now() - clicked) / 1000));
+			return callMark(what, note.value || '', late).then(function(r) {
 				ui.addNotification(null, E('p', r && r.result
-					? _('Logged. It will appear in the timeline within one interval.') + (late > 20 ? ' ' + _('(logged %d s after you clicked)').format(late) : '')
+					? _('Logged. It will appear in the timeline within one interval.')
 					: _('Could not log the report.')), r && r.result ? 'info' : 'error');
 				setTimeout(function() { self.refreshSlow().then(function() { self.redraw(); }); }, 12000);
 			});
@@ -1303,7 +1318,7 @@ return view.extend({
 		var rx = rateParts(w.rx_kbps), tx = rateParts(w.tx_kbps);
 		var kpis = E('div', { 'class': 'ispt-kpis' }, [
 			kpi(_('Packet loss'), worst == null ? '–' : num(worst), worst == null ? '' : '%', worst ? worstLvl : 'ok', _('The highest loss of all targets')),
-			kpi(_('Ping'), gw && gw.rtt != null ? num(gw.rtt, 1) : '–', 'ms', gw ? lvl(gw.level) : 'ok', gw ? targetName(gw.label, gw.host) : ''),
+			kpi(_('Ping'), gw && gw.rtt != null ? num(gw.rtt, 1) : '–', gw && gw.rtt != null ? 'ms' : '', gw ? lvl(gw.level) : 'ok', gw ? targetName(gw.label, gw.host) : ''),
 			kpi(_('Download'), rx[0], rx[1]),
 			kpi(_('Upload'), tx[0], tx[1])
 		]);
@@ -2207,16 +2222,18 @@ return view.extend({
 		});
 	},
 
+	/* the whole timeline, read as a file: over ubus (rpcd "events" with no
+	 * limit) a long one (up to 20000 entries, megabytes) is larger than a ubus
+	 * message may be, and the download failed without a word */
 	exportEvents: function() {
-		var self = this, w = this.win();
-		var rows = function(list) {
+		var self = this;
+		return this.refreshSlow().then(function() {
 			var lines = [ 'time,level,router,area,source,event,message' ];
-			list.forEach(function(e) {
+			self.events().slice().reverse().forEach(function(e) {
 				lines.push([ isoTime(e.ts), e.lvl, e.host || '', e.area, e.src, e.type, eventText(e) ].map(csvCell).join(','));
 			});
 			download('isp-tester-events-' + stamp() + '.csv', lines.join('\n') + '\n');
-		};
-		return callEvents(0, '').then(function(res) { rows((res.events || []).slice().reverse()); });
+		});
 	},
 
 	toggleEnabled: function(on) {

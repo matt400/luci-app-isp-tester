@@ -6,6 +6,7 @@ import { cursor } from 'uci';
 
 const RUNDIR = '/tmp/isp-tester';           /* timeline, history, CSV (may link to USB) */
 const VARDIR = '/var/run/isp-tester';       /* current state and requests to the collector */
+const RECENT_N = 200;                       /* newest events the collector keeps in events.recent.json */
 
 function read_json(name, dflt, dir) {
 	let data = readfile(`${dir ?? RUNDIR}/${name}`);
@@ -65,20 +66,28 @@ return {
 		events: {
 			args: { limit: 200, area: '' },
 			call: function(req) {
-				let ev = read_json('events.json', []);
-				/* valid JSON but no list (a damaged file): ev[i].area threw */
-				if (type(ev) != 'array') ev = [];
 				let limit = int(+(req.args.limit ?? 200));
 				/* "abc" would compare false with everything and return nothing */
 				if (limit != limit) limit = 200;
 				let area = req.args.area ?? '';
+				let ev = null, total = null;
+				/* the newest ones (the overview's 5 s poll): the small copy the
+				 * collector keeps in RAM, not the whole timeline parsed each time */
+				if (area == '' && limit > 0 && limit <= RECENT_N) {
+					let r = read_json('events.recent.json', null, VARDIR);
+					if (type(r?.events) == 'array' && type(r?.total) == 'int') { ev = r.events; total = r.total; }
+				}
+				if (ev == null) ev = read_json('events.json', []);
+				/* valid JSON but no list (a damaged file): ev[i].area threw */
+				if (type(ev) != 'array') ev = [];
+				total ??= length(ev);
 				let out = [];
 
 				for (let i = length(ev) - 1; i >= 0 && (limit <= 0 || length(out) < limit); i--)
 					if (type(ev[i]) == 'object' && (area == '' || ev[i].area == area))
 						push(out, ev[i]);
 
-				return { events: out, total: length(ev) };
+				return { events: out, total };
 			}
 		},
 
@@ -110,15 +119,19 @@ return {
 		/* "problem now" report from the user; logged on the collector's next tick
 		 * with the time of the click */
 		mark: {
-			args: { what: '', note: '' },
+			args: { what: '', note: '', ago: 0 },
 			call: function(req) {
 				let what = `${req.args.what ?? ''}`;
 				if (!match(what, /^[a-z_]{1,20}$/)) what = 'other';
 				let note = substr(`${req.args.note ?? ''}`, 0, 200);
+				/* seconds since the click on "Problem now": the moment the problem
+				 * was noticed counts, not the moment a choice was made in the dialog */
+				let ago = int(+(req.args.ago ?? 0));
+				if (!(ago >= 0 && ago <= 3600)) ago = 0;
 				mkdir(VARDIR);
 				let f = open(`${VARDIR}/marks.pending`, 'a');
 				if (!f) return { result: false };
-				f.write(sprintf('%J\n', { ts: time(), what, note }));
+				f.write(sprintf('%J\n', { ts: time() - ago, what, note }));
 				f.close();
 				return { result: true, running: service_running() };
 			}
