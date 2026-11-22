@@ -341,7 +341,10 @@ return baseclass.extend({
 		add('home', 1, 'log_proxy', proxyBad.filter(function(e) { return e.type === 'log'; }));
 		add('home', 2, 'stall_with_proxy', withProxy, { total: stalls.length });
 		add('isp', 2, 'stall_with_wan', withWan, { total: stalls.length });
-		add('home', 2, 'stall_with_port', withPort, { total: stalls.length, devs: uniq(anyPort, 'src').join(', ') });
+		/* the ports that had a problem at the time of those freezes, not every
+		 * port with a problem somewhere in the period */
+		add('home', 2, 'stall_with_port', withPort, { total: stalls.length,
+			devs: uniq(anyPort.filter(function(p) { return near(withPort, p.ts); }), 'src').join(', ') });
 		add('edge', 1.5, 'stall_with_dev', withDev, { total: stalls.length });
 		/* the memberships expired because the operator's queries stopped: not the router's timers */
 		add('isp', 3, 'stall_no_query', withNoQuery, { total: stalls.length });

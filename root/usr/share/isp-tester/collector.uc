@@ -95,9 +95,17 @@ notify_init({ cfg, hostname: HOSTNAME });
  * before that (the first events at start) it is immediate. */
 let events_timer = null, loop_up = false;
 
+/* the overview asks for the newest events every 5 s: rpcd parsed the whole
+ * timeline for it (up to max_events, megabytes with a long one) each time.
+ * The newest ones are written aside too, to RAM (VARDIR: no flash wear) */
+const RECENT_N = 200;
+
 function flush_events() {
 	if (events_timer) { events_timer.cancel(); events_timer = null; }
 	write_atomic(`${RUNDIR}/events.json`, sprintf('%J', events));
+	let n = length(events);
+	write_atomic(`${VARDIR}/events.recent.json`, sprintf('%J',
+		{ total: n, events: (n > RECENT_N) ? slice(events, n - RECENT_N) : events }));
 }
 
 function save_events() {

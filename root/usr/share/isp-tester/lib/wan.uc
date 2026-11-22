@@ -520,8 +520,13 @@ function wan_session(st) {
 			C.emit('err', 'wan', 'netifd', 'wan_if_down', { iface, prev: wansess.uptime });
 		}
 		else if (!wansess.up && up) {
-			wansess.reconnects++;
-			C.emit('warn', 'wan', 'netifd', 'wan_if_up', { iface, dur: t - wansess.since, ip });
+			/* down since the collector started (at boot it starts before
+			 * PPPoE / DHCP is up): no fault was logged, so coming up is no
+			 * recovery - it was a warning, which kept the WAN card yellow for
+			 * the first 15 min after every reboot and counted a reconnect */
+			let first = !wansess.was_up;
+			if (!first) wansess.reconnects++;
+			C.emit(first ? 'info' : 'warn', 'wan', 'netifd', 'wan_if_up', { iface, dur: t - wansess.since, ip, ...(first ? { first: true } : {}) });
 		}
 		else if (up && upt != null && wansess.uptime != null && upt < wansess.uptime) {
 			/* went down and up again between two checks (PPPoE / DHCP session restart) */
@@ -533,6 +538,7 @@ function wan_session(st) {
 	}
 
 	if (up != wansess.up) wansess.since = t;
+	if (up) wansess.was_up = true;
 	wansess.up = up;
 	wansess.uptime = up ? upt : null;
 	wansess.proto = st.proto;
@@ -921,6 +927,11 @@ function wan_shift(by) {
 	 * step forward would empty them, a step back keep them "in the future" */
 	for (let x in bloat.ring) x[0] += by;
 	for (let x in dns.win) x.ts += by;
+	/* the per-server statistics carry the time of their log line: after a
+	 * step forward the servers were dropped as "no statistics any more", and
+	 * the next dump's interval (new line minus old one) included the step */
+	for (let k, x in dns.srv) mv(x, [ 'ts' ]);
+	for (let k, x in dns.raw_prev) mv(x, [ 'ts' ]);
 }
 
 export { wan_init, wan_shift, targets, source, wansess, v6s, wanst, trace, bloat, sfp, dns, target_why, target_level, trace_file, trace_request, trace_target, bloat_load_peak, bloat_target, bloat_tick, bloat_out, sfp_device, sample_sfp, sfp_out, fam_count, check_wan_down, collectd_ping, gateway_ip, sample_pings, wan_session, v6_prefixes, v6_session, v6_out, dnsmasq_metrics, dns_log_line, dns_judge_servers, sample_dns, iface_status, wan_status, refresh_wan6, refresh_wan_device };
