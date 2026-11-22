@@ -17,6 +17,7 @@ function iptv_init(ctx) { C = ctx; }
 let iptv = {
 	state: 'idle', since: now(), kbps: 0, pps: 0, avg: null, dip: false,
 	stall_since: null, stall_m: null,       /* wall / monotonic start of the current stall */
+	watch: null,                            /* group being watched while it played */
 	low_w: null, low_m: null,               /* start of a below-threshold run not yet long enough */
 	held: false, hold_def: 0,               /* stop while nobody is subscribed: decoder off or freeze? */
 	prev: null, prev_m: null, prev_w: null, /* last counter reading (fast sampler) */
@@ -86,6 +87,24 @@ function igmp_groups(dev) {
 	return out;
 }
 
+/* an MDB entry that stands for a home device watching a channel: learned
+ * (not static) on a port toward the home. Entries on the ISP-side port
+ * (reports seen from the operator's side, its router port), the bridge's
+ * own joins (port = the bridge) and static ones say nothing about the
+ * decoders - counted, a switched-off decoder was "still subscribed" */
+function mdb_downstream(e) {
+	return valid_dev(e?.port) && e.port != vl.upstream && e.port != vl.bridge &&
+		e.state != 'permanent' && e.state != 'static' && index(vl.ports, e.port) >= 0;
+}
+
+/* channels subscribed on one port (decoders behind it) */
+function port_groups(port) {
+	let out = [];
+	for (let e in (vl.mdb ?? []))
+		if (e.port == port && mdb_downstream(e) && index(out, e.grp) < 0) push(out, e.grp);
+	return out;
+}
+
 function igmp_poll() {
 	if (!C.cfg.iptv.enabled || !C.cfg.iptv.igmp) return;
 	let g;
@@ -95,7 +114,7 @@ function igmp_poll() {
 		let seen = {};
 		g = { found: true, ver: null, groups: [] };
 		for (let e in vl.mdb)
-			if (!seen[e.grp]) { seen[e.grp] = true; push(g.groups, e.grp); }
+			if (mdb_downstream(e) && !seen[e.grp]) { seen[e.grp] = true; push(g.groups, e.grp); }
 	}
 	else {
 		if (!C.cfg.iptv.igmp_dev) return;
@@ -493,6 +512,16 @@ function dec_poll() {
 				d.since = t;
 				d.quiet_from = null;
 			}
+			/* switched off by its channel being left (below): on again when
+			 * it talks and watches again - not by a stray frame in standby */
+			else if (d.off) {
+				if (x.age != null && x.age < C.cfg.iptv.dec_silence && length(port_groups(d.port))) {
+					C.emit('info', 'iptv', src, 'decoder_on', { mac, port: x.port, dur: max(1, t - d.gone_at) });
+					d.off = false;
+					d.since = t;
+					d.quiet_from = null;
+				}
+			}
 			/* quiet: a restart behind a switch, only when the stream stopped meanwhile */
 			else if (x.age != null) {
 				if (x.age >= C.cfg.iptv.dec_silence) d.quiet_from ??= active;
@@ -506,16 +535,35 @@ function dec_poll() {
 			}
 			d.last_active = active;
 		}
+
+		/* switched off (standby, power): silent and no channel subscribed on
+		 * its port. The MAC table alone tells it only after ageing_time
+		 * (300 s) plus dec_off - until then it was shown "not visible" (red)
+		 * while it was off, also when it was off already at the start. A
+		 * decoder that watches answers every query, so its group stays in
+		 * the MDB (a hard restart sends no leave: still a restart). Only with
+		 * working membership data (snooping on), not while
+		 * another decoder watches on the same port, nor while the operator's
+		 * queries are missing (then the groups expire by themselves) */
+		if (!d.off && vl.mdb != null && (igmp.seen || rd(vl.bridge, 'bridge/multicast_snooping') == '1') &&
+		    !length(port_groups(d.port))) {
+			let last = here ? active : d.gone_at;
+			if (last != null && t - last >= C.cfg.iptv.dec_silence && !dec_noquery_hit(last)) {
+				d.off = true;
+				d.gone_at = last;
+				d.quiet_from = null;
+				C.emit('info', 'iptv', src, 'decoder_off', { mac, port: d.port, via: 'leave' }, last);
+			}
+		}
 		/* auto-found and gone for a day: forget it */
 		if (!here && C.cfg.iptv.dec_labels[mac] == null && t - (d.seen ?? t) > 86400) delete dec.list[mac];
 	}
 
 	let out = [];
 	for (let mac, d in dec.list) {
-		let chs = [];
-		for (let m in (vl.mdb ?? [])) if (m.port == d.port && index(chs, m.grp) < 0) push(chs, m.grp);
+		let chs = port_groups(d.port);
 		push(out, { mac, label: C.cfg.iptv.dec_labels[mac] ?? '', port: d.port, present: d.present, off: d.off,
-			since: d.present ? d.since : d.gone_at, active: d.last_active, quiet: d.quiet_from != null,
+			since: (d.present && !d.off) ? d.since : d.gone_at, active: d.last_active, quiet: d.quiet_from != null,
 			groups: slice(chs, 0, 4) });
 	}
 	return sort(out, (a, b) => (a.port < b.port) ? -1 : (a.port > b.port) ? 1 : 0);
@@ -893,8 +941,22 @@ function iptv_out(devres) {
  * off leaves its groups, a freeze with the decoder on does not (or the
  * decoder joins again within seconds) */
 function nobody_subscribed() {
-	return C.cfg.iptv.igmp && C.cfg.iptv.off_after > 0 && igmp.seen && igmp.groups != null && length(igmp.groups) == 0 &&
-		!igq_expired(now());
+	if (!C.cfg.iptv.igmp || !(C.cfg.iptv.off_after > 0) || !igmp.seen || igmp.groups == null || igq_expired(now()))
+		return false;
+	/* nothing subscribed, or the channel that was being watched was left
+	 * (another decoder or a service group may keep other groups joined) */
+	return length(igmp.groups) == 0 || watch_left();
+}
+
+/* the channel watched while the stream played is no longer subscribed, and
+ * no other one was joined since the data stopped (that is a channel change) */
+function watch_left() {
+	if (iptv.watch == null || igmp.groups == null || index(igmp.groups, iptv.watch) >= 0) return false;
+	let from = iptv.low_w ?? iptv.stall_since;
+	if (from != null)
+		for (let g in igmp.groups)
+			if ((igmp.joined[g] ?? 0) > 0 && igmp.joined[g] >= from - 5) return false;
+	return true;
 }
 
 /* log the start of a stall (ts = moment the data stopped) */
@@ -956,12 +1018,16 @@ function iptv_update(kbps, m, w, from_m, from_w) {
 			iptv.since = w;
 			iptv.avg = kbps;
 			iptv.dip = false;
+			iptv.watch = chn_current();
 		}
 		break;
 
 	case 'playing':
 		if (active) {
 			iptv.low_m = iptv.low_w = null;
+			/* the channel being watched, for telling "switched off" from a freeze */
+			let cur = chn_current();
+			if (cur != null || !length(igmp.groups ?? [])) iptv.watch = cur;
 			break;
 		}
 		if (iptv.low_m == null) {
@@ -993,7 +1059,7 @@ function iptv_update(kbps, m, w, from_m, from_w) {
 		}
 		if (iptv.state == 'stalled' && m - iptv.stall_m >= C.cfg.iptv.idle_after) {
 			C.emit('warn', 'iptv', 'stream', 'stream_lost', { dur: round(m - iptv.stall_m, 0),
-				groups: igmp.groups != null ? length(igmp.groups) : null, ch: chn_now() });
+				groups: igmp.groups != null ? length(igmp.groups) : null, left: watch_left() || null, ch: chn_now() });
 			iptv.state = 'idle';
 			iptv.since = w;
 			iptv.dip = false;
