@@ -39,6 +39,16 @@ const IGQ_RING = 8;
 let igq = { on: false, pid: null, gen: 0, total: 0, last_ts: null, ivals: [], src: null, ver: null, qqic: null,
 	max_resp: null, since: null, silent: false, silent_ref: 0, silent_router: false, ever: false };
 
+/* declared here, before their first use: ucode does not hoist functions */
+function igmpq_expected() {
+	let e = (length(igq.ivals) >= 3) ? median(igq.ivals) : (igq.qqic > 0 ? igq.qqic : 125);
+	return max(10, round(e, 0));
+}
+function igmpq_limit() {
+	/* max_resp is in 1/10 s: / 10.0, two ints are divided as integers (2.5 s -> 2) */
+	return 2 * igmpq_expected() + ((igq.max_resp > 0) ? igq.max_resp / 10.0 : 10);
+}
+
 let tsq = { proc: null, args: null, started: 0, fails: 0, next: 0, err: null, seen: {}, drops: null, flow: null,
 	win: [], last: null, pend: {}, last_ev: {}, last_lvl: {}, cc_acc: null, dropped: 0, drop_ts: 0 };
 /* channel names: db = group -> { name, provider, sid, ts } learned from the
@@ -161,7 +171,8 @@ function igmp_classify(from) {
 	 * (stall_igmp_left, weight 3 for the home side) */
 	/* h.ts is when the change was read, up to one sample after it happened
 	 * (sample_interval with the fast sampler, else the main interval) */
-	let step = iptv_fast() ? C.cfg.iptv.sample_interval : C.cfg.interval;
+	/* (iptv_fast() is declared further down: ucode does not hoist it) */
+	let step = (C.cfg.iptv.sample_interval > 0) ? C.cfg.iptv.sample_interval : C.cfg.interval;
 	let lim = from + C.cfg.iptv.stall_after + step + 2;
 	let emptied = length(filter(rel, (h) => !length(h.after) && h.ts <= lim)) > 0;
 	if (length(before) && length(after) && join(',', before) != join(',', after)) return 'zap';
@@ -292,7 +303,13 @@ function dhcp_seen(x, via) {
 	else if (s.lease && s.last_ack != null && t - s.last_ack > s.lease + 5 && start !== true &&
 	         !dec.list[mac]?.off && !(dec.list[mac]?.on_t != null && t - dec.list[mac].on_t <= 120)) {
 		s.renew++;
-		C.emit('warn', 'iptv', src, 'dhcp_late', { mac, ip: x.ip, late: t - s.last_ack - s.lease, lease: s.lease, via });
+		/* not known to have been on the whole time (no decoder data: routed
+		 * IPTV, decoder detection off) and no ciaddr proof of a renewal: it
+		 * may just have been switched off overnight - noted only (unk), not
+		 * counted against the operator (every morning start was a warning) */
+		let unk = start !== false && dec.list[mac] == null;
+		C.emit(unk ? 'info' : 'warn', 'iptv', src, 'dhcp_late', { mac, ip: x.ip, late: t - s.last_ack - s.lease, lease: s.lease, via,
+			unk: unk ? 1 : null });
 	}
 	else s.renew++;
 	s.acks++;
@@ -335,7 +352,10 @@ function dhcp_tick() {
 		 * operator's DHCP (it was a dhcp_bad against the operator) */
 		if (s.lease && s.last_ack != null && !s.expired && t - s.last_ack > s.lease + 30 && d?.present !== false && !d?.off) {
 			s.expired = true;
-			C.emit('warn', 'iptv', dhcp_src(mac), 'dhcp_expired', { mac, ip: s.ip, lease: s.lease, last: s.last_ack });
+			/* without decoder data it cannot be told from a decoder switched
+			 * off for the night: noted only (unk), not counted against the operator */
+			C.emit(d == null ? 'info' : 'warn', 'iptv', dhcp_src(mac), 'dhcp_expired', { mac, ip: s.ip, lease: s.lease, last: s.last_ack,
+				unk: d == null ? 1 : null });
 		}
 		push(out, { mac, label: C.cfg.iptv.dec_labels[mac] ?? '', ip: s.ip, lease: s.lease, server: s.server, last_ack: s.last_ack,
 			acks: s.acks, renew: s.renew, changes: s.changes, naks: s.naks, expired: s.expired, via: s.via });
@@ -582,6 +602,18 @@ function dec_alone(mac, port) {
 	return true;
 }
 
+/* the last on/off event of this decoder in the log is "off" */
+function dec_off_logged(mac) {
+	let evs = C.events();
+	for (let i = length(evs) - 1; i >= 0; i--) {
+		let e = evs[i];
+		if (e.d?.mac != mac) continue;
+		if (e.type == 'decoder_off') return true;
+		if (e.type == 'decoder_on' || e.type == 'decoder_restart') return false;
+	}
+	return false;
+}
+
 function dec_poll() {
 	if (!C.cfg.iptv.decoders || !C.cfg.iptv.vlan || !vl.bridge || !BRIDGE) { dec.err = null; return null; }
 	let fdb = dec_fdb(), t = now();
@@ -714,10 +746,12 @@ function dec_poll() {
 				d.off = true;
 				d.gone_at = last;
 				d.quiet_from = null;
-				/* silent since before this run started: off already, logged by
-				 * the run before (it was logged again after every restart of the
-				 * collector - each Save & Apply - dated before monitor_start) */
-				if (last >= dec.t0 - 5)
+				/* off already and logged by the run before (it was logged again
+				 * after every restart of the collector - each Save & Apply - dated
+				 * before monitor_start). Judged by the log, not by the start time:
+				 * switched off less than dec_silence before a restart it was never
+				 * logged by either run */
+				if (last >= dec.t0 - 5 || !dec_off_logged(mac))
 					C.emit('info', 'iptv', src, 'decoder_off', { mac, port: d.port, via: 'leave' }, last);
 			}
 		}
@@ -955,16 +989,8 @@ function igmpq_ingest(m, t, pid) {
 }
 
 /* the interval between the operator's general queries, in s */
-function igmpq_expected() {
-	let e = (length(igq.ivals) >= 3) ? median(igq.ivals) : (igq.qqic > 0 ? igq.qqic : 125);
-	return max(10, round(e, 0));
-}
 
 /* silence longer than this lets the memberships expire (s) */
-function igmpq_limit() {
-	/* max_resp is in 1/10 s: / 10.0, two ints are divided as integers (2.5 s -> 2) */
-	return 2 * igmpq_expected() + ((igq.max_resp > 0) ? igq.max_resp / 10.0 : 10);
-}
 
 function igmpq_check(t) {
 	if (!igq.on || !igq.ever || igq.silent) return;
@@ -1102,13 +1128,17 @@ function iptv_out(devres) {
 	return o;
 }
 
-/*
- * Stream state machine, fed with one bitrate measurement covering the time
- * from iptv.prev_m/prev_w to m/w. Runs every second with the fast sampler
- * (or once per tick when it is off). A stall is logged when the bitrate stays
- * below min_kbps for at least stall_after seconds; its timestamp is the
- * moment the data stopped, not the moment it was noticed.
- */
+/* the channel watched while the stream played is no longer subscribed, and
+ * no other one was joined since the data stopped (that is a channel change) */
+function watch_left() {
+	if (iptv.watch == null || igmp.groups == null || index(igmp.groups, iptv.watch) >= 0) return false;
+	let from = iptv.low_w ?? iptv.stall_since;
+	if (from != null)
+		for (let g in igmp.groups)
+			if ((igmp.joined[g] ?? 0) > 0 && igmp.joined[g] >= from - 5) return false;
+	return true;
+}
+
 /* true when the membership data works (groups were seen before) and
  * nobody is subscribed to any channel right now: a decoder that is switched
  * off leaves its groups, a freeze with the decoder on does not (or the
@@ -1119,17 +1149,6 @@ function nobody_subscribed() {
 	/* nothing subscribed, or the channel that was being watched was left
 	 * (another decoder or a service group may keep other groups joined) */
 	return length(igmp.groups) == 0 || watch_left();
-}
-
-/* the channel watched while the stream played is no longer subscribed, and
- * no other one was joined since the data stopped (that is a channel change) */
-function watch_left() {
-	if (iptv.watch == null || igmp.groups == null || index(igmp.groups, iptv.watch) >= 0) return false;
-	let from = iptv.low_w ?? iptv.stall_since;
-	if (from != null)
-		for (let g in igmp.groups)
-			if ((igmp.joined[g] ?? 0) > 0 && igmp.joined[g] >= from - 5) return false;
-	return true;
 }
 
 /* log the start of a stall (ts = moment the data stopped) */
@@ -1146,6 +1165,13 @@ function iptv_flag_stall(kbps) {
 	iptv.hold_def = 0;
 }
 
+/*
+ * Stream state machine, fed with one bitrate measurement covering the time
+ * from iptv.prev_m/prev_w to m/w. Runs every second with the fast sampler
+ * (or once per tick when it is off). A stall is logged when the bitrate stays
+ * below min_kbps for at least stall_after seconds; its timestamp is the
+ * moment the data stopped, not the moment it was noticed.
+ */
 function iptv_update(kbps, m, w, from_m, from_w) {
 	kbps = round(kbps, 0);
 	let active = kbps >= C.cfg.iptv.min_kbps;

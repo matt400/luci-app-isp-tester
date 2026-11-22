@@ -2106,7 +2106,7 @@ return view.extend({
 			row(_('Related messages in the system log'), _('%d×').format(count(function(e) { return e.type === 'log'; }))) +
 			(st.iptv && st.iptv.dhcp && st.iptv.dhcp.length ? row(_('Decoder DHCP: address changes / refused / expired'), _('%d× / %d× / %d×').format(
 				count(function(e) { return e.type === 'dhcp_ip_change'; }), count(function(e) { return e.type === 'dhcp_nak'; }),
-				count(function(e) { return e.type === 'dhcp_expired' || e.type === 'dhcp_late'; }))) : '') +
+				count(function(e) { return (e.type === 'dhcp_expired' || e.type === 'dhcp_late') && !(e.d && e.d.unk); }))) : '') +
 			row(_('DNS failing (no answer from the upstream server)'), (function() { var v = sum('dns_fail', [ 'dns_ok', 'monitor_start' ]); return _('%d, total %s, longest %s').format(v.n, fmtDur(v.total), fmtDur(v.longest)); })() +
 				(count(function(e) { return e.type === 'dns_server_bad'; }) ? ' · ' + _('servers with many failed queries: %s').format(own.filter(function(e) { return e.type === 'dns_server_bad'; }).map(function(e) { return e.src; }).filter(function(v, i, a) { return a.indexOf(v) === i; }).join(', ')) : '')) +
 			row(_('IPTV freezes'), _('%d, total %s, longest %s').format(tv.n, fmtDur(tv.total), fmtDur(tv.longest)) + (r.zaps ? ' · ' + _('%d channel changes not counted').format(r.zaps) : '')) +

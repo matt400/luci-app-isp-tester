@@ -369,7 +369,8 @@ return baseclass.extend({
 
 		/* the decoders' lease at the operator */
 		var dhChange = by(function(e) { return e.type === 'dhcp_ip_change'; });
-		var dhBad = by(function(e) { return e.type === 'dhcp_nak' || e.type === 'dhcp_expired' || e.type === 'dhcp_late'; });
+		/* not the ones without decoder data (d.unk): maybe just switched off overnight */
+		var dhBad = by(function(e) { return e.type === 'dhcp_nak' || ((e.type === 'dhcp_expired' || e.type === 'dhcp_late') && !(e.d && e.d.unk)); });
 		add('isp', 1.5, 'dhcp_change', dhChange, { devs: uniq(dhChange, 'src').join(', ') });
 		add('isp', 1.5, 'dhcp_bad', dhBad, { devs: uniq(dhBad, 'src').join(', ') });
 		var proxyStop = proxyBad.filter(function(e) { return e.type !== 'log'; });
@@ -400,6 +401,12 @@ return baseclass.extend({
 			[ [ 'membership', ctx.membership_interval ], [ 'query', ctx.query_interval ] ].forEach(function(x) {
 				if (!timer && x[1] > 0 && Math.abs(period - x[1]) <= Math.max(15, x[1] * 0.15)) timer = x;
 			});
+			/* IGMP timers are minutes: a cycle of more than 15 min that matches
+			 * no timer here is not one (random freezes about once an hour were
+			 * "a typical IGMP membership timeout", weight 3 for the home side) */
+			if (!timer && period > 900) period = null;
+		}
+		if (period) {
 			add('home', timer ? 4 : 3, 'stall_periodic', lonely.concat(left), { period: period, total: stalls.length, timer: timer && timer[0], timer_s: timer && timer[1] });
 		}
 		else {
