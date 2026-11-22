@@ -190,8 +190,11 @@ let su = fs.readfile(SYSUP) ?? '';
 if (index(split(su, '\n'), SCRIPT) < 0)
 	fs.writefile(SYSUP, su + ((su == '' || substr(su, -1) == '\n') ? '' : '\n') + SCRIPT + '\n');
 
-/* ---- in effect now, not at the next reboot */
-if (changed || force) {
+/* ---- in effect now, not at the next reboot. Also when the filter should be
+ * there and is not (kmod-nft-bridge installed after the setting was saved):
+ * the script sets it only when an interface comes up */
+let nft_missing = Q.mode == 'router' && sh('nft list table bridge isp_tester').code != 0;
+if (changed || force || nft_missing) {
 	if (Q.mode == 'off') {
 		/* the ISP alone from now on: the router's querier and the filter go */
 		sh(`${BRIDGE} vlan global set vid ${vid} dev ${br} mcast_querier 0`);
