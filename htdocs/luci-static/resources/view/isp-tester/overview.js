@@ -408,7 +408,8 @@ function eventText(e) {
 	case 'wan_if_up':       return _('WAN interface %s up again after %s').format(d.iface, fmtDur(d.dur)) + (d.ip ? ' · ' + d.ip : '');
 	case 'wan_reconnect':   return _('WAN session restarted (previous one lasted %s)').format(fmtDur(d.prev));
 	case 'wan_ip_change':   return _('WAN address changed %s → %s').format(d.from, d.to);
-	case 'igmp_noquery':    return _('No IGMP query from the operator for %s (usually every %s)').format(fmtDur(d.silent), fmtDur(d.expected));
+	case 'igmp_noquery':    return _('No IGMP query from the operator for %s (usually every %s)').format(fmtDur(d.silent), fmtDur(d.expected)) +
+		(d.router ? ' – ' + _('the router asks the decoders itself, the channels are not affected') : '');
 	case 'igmp_noquery_ok': return _('IGMP queries from the operator again after %s').format(fmtDur(d.dur));
 	case 'igmp_querier':    return _('IGMP querier of VLAN %s: %s → %s').format(d.vlan || '?', querierName(d.from, d.prev_addr, d.prev_port), querierName(d.to, d.addr, d.port)) +
 		(d.from === 'isp' && d.to === 'router' && d.after ? ' · ' + _('no query from the ISP for %s').format(fmtDur(d.after)) : '') +
@@ -1987,7 +1988,8 @@ return view.extend({
 		 * decoder that only watches is silent then and looks restarted */
 		var noQ = [], qOpen = null;
 		ownAll.forEach(function(e) {
-			if (e.type === 'igmp_noquery') { if (qOpen == null) qOpen = e.ts; }
+			if ((e.type === 'igmp_noquery' || e.type === 'igmp_noquery_ok') && e.d && e.d.router) { /* the router asked: no effect */ }
+			else if (e.type === 'igmp_noquery') { if (qOpen == null) qOpen = e.ts; }
 			else if (qOpen != null && (e.type === 'igmp_noquery_ok' || e.type === 'monitor_start' || e.type === 'data_gap')) { noQ.push([ qOpen, e.ts ]); qOpen = null; }
 		});
 		if (qOpen != null) noQ.push([ qOpen, w.to ]);

@@ -2905,3 +2905,6 @@ msgstr "Zatrzymane dotąd własne zapytania routera do operatora: %d"
 
 msgid "own queries kept from the ISP: %d"
 msgstr "zatrzymane zapytania routera do operatora: %d"
+
+msgid "the router asks the decoders itself, the channels are not affected"
+msgstr "router sam pyta dekodery, kanały nie są zagrożone"

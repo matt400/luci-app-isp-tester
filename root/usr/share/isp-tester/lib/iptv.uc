@@ -37,7 +37,7 @@ let igmp = { groups: null, joined: {}, hist: [], proxy: null, proxy_seen: false,
  * dropped/drop_ts = packets the router could not count */
 const IGQ_RING = 8;
 let igq = { on: false, pid: null, gen: 0, total: 0, last_ts: null, ivals: [], src: null, ver: null, qqic: null,
-	max_resp: null, since: null, silent: false, silent_ref: 0, ever: false };
+	max_resp: null, since: null, silent: false, silent_ref: 0, silent_router: false, ever: false };
 
 let tsq = { proc: null, args: null, started: 0, fails: 0, next: 0, err: null, seen: {}, drops: null, flow: null,
 	win: [], last: null, pend: {}, last_ev: {}, last_lvl: {}, cc_acc: null, dropped: 0, drop_ts: 0 };
@@ -464,11 +464,15 @@ function dec_stream_hit(from, to) {
 function dec_noquery_hit(from) {
 	/* nobody asks on the VLAN (the router's querier in mode router / backup
 	 * is the one the decoders answer, not the operator): the same silence */
-	if (igq.silent || C.querier_none()) return true;
+	if (C.querier_none()) return true;
+	/* the router's own querier keeps the decoders talking: the operator's
+	 * queries pausing (dropped anyway in mode router) silences nobody */
+	if (igq.silent && !igq.silent_router && !C.querier_router()) return true;
 	let evs = C.events();
 	for (let i = length(evs) - 1; i >= 0; i--) {
 		let e = evs[i];
 		if (e.ts < from - 5) break;
+		if (e.d?.router && (e.type == 'igmp_noquery' || e.type == 'igmp_noquery_ok')) continue;
 		if (!e.host && (e.type == 'igmp_noquery' || e.type == 'igmp_noquery_ok' ||
 		    e.type == 'igmp_no_querier' || e.type == 'igmp_no_querier_ok')) return true;
 	}
@@ -862,7 +866,9 @@ function igmpq_ingest(m, t, pid) {
 		}
 		if (igq.silent) {
 			igq.silent = false;
-			C.emit('info', 'iptv', 'igmp', 'igmp_noquery_ok', { dur: round(ts - igq.silent_ref, 0), src: m.src }, ts);
+			C.emit('info', 'iptv', 'igmp', 'igmp_noquery_ok', { dur: round(ts - igq.silent_ref, 0), src: m.src,
+				router: igq.silent_router ? 1 : null }, ts);
+			igq.silent_router = false;
 		}
 		igq.total += gen - igq.gen;
 		igq.gen = gen;
@@ -895,9 +901,14 @@ function igmpq_check(t) {
 	if (sil > igmpq_limit()) {
 		igq.silent = true;
 		igq.silent_ref = ref;
+		/* the router asks the decoders itself (mode router: the operator's
+		 * queries are dropped; backup: it took over): no membership expires,
+		 * so the pause is only noted - it was a warning, it kept the card
+		 * yellow and every freeze and switch-off in it went to the operator */
+		igq.silent_router = C.querier_router();
 		/* dated from when the memberships began to expire, so a freeze at that moment falls inside the period */
-		C.emit('warn', 'iptv', 'igmp', 'igmp_noquery', { silent: round(sil, 0), expected: igmpq_expected(), src: igq.src,
-			ver: igq.ver, since: ref }, min(t, ref + 2 * igmpq_expected()));
+		C.emit(igq.silent_router ? 'info' : 'warn', 'iptv', 'igmp', 'igmp_noquery', { silent: round(sil, 0), expected: igmpq_expected(), src: igq.src,
+			ver: igq.ver, since: ref, router: igq.silent_router ? 1 : null }, min(t, ref + 2 * igmpq_expected()));
 	}
 }
 
@@ -909,7 +920,7 @@ function igmpq_check(t) {
  * Worked out here, not from igq.silent: that is set on the main tick, up to
  * an interval after the expiry the 1 s sampler sees first. */
 function igq_expired(t) {
-	if (!C.cfg.iptv.igmp_query || !igq.on || !igq.ever) return false;
+	if (!C.cfg.iptv.igmp_query || !igq.on || !igq.ever || C.querier_router()) return false;
 	return igq.silent || t - max(igq.last_ts ?? 0, igq.since ?? t) > igmpq_limit() - 5;
 }
 
@@ -917,7 +928,7 @@ function igmpq_out() {
 	if (!C.cfg.iptv.igmp_query || !igq.on) return null;
 	let t = now(), seen_for = t - (igq.since ?? t);
 	return { gen: igq.total, last: igq.last_ts, age: igq.last_ts != null ? round(t - igq.last_ts, 0) : null,
-		expected: igmpq_expected(), limit: igmpq_limit(), silent: igq.silent, since: igq.silent ? igq.silent_ref : null,
+		expected: igmpq_expected(), limit: igmpq_limit(), silent: igq.silent, router: igq.silent ? igq.silent_router : null, since: igq.silent ? igq.silent_ref : null,
 		src: igq.src, ver: igq.ver, qqic: igq.qqic, max_resp: igq.max_resp, seen_for: round(seen_for, 0),
 		/* nothing at all in more than the time the memberships last */
 		never: !igq.ever && seen_for > igmpq_limit() + 60 };
@@ -1009,7 +1020,7 @@ function iptv_out(devres) {
 			o.level = level;
 		}
 		o.igmpq = igmpq_out();
-		if (o.igmpq?.silent) {
+		if (o.igmpq?.silent && !o.igmpq.router) {
 			level = worst(level, 'warn');
 			push(reasons, { c: 'igmp_noquery', since: o.igmpq.since });
 			o.level = level;

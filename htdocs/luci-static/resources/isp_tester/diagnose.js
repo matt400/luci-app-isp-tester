@@ -209,7 +209,10 @@ return baseclass.extend({
 			return decRestarts.some(function(r) { return s.ts >= r.ts - 15 && s.ts <= r.ts + ((r.d && r.d.dur) || 0) + 10; });
 		};
 		/* the operator stopped sending IGMP queries: from the first silent moment until they were back */
-		var noQuery = periods(sorted, [ 'igmp_noquery' ], to);
+		/* not while the router asked the decoders itself (d.router): then no
+		 * membership expires, the operator's pause did not matter */
+		var qRouter = function(e) { return (e.type === 'igmp_noquery' || e.type === 'igmp_noquery_ok') && e.d && e.d.router; };
+		var noQuery = periods(sorted.filter(function(e) { return !qRouter(e); }), [ 'igmp_noquery' ], to);
 		/* the bridge's querier went from the ISP to this router: the ISP did
 		 * not ask for 255 s, and it may have dropped the channels meanwhile */
 		var qSwitch = by(function(e) { return e.type === 'igmp_querier' && e.d && (e.d.from === 'isp' || e.d.from === 'other') && e.d.to === 'router'; });
@@ -365,7 +368,7 @@ return baseclass.extend({
 		add('edge', 1.5, 'stall_with_dev', withDev, { total: stalls.length });
 		/* the memberships expired because the operator's queries stopped: not the router's timers */
 		add('isp', 3, 'stall_no_query', withNoQuery, { total: stalls.length });
-		add('info', 0, 'igmp_noquery', by(function(e) { return e.type === 'igmp_noquery'; }).filter(function(e) { return withNoQuery.length === 0; }));
+		add('info', 0, 'igmp_noquery', by(function(e) { return e.type === 'igmp_noquery' && !qRouter(e); }).filter(function(e) { return withNoQuery.length === 0; }));
 		add('isp', 3, 'stall_querier_switch', withQSwitch, { total: stalls.length });
 		add('home', 3, 'stall_no_querier', withNoQuerier, { total: stalls.length });
 		if (!withQSwitch.length)
