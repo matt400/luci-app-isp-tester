@@ -221,7 +221,7 @@ function sample_proxy() {
  */
 let dhl = { pid: null, seq: 0, mac: {} };
 /* decoders seen in the IPTV VLAN (see dec_poll) */
-let dec = { list: {}, err: null, t: 0 };
+let dec = { list: {}, err: null, t: 0, shared: {} };
 
 function dhcp_src(mac) {
 	return C.cfg.iptv.dec_labels[mac] || mac;
@@ -235,14 +235,21 @@ function dhcp_seen(x, via) {
 		lease: null, server: null, expired: false, via };
 	let src = dhcp_src(mac);
 	s.via = via;
-	if (x.type == 2) { s.offer_t = t; s.act_t = t; return; }
+	/* an OFFER answers a DISCOVER: the decoder asks from scratch (booted) */
+	if (x.type == 2) { s.offer_t = t; s.boot_t = t; return; }
 	if (x.type == 6) {
 		s.naks++;
 		C.emit('warn', 'iptv', src, 'dhcp_nak', { mac, ip: s.ip, server: x.server, via });
 		return;
 	}
 	if (x.type != 5 || !match(`${x.ip ?? ''}`, /^[0-9.]+$/) || x.ip == '0.0.0.0') return;
-	s.act_t = t;
+	/* an ACK off the renewal schedule (before T1, half the lease) is a
+	 * decoder that booted and asked for its old address (INIT-REBOOT, no
+	 * OFFER). A renewal is not: it was taken for a restart proof, and every
+	 * renewal at the end of the normal silence between two IGMP reports
+	 * with a stall in it was logged as a restart */
+	if (s.last_ack != null && s.lease && t - s.last_ack > 30 && t - s.last_ack < s.lease * 0.45)
+		s.boot_t = t;
 	let fresh = s.offer_t != null && t - s.offer_t <= 15;
 	s.offer_t = null;
 	if (s.ip == null)
@@ -452,12 +459,15 @@ function dec_stream_hit(from, to) {
  * restart - taken for one, the freezes of the silence (the operator's fault)
  * were put down to the decoder and left out of the analysis */
 function dec_noquery_hit(from) {
-	if (igq.silent) return true;
+	/* nobody asks on the VLAN (the router's querier in mode router / backup
+	 * is the one the decoders answer, not the operator): the same silence */
+	if (igq.silent || C.querier_none()) return true;
 	let evs = C.events();
 	for (let i = length(evs) - 1; i >= 0; i--) {
 		let e = evs[i];
 		if (e.ts < from - 5) break;
-		if (!e.host && (e.type == 'igmp_noquery' || e.type == 'igmp_noquery_ok')) return true;
+		if (!e.host && (e.type == 'igmp_noquery' || e.type == 'igmp_noquery_ok' ||
+		    e.type == 'igmp_no_querier' || e.type == 'igmp_no_querier_ok')) return true;
 	}
 	return false;
 }
@@ -472,8 +482,35 @@ function dec_noquery_hit(from) {
  * must be longer than the decoder takes to answer a query. */
 function dec_quiet_proof(mac, from, to) {
 	let s = dhl.mac[mac];
-	if (s != null && s.act_t != null) return s.act_t >= from - 5 && s.act_t <= to + 15;
-	return to - from > igmpq_expected() + ((igq.max_resp > 0) ? igq.max_resp / 10.0 : 10) + 15;
+	/* its DHCP is seen: only a boot of it (OFFER, ACK off the renewal
+	 * schedule) in the silence proves a restart */
+	if (s != null && (s.last_ack != null || s.boot_t != null))
+		return s.boot_t != null && s.boot_t >= from - 5 && s.boot_t <= to + 15;
+	/* the decoder answers the querier it hears: the router's own when it is
+	 * the one (its interval may differ from the operator's) */
+	return to - from > (C.querier_query() ?? igmpq_expected()) + ((igq.max_resp > 0) ? igq.max_resp / 10.0 : 10) + 15;
+}
+
+/* more than the decoders behind the port (any VLAN: a PC, the switch's own
+ * address): a switch. Its link going down is the switch or its cable, not a
+ * decoder restart. Read once a minute until known. */
+function dec_port_shared(port) {
+	let p = dec.shared[port] ??= { m: null, v: false };
+	if (p.v || (p.m != null && mono() - p.m < 60)) return p.v;
+	p.m = mono();
+	let j = bridge_json(`fdb show br ${vl.bridge} brport ${port}`);
+	if (j == null) return false;
+	let macs = {}, n = 0;
+	for (let e in j) {
+		let mac = lc(`${e?.mac ?? ''}`);
+		if (!match(mac, /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/) || (hex(substr(mac, 0, 2)) & 1)) continue;
+		if (e.state == 'permanent' || e.state == 'static' || index(e.flags ?? [], 'self') >= 0) continue;
+		if (!macs[mac]) { macs[mac] = true; n++; }
+	}
+	let decs = 0;
+	for (let mac, d in dec.list) if (d.port == port) decs++;
+	p.v = n > max(1, decs);
+	return p.v;
 }
 
 function dec_poll() {
@@ -487,32 +524,53 @@ function dec_poll() {
 		d.port = x.port;
 		d.seen = t;
 	}
+	/* working membership data: a decoder that watches has a group on its port */
+	let mdb_ok = vl.mdb != null && (igmp.seen || rd(vl.bridge, 'bridge/multicast_snooping') == '1');
+
 	for (let mac, d in dec.list) {
 		let x = fdb[mac], src = C.cfg.iptv.dec_labels[mac] || mac;
-		let link = rd(d.port, 'carrier');
+		let link = rd(d.port, 'carrier'), cc = rd(d.port, 'carrier_changes');
 		let here = x != null && link != '0';
 		let active = here ? t - (x.age ?? 0) : null;
 
 		if (!here) {
 			if (d.present) {
 				d.present = false;
-				/* the last frame, not the moment the entry aged out */
-				d.gone_at = (link == '0') ? t : (d.last_active ?? t);
-				/* silent already before it vanished: the bridge aged the entry
-				 * out (ageing_time, 300 s) - a decoder that is only watching
-				 * sends nothing between its IGMP reports. Not a sign of a
-				 * restart by itself: judged as "quiet" when it is back */
-				d.via = (link == '0') ? 'link' : (d.quiet_from != null) ? 'aged' : 'fdb';
+				/* the port's link went down, also only for less than a tick
+				 * (the bridge flushed the port's entries, carrier is up again) */
+				let lk = link == '0' || (cc != null && d.cc != null && cc != d.cc);
+				/* the last frame, not the moment the entry vanished. Already
+				 * off: the time it was switched off stays (a stray frame in
+				 * standby moved it, and "back after" was the time since it) */
+				if (!d.off) d.gone_at = (link == '0') ? t : (d.last_active ?? t);
+				/* behind a switch the link is the switch's or its cable's;
+				 * otherwise the entry aged out (300 s of silence: a decoder
+				 * that only watches sends nothing between its IGMP reports) or
+				 * the bridge flushed it - neither is a restart by itself: judged
+				 * as "quiet" when it is back (it was logged as one, "fdb") */
+				d.via = (lk && !dec_port_shared(d.port)) ? 'link' : lk ? 'port' : 'aged';
 			}
 			if (!d.off && t - d.gone_at > C.cfg.iptv.dec_off) {
 				d.off = true;
-				C.emit('info', 'iptv', src, 'decoder_off', { mac, port: d.port, via: d.via }, d.gone_at);
+				C.emit('info', 'iptv', src, 'decoder_off', { mac, port: d.port, via: (d.via == 'port') ? 'link' : d.via }, d.gone_at);
 			}
 		}
 		else {
 			if (!d.present) {
 				let dur = max(1, t - d.gone_at);
-				if (d.off) C.emit('info', 'iptv', src, 'decoder_on', { mac, port: x.port, dur });
+				d.present = true;
+				if (d.off) {
+					/* in the table again by a stray frame in standby (DHCP, ARP,
+					 * NTP - every few minutes): still off. It was logged as on,
+					 * and off again by "leave" below a tick later, with the same
+					 * time - a pair for every such frame. Without membership data
+					 * the frame is all there is */
+					if (!mdb_ok || length(port_groups(x.port))) {
+						C.emit('info', 'iptv', src, 'decoder_on', { mac, port: x.port, dur });
+						d.off = false;
+						d.since = t;
+					}
+				}
 				else if (d.via == 'aged') {
 					/* back after a silence: a restart only as by "quiet" below
 					 * (it was logged as one after every silence of 5 min, with
@@ -521,18 +579,21 @@ function dec_poll() {
 					if (qd >= C.cfg.iptv.dec_silence && qd <= C.cfg.iptv.dec_off && dec_stream_hit(from, active) && !dec_noquery_hit(from) &&
 					    dec_quiet_proof(mac, from, active))
 						C.emit('info', 'iptv', src, 'decoder_restart', { mac, port: x.port, dur: qd, via: 'quiet', stream: true }, from);
+					d.since = t;
 				}
-				else C.emit('info', 'iptv', src, 'decoder_restart', { mac, port: x.port, dur, via: d.via,
-					stream: dec_stream_hit(d.gone_at, t) }, d.gone_at);
-				d.present = true;
-				d.off = false;
-				d.since = t;
+				/* the switch it is behind lost its link: not the decoder */
+				else if (d.via == 'port') d.since = t;
+				else {
+					C.emit('info', 'iptv', src, 'decoder_restart', { mac, port: x.port, dur, via: d.via,
+						stream: dec_stream_hit(d.gone_at, t) }, d.gone_at);
+					d.since = t;
+				}
 				d.quiet_from = null;
 			}
 			/* switched off by its channel being left (below): on again when
 			 * it talks and watches again - not by a stray frame in standby */
 			else if (d.off) {
-				if (x.age != null && x.age < C.cfg.iptv.dec_silence && length(port_groups(d.port))) {
+				if (x.age != null && x.age < C.cfg.iptv.dec_silence && (!mdb_ok || length(port_groups(d.port)))) {
 					C.emit('info', 'iptv', src, 'decoder_on', { mac, port: x.port, dur: max(1, t - d.gone_at) });
 					d.off = false;
 					d.since = t;
@@ -551,20 +612,25 @@ function dec_poll() {
 				}
 			}
 			d.last_active = active;
+			d.cc = cc;
+			/* known before its link goes down (that flushes the port's entries) */
+			dec_port_shared(d.port);
 		}
 
-		/* switched off (standby, power): silent and no channel subscribed on
-		 * its port. The MAC table alone tells it only after ageing_time
-		 * (300 s) plus dec_off - until then it was shown "not visible" (red)
-		 * while it was off, also when it was off already at the start. A
-		 * decoder that watches answers every query, so its group stays in
-		 * the MDB (a hard restart sends no leave: still a restart). Only with
-		 * working membership data (snooping on), not while
-		 * another decoder watches on the same port, nor while the operator's
-		 * queries are missing (then the groups expire by themselves) */
-		if (!d.off && vl.mdb != null && (igmp.seen || rd(vl.bridge, 'bridge/multicast_snooping') == '1') &&
-		    !length(port_groups(d.port))) {
-			let last = here ? active : d.gone_at;
+		/* switched off (standby, power): in the table, silent and no channel
+		 * subscribed on its port. The MAC table alone tells it only after
+		 * ageing_time (300 s) plus dec_off - until then it was shown "not
+		 * visible" (red) while it was off, also when it was off already at
+		 * the start. A decoder that watches answers every query, so its group
+		 * stays in the MDB (a hard restart sends no leave: still a restart).
+		 * Only with working membership data (snooping on), not while another
+		 * decoder watches on the same port, nor while nobody asks (the
+		 * operator's queries missing, no querier on the VLAN: then the groups
+		 * expire by themselves). Only while it is in the table: gone (link
+		 * down, aged out) is judged by dec_off above - a restart with the
+		 * link down for more than dec_silence was logged as off and on */
+		if (!d.off && here && mdb_ok && !length(port_groups(d.port))) {
+			let last = active;
 			if (last != null && t - last >= C.cfg.iptv.dec_silence && !dec_noquery_hit(last)) {
 				d.off = true;
 				d.gone_at = last;
@@ -1459,7 +1525,7 @@ function iptv_shift(by) {
 	/* the operator's queries: a step forward would look like a long silence
 	 * (a false igmp_noquery), the decoders' leases like expired ones */
 	mv(igq, [ 'last_ts', 'since', 'silent_ref' ]);
-	for (let mac, s in dhl.mac) mv(s, [ 'offer_t', 'last_ack' ]);
+	for (let mac, s in dhl.mac) mv(s, [ 'offer_t', 'last_ack', 'boot_t' ]);
 	for (let e in tsq.win) e.ts += by;
 	for (let g, t in tsq.last_ev) tsq.last_ev[g] = t + by;
 	for (let g, p in tsq.pend) mv(p, [ 'since' ]);
