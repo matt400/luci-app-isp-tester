@@ -273,6 +273,9 @@ function load_config() {
 		/* VLAN mode has no per-tick fallback: the counters are read by the fast timer only */
 		c.iptv.sample_interval = c.iptv.vlan ? c.interval / 2.0 : 0;
 	if (c.iptv.stall_after < 0) c.iptv.stall_after = 0;
+	/* 0 kbit/s: every reading is "playing" (kbps >= 0), a freeze was never logged */
+	if (!(c.iptv.min_kbps >= 1)) c.iptv.min_kbps = 500;
+	if (!(c.iptv.dip_pct >= 0 && c.iptv.dip_pct <= 100)) c.iptv.dip_pct = 40;
 	/* "stream ended" before the freeze is even reported made every freeze a stream_lost */
 	if (!(c.iptv.idle_after >= c.iptv.stall_after + 5)) c.iptv.idle_after = max(c.iptv.stall_after + 5, 60);
 	/* picture quality: thresholds are lost-packet gaps per minute */

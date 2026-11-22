@@ -490,7 +490,7 @@ return view.extend({
 
 		o = s.taboption('basic', form.Value, 'min_kbps', _('Stream threshold (kbit/s)'),
 			_('Below this the stream counts as stopped. An HD channel usually uses 4000–12000 kbit/s.'));
-		o.datatype = 'uinteger';
+		o.datatype = 'range(1,100000)';
 		o.placeholder = '500';
 
 		o = s.taboption('advanced', form.Value, 'sample_interval', _('IPTV sampling interval (s)'),
@@ -708,12 +708,20 @@ return view.extend({
 		o.datatype = 'port';
 		o.placeholder = '22';
 
+		/* the same checks as push.sh, so a value it refuses is refused here
+		 * already, not only on the first send */
 		o = s.option(form.Value, 'user', _('User'));
-		o.datatype = 'maxlength(32)';
+		o.validate = function(id, v) {
+			return (!v || /^[A-Za-z0-9._][A-Za-z0-9._-]{0,31}$/.test(v)) ? true : _('Letters, digits and . _ - only, at most 32, not starting with -');
+		};
 
 		o = s.option(form.Value, 'dir', _('Folder on that device'),
 			_('A relative path is in the user\'s home. It is created when missing.'));
 		o.placeholder = 'isp-tester';
+		o.validate = function(id, v) {
+			return (!v || (/^[A-Za-z0-9._\/~][A-Za-z0-9._\/~-]{0,119}$/.test(v) && v.indexOf('..') < 0))
+				? true : _('The folder is not valid (letters, digits and . _ / ~ - only, no “..”).');
+		};
 
 		o = s.option(form.ListValue, 'interval_h', _('Send every'),
 			_('A failed try is repeated after 30 minutes.'));
@@ -727,6 +735,9 @@ return view.extend({
 			_('Made on first use. Empty = <code>/etc/dropbear/isp_tester_push_key</code> (kept over a firmware upgrade).'));
 		o.placeholder = '/etc/dropbear/isp_tester_push_key';
 		o.optional = true;
+		o.validate = function(id, v) {
+			return (!v || /^\/[A-Za-z0-9._\/-]{1,120}$/.test(v)) ? true : _('The key path is not valid.');
+		};
 
 		o = s.option(form.DummyValue, '_push');
 		o.rawhtml = true;
@@ -782,9 +793,12 @@ return view.extend({
 		o.inputstyle = 'action';
 		o.onclick = function() {
 			return callTestNotify().then(function(r) {
-				ui.addNotification(null, E('p', r && r.running
-					? _('The test message will be sent within one interval. Save & Apply changed settings first.')
-					: _('Monitoring is not running, nothing can be sent.')), r && r.running ? 'info' : 'warning');
+				/* (an older backend does not say: taken as on) */
+				var off = r && r.enabled === false;
+				ui.addNotification(null, E('p', !(r && r.running) ? _('Monitoring is not running, nothing can be sent.')
+					: off ? _('Notifications are switched off in the saved settings: tick “Send notifications”, Save & Apply, then test.')
+					: _('The test message will be sent within one interval. Save & Apply changed settings first.')),
+					r && r.running && !off ? 'info' : 'warning');
 			});
 		};
 

@@ -195,12 +195,15 @@ function gap_check() {
 	try { a = json(fs.readfile(ALIVE) || 'null'); } catch (e) { a = null; }
 	let st;
 	try { st = json(fs.readfile(`${VARDIR}/state.json`) || 'null'); } catch (e) { st = null; }
+	/* a state without a time (damaged, half written by an older version) is
+	 * no sign of life: t - null was taken as "silent since 1970" ('hung') */
+	if (type(st?.ts) != 'int') st = null;
 	let stop = num(trim(fs.readfile(STOPPED) ?? ''), null);
 	fs.unlink(STOPPED);
 
 	/* last sign of life: alive.json, the state of the same boot, own events */
 	let last = (type(a?.ts) == 'int') ? a.ts : null;
-	if (type(st?.ts) == 'int' && (last == null || st.ts > last)) last = st.ts;
+	if (st && (last == null || st.ts > last)) last = st.ts;
 	for (let i = length(events) - 1; i >= 0 && i >= length(events) - 50; i--)
 		if (!events[i].host && events[i].ts <= t && (last == null || events[i].ts > last)) last = events[i].ts;
 
@@ -270,18 +273,6 @@ function recent_level(area, src) {
 	return lvl;
 }
 
-/* the 24 h count walks most of the list (up to max_events, 20000 at most)
- * on every tick: it is counted again only when the list changed or a minute
- * went by (old events leave the window) */
-let counts24 = { key: null, n: null };
-
-function count_events24(t) {
-	let n = length(events);
-	let key = `${n}|${n ? events[n - 1].ts : 0}|${n ? events[0].ts : 0}|${int(t / 60)}`;
-	if (key != counts24.key) counts24 = { key, n: count_events(t - 86400) };
-	return counts24.n;
-}
-
 function count_events(since) {
 	let n = { warn: 0, err: 0 };
 	for (let i = length(events) - 1; i >= 0; i--) {
@@ -296,6 +287,21 @@ function count_events(since) {
 		else if (e.lvl == 'err') n.err++;
 	}
 	return n;
+}
+
+/* (after count_events: ucode does not hoist functions - called before
+ * its declaration it was an undeclared variable, every tick failed and
+ * state.json was never written)
+ * the 24 h count walks most of the list (up to max_events, 20000 at most)
+ * on every tick: it is counted again only when the list changed or a minute
+ * went by (old events leave the window) */
+let counts24 = { key: null, n: null };
+
+function count_events24(t) {
+	let n = length(events);
+	let key = `${n}|${n ? events[n - 1].ts : 0}|${n ? events[0].ts : 0}|${int(t / 60)}`;
+	if (key != counts24.key) counts24 = { key, n: count_events(t - 86400) };
+	return counts24.n;
 }
 
 /* ---------------------------------------------------------------- history */
@@ -663,7 +669,10 @@ function handle_marks() {
 		let m;
 		try { m = json(line); } catch (e) { continue; }
 		if (type(m) != 'object') continue;
-		let ts = int(m.ts ?? t);
+		/* a time that is no number (a hand-made or damaged line) made int()
+		 * NaN: an event without a valid time, which every reader that stops
+		 * at the first old event treated as older than everything */
+		let ts = (type(m.ts) == 'int') ? m.ts : t;
 		if (ts > t || ts < t - 3600) ts = t;
 		let what = match(`${m.what ?? ''}`, /^[a-z_]{1,20}$/) ? m.what : 'other';
 		emit('warn', 'user', 'user', 'user_mark', { what, note: substr(`${m.note ?? ''}`, 0, 200) }, ts);
@@ -817,29 +826,61 @@ function read_log() {
  * the header. Seeded from the file's own header at start, so a restart with
  * collectd not answering yet does not start a new file either. */
 let csv_tl = null;
+/* the same for the devices: the WAN device is known only once the WAN is up
+ * (at boot the collector starts before PPPoE / DHCP), a VLAN port can be
+ * missing from one reading of the bridge. Their columns came and went: at
+ * every reboot the header changed twice (without the WAN, then with it), and
+ * with the data on USB the second change moved the few rows from before the
+ * WAN was up over samples.prev.csv - the 24 h before the reboot were lost.
+ * A device that is not watched now has empty cells. */
+let csv_dl = null;
 
+/* the header of samples.csv as it is (seeds the two lists at start) */
+function csv_file_cols() {
+	let f = fs.open(`${RUNDIR}/samples.csv`, 'r');
+	let first = f ? (f.read('line') ?? '') : '';
+	if (f) f.close();
+	return split(trim(first), ',');
+}
+
+function csv_devices(devs) {
+	if (csv_dl == null) {
+		csv_dl = [];
+		for (let c in csv_file_cols()) {
+			let m = match(c, /^(.+)_link$/);
+			if (m) push(csv_dl, m[1]);
+		}
+	}
+	for (let d in devs)
+		if (index(csv_dl, d.dev) < 0) push(csv_dl, d.dev);
+	return csv_dl;
+}
+
+/* by host, not by label: the gateway is called "gateway" only once netifd
+ * names it (WAN up), so at boot its column was first ping_<address>_* and
+ * then ping_gateway_* - another header change of the kind above. (A file
+ * from before, with ping_gateway_*, starts once more.) */
 function csv_targets() {
 	if (csv_tl == null) {
 		csv_tl = [];
-		let f = fs.open(`${RUNDIR}/samples.csv`, 'r');
-		let first = f ? (f.read('line') ?? '') : '';
-		if (f) f.close();
-		for (let c in split(trim(first), ','))
-			if (match(c, /^ping_(.+)_loss$/)) push(csv_tl, substr(c, 5, length(c) - 10));
+		for (let c in csv_file_cols()) {
+			let m = match(c, /^ping_(.+)_loss$/);
+			if (m && m[1] != 'gateway') push(csv_tl, m[1]);
+		}
 	}
 	for (let k, x in targets)
-		if (x.active && index(csv_tl, x.label) < 0) push(csv_tl, x.label);
+		if (x.active && index(csv_tl, x.host) < 0) push(csv_tl, x.host);
 	let by = {};
 	for (let k, x in targets)
-		if (x.active) by[x.label] = x;
-	return map(csv_tl, (l) => ({ label: l, t: by[l] }));
+		if (x.active) by[x.host] = x;
+	return map(csv_tl, (h) => ({ label: h, t: by[h] }));
 }
 
-function csv_columns(devs, tlist) {
+function csv_columns(dlist, tlist) {
 	let cols = [ 'time', 'overall' ];
 	for (let t in tlist) push(cols, `ping_${t.label}_loss`, `ping_${t.label}_rtt`, `ping_${t.label}_jitter`);
 	if (iptv_on()) push(cols, 'iptv_state', 'iptv_kbps', 'iptv_min_kbps', 'iptv_stall_s', 'iptv_pps', 'iptv_channel');
-	for (let m in devs) push(cols, `${m.dev}_link`, `${m.dev}_speed`, `${m.dev}_err`, `${m.dev}_crc`, `${m.dev}_drop`, `${m.dev}_rx_kbps`, `${m.dev}_tx_kbps`);
+	for (let d in dlist) push(cols, `${d}_link`, `${d}_speed`, `${d}_err`, `${d}_crc`, `${d}_drop`, `${d}_rx_kbps`, `${d}_tx_kbps`);
 	return cols;
 }
 
@@ -930,6 +971,7 @@ function handle_clear_request() {
 	fs.unlink(`${RUNDIR}/samples.csv`);
 	csv_header = null;
 	csv_tl = [];
+	csv_dl = [];
 	csv_rows = 0;
 	emit('info', 'system', 'collector', 'cleared', {});
 }
@@ -1136,8 +1178,8 @@ function tick() {
 		agg_add(t, mv);
 
 		/* ---- CSV */
-		let tlist = csv_targets();
-		let cols = csv_columns(devs, tlist);
+		let tlist = csv_targets(), dlist = csv_devices(devs);
+		let cols = csv_columns(dlist, tlist);
 		/* also when the file is gone (deleted, the USB stick re-mounted):
 		 * appending would make a file without the header line */
 		if (join(',', cols) != csv_header || !fs.stat(`${RUNDIR}/samples.csv`)) csv_open(cols);
@@ -1152,8 +1194,9 @@ function tick() {
 			push(row, iptv_res?.state, iptv_res?.kbps, iptv_res?.min, iptv_res?.stall_s, iptv_res?.pps,
 				ch ? replace(replace(ch, ', ', ' | '), /[,"\r\n]/g, ' ') : null);
 		}
-		for (let d in devs) {
-			let r = res[d.dev];
+		for (let d in dlist) {
+			let r = res[d];
+			if (!r) { push(row, null, null, null, null, null, null, null); continue; }
 			push(row, r.present ? (r.up ? 'up' : 'down') : 'missing', r.speed,
 				r.delta?.err, r.delta?.crc, r.delta?.drop,
 				r.delta ? round(r.delta.rx_bps / 1000, 0) : null,

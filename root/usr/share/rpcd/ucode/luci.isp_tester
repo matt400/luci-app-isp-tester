@@ -66,6 +66,8 @@ return {
 			args: { limit: 200, area: '' },
 			call: function(req) {
 				let ev = read_json('events.json', []);
+				/* valid JSON but no list (a damaged file): ev[i].area threw */
+				if (type(ev) != 'array') ev = [];
 				let limit = int(+(req.args.limit ?? 200));
 				/* "abc" would compare false with everything and return nothing */
 				if (limit != limit) limit = 200;
@@ -73,7 +75,7 @@ return {
 				let out = [];
 
 				for (let i = length(ev) - 1; i >= 0 && (limit <= 0 || length(out) < limit); i--)
-					if (area == '' || ev[i].area == area)
+					if (type(ev[i]) == 'object' && (area == '' || ev[i].area == area))
 						push(out, ev[i]);
 
 				return { events: out, total: length(ev) };
@@ -203,7 +205,10 @@ return {
 			call: function() {
 				mkdir(VARDIR);
 				writefile(`${VARDIR}/notify_test`, '1');
-				return { result: true, running: service_running() };
+				/* the collector drops the test when notifications are off in
+				 * the saved settings: the page says so instead of "sent soon" */
+				return { result: true, running: service_running(),
+					enabled: cursor().get('isp_tester', 'notify', 'enabled') == '1' };
 			}
 		}
 	}
