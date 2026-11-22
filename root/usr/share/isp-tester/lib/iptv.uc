@@ -141,8 +141,11 @@ function igmp_poll() {
  * What IGMP did around a freeze that started at `from` (called when the
  * stream comes back):
  *   zap    - other groups after than before: a channel change, not a fault
- *   left   - the membership was dropped (and joined again): IGMP timeout
- *   joined - subscribed the whole time: the data just stopped coming
+ *   left   - the membership was dropped when the data stopped (and joined
+ *            again): IGMP timeout
+ *   joined - subscribed when the data stopped (also when the decoder left
+ *            and joined the same channel later, retrying): the data just
+ *            stopped coming
  */
 function igmp_classify(from) {
 	if (!C.cfg.iptv.igmp || !(C.cfg.iptv.igmp_dev || C.cfg.iptv.vlan) || igmp.groups == null) return null;
@@ -152,10 +155,16 @@ function igmp_classify(from) {
 		return length(igmp.groups) ? 'joined' : null;
 
 	let before = rel[0].before, after = igmp.groups;
-	let emptied = length(filter(rel, (h) => !length(h.after))) > 0;
+	/* dropped when the data stopped (a timeout comes with the stop), not
+	 * seconds later: many decoders leave and join the same channel again
+	 * when no data comes - an operator-side stop was "IGMP timeout at home"
+	 * (stall_igmp_left, weight 3 for the home side) */
+	let lim = from + C.cfg.iptv.stall_after + 3;
+	let emptied = length(filter(rel, (h) => !length(h.after) && h.ts <= lim)) > 0;
 	if (length(before) && length(after) && join(',', before) != join(',', after)) return 'zap';
 	if (emptied || !length(before)) return 'left';
-	return null;
+	/* left and joined again later: subscribed when the data stopped */
+	return length(after) ? 'joined' : null;
 }
 
 function proxy_process() {
