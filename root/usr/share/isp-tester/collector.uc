@@ -1353,7 +1353,7 @@ if (iptv_fast()) {
 			iptv_fast_sample();
 		}
 		catch (e) {
-			warn(`isp-tester: iptv sample failed: ${e}\n`);
+			warn(`isp-tester: iptv sample failed: ${e}\n${e.stacktrace?.[0]?.context ?? ''}\n`);
 		}
 	});
 }
