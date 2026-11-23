@@ -1,0 +1,6 @@
+# OpenWrt scripts run under busybox ash
+shell=sh
+# busybox ash supports `local`
+disable=SC3043
+# pubkey() takes an optional argument; calling it bare is intended
+disable=SC2119,SC2120

@@ -210,7 +210,6 @@ return baseclass.extend({
 		var portSpeed   = byAll(function(e) { return e.area === 'ports' && e.type === 'speed_change' && e.d && e.d.to < e.d.from; });
 		var portErr     = byAll(function(e) { return e.area === 'ports' && (e.type === 'errors' || e.type === 'drops'); });
 		var portMissing = byAll(function(e) { return e.type === 'dev_missing' && (e.host || (e.area !== 'wan' && e.src !== wanDev)); });
-		var devName     = function(e) { return e.host ? e.host + ':' + e.src : e.src; };
 		var wanErr      = by(function(e) { return e.area === 'wan' && e.type === 'errors'; });
 		var iptvDevErr  = by(function(e) { return e.area === 'iptv' && (e.type === 'errors' || e.type === 'drops' || (e.type === 'link_down' && e.lvl !== 'info')); });
 		var anyPort     = portLink.concat(portSpeed, portErr);

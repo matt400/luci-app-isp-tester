@@ -1352,7 +1352,7 @@ return view.extend({
 		]);
 
 		/* details, by topic */
-		var conn = [], kv = [];
+		var conn = [];
 		conn.push(E('span', { 'class': 'k' }, _('WAN device')), E('span', {}, w.device || '–'));
 		if (w.source)
 			conn.push(E('span', { 'class': 'k' }, _('Ping data')), E('span', { 'class': w.source.type ? '' : 'ispt-warn-text' },
@@ -1565,10 +1565,10 @@ return view.extend({
 			default:       qwho = _('nobody – the channels will expire'); qlvl = 'fail';
 			}
 			if ((qr.reasons || []).some(function(r) { return r.c === 'querier_block_fail'; })) qlvl = 'warn';
-			var qv = [ dot(qlvl), qwho ];
-			if (qr.since) qv.push(' · ' + _('since %s').format(fmtWhen(qr.since)));
+			var qrv = [ dot(qlvl), qwho ];
+			if (qr.since) qrv.push(' · ' + _('since %s').format(fmtWhen(qr.since)));
 			igmp.push(E('span', { 'class': 'k', 'title': _('Who sends the IGMP queries on the IPTV VLAN right now, as elected by the bridge. Every change is in the timeline.') }, _('Asks now')),
-				E('span', {}, qv));
+				E('span', {}, qrv));
 		}
 		/* also when nobody is known to ask, or snooping is off: exactly what a
 		 * script that did not work leaves behind - the line with "the bridge
@@ -2351,7 +2351,6 @@ return view.extend({
 	/* ---- assembly */
 	redraw: function() {
 		if (!this.root || !this.last) return;
-		var self = this;
 		var res = this.last[0];
 		var st = res.state;
 		var w = this.win();

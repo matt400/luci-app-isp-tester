@@ -826,7 +826,7 @@ return view.extend({
 			_('A relative path is in the user\'s home. It is created when missing.'));
 		o.placeholder = 'isp-tester';
 		o.validate = function(id, v) {
-			return (!v || (/^[A-Za-z0-9._\/~][A-Za-z0-9._\/~-]{0,119}$/.test(v) && v.indexOf('..') < 0))
+			return (!v || (/^[A-Za-z0-9._/~][A-Za-z0-9._/~-]{0,119}$/.test(v) && v.indexOf('..') < 0))
 				? true : _('The folder is not valid (letters, digits and . _ / ~ - only, no “..”).');
 		};
 
@@ -843,7 +843,7 @@ return view.extend({
 		o.placeholder = '/etc/dropbear/isp_tester_push_key';
 		o.optional = true;
 		o.validate = function(id, v) {
-			return (!v || /^\/[A-Za-z0-9._\/-]{1,120}$/.test(v)) ? true : _('The key path is not valid.');
+			return (!v || /^\/[A-Za-z0-9._/-]{1,120}$/.test(v)) ? true : _('The key path is not valid.');
 		};
 
 		o = s.option(form.DummyValue, '_push');

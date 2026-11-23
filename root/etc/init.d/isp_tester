@@ -1,5 +1,6 @@
 #!/bin/sh /etc/rc.common
 
+# shellcheck disable=SC2034 # START, STOP, USE_PROCD are read by /etc/rc.common
 START=99
 STOP=10
 USE_PROCD=1
