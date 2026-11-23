@@ -20,6 +20,7 @@ let iptv = {
 	watch: null,                            /* group being watched while it played */
 	low_w: null, low_m: null,               /* start of a below-threshold run not yet long enough */
 	held: false, hold_def: 0,               /* stop while nobody is subscribed: decoder off or freeze? */
+	wd_m: null, wd_w: null,                 /* first whole tick below the threshold while playing (watchdog) */
 	prev: null, prev_m: null, prev_w: null, /* last counter reading (fast sampler) */
 	acc: null                               /* per-tick aggregate of the fast samples */
 };
@@ -496,6 +497,34 @@ function dec_fdb() {
 	return out;
 }
 
+/*
+ * MACs the bridge also has in another VLAN: the switch, a router or an AP on
+ * that port (a managed switch sends its loop-detection frames in every VLAN
+ * it carries, so its own MAC turns up in the IPTV VLAN every few minutes).
+ * They were taken for a decoder that was switched off and on all day. Kept
+ * for a day after the last sighting (the entry ages out in between). A MAC
+ * named in the settings or that got its address from the operator stays a
+ * decoder.
+ */
+let dec_other = { t: 0, seen: {} };
+function dec_other_vlans(t) {
+	if (t - dec_other.t >= 300) {
+		dec_other.t = t;
+		let j = bridge_json(`-s fdb show br ${vl.bridge}`);
+		for (let e in (j ?? [])) {
+			let mac = lc(`${e?.mac ?? ''}`);
+			if (e?.vlan != null && e.vlan != C.cfg.iptv.vlan && e.ifname != vl.upstream && index(vl.ports, e.ifname) >= 0)
+				dec_other.seen[mac] = t;
+		}
+		for (let mac, ts in dec_other.seen) if (t - ts > 86400) delete dec_other.seen[mac];
+	}
+	return dec_other.seen;
+}
+
+function dec_not_decoder(mac, other) {
+	return other[mac] != null && C.cfg.iptv.dec_labels[mac] == null && !(dhl.mac[mac]?.acks > 0);
+}
+
 /* did the stream stop (freeze, lost, off) between from and to? */
 function dec_stream_hit(from, to) {
 	let evs = C.events();
@@ -621,6 +650,15 @@ function dec_poll() {
 	dec.err = null;
 	/* the first reading of this run: a decoder silent since before it was off then already */
 	dec.t0 ??= t;
+
+	let other = dec_other_vlans(t);
+	for (let mac in keys(fdb))
+		if (dec_not_decoder(mac, other)) {
+			delete fdb[mac];
+			delete dec.list[mac];
+		}
+	for (let mac in keys(dec.list))
+		if (dec_not_decoder(mac, other)) delete dec.list[mac];
 
 	for (let mac, x in fdb) {
 		let d = dec.list[mac] ??= { mac, present: true, since: t, port: x.port, gone_at: null, quiet_from: null, off: false };
@@ -1143,12 +1181,37 @@ function watch_left() {
  * nobody is subscribed to any channel right now: a decoder that is switched
  * off leaves its groups, a freeze with the decoder on does not (or the
  * decoder joins again within seconds) */
+let ns_err = null;
 function nobody_subscribed() {
-	if (!C.cfg.iptv.igmp || !(C.cfg.iptv.off_after > 0) || !igmp.seen || igmp.groups == null || igq_expired(now()))
+	/* an error here left a stop undecided for good (asked every second
+	 * until the stream came back): then it is judged a freeze */
+	try {
+		if (!C.cfg.iptv.igmp || !(C.cfg.iptv.off_after > 0) || !igmp.seen || igmp.groups == null || igq_expired(now()))
+			return false;
+		/* nothing subscribed, or the channel that was being watched was left
+		 * (another decoder or a service group may keep other groups joined) */
+		return length(igmp.groups) == 0 || watch_left();
+	}
+	catch (e) {
+		if (ns_err != `${e}`) {
+			ns_err = `${e}`;
+			warn(`isp-tester: iptv: membership check failed: ${e}\n${e.stacktrace?.[0]?.context ?? ''}\n`);
+		}
 		return false;
-	/* nothing subscribed, or the channel that was being watched was left
-	 * (another decoder or a service group may keep other groups joined) */
-	return length(igmp.groups) == 0 || watch_left();
+	}
+}
+
+/* the decoder was switched off: the stream stopped with nobody subscribed */
+function iptv_mark_off(w) {
+	C.emit('info', 'iptv', 'stream', 'stream_off', { avg: round(iptv.avg, 0) }, iptv.low_w);
+	iptv.state = 'idle';
+	iptv.since = w;
+	/* (a dip noticed while it was going off kept the card yellow -
+	 * "bitrate much lower than usual" - for as long as it stayed off) */
+	iptv.dip = false;
+	iptv.low_m = iptv.low_w = null;
+	iptv.held = false;
+	iptv.hold_def = 0;
 }
 
 /* log the start of a stall (ts = moment the data stopped) */
@@ -1189,17 +1252,10 @@ function iptv_update(kbps, m, w, from_m, from_w) {
 	/* a stop with nobody subscribed was not reported yet (see below): decide */
 	if (iptv.state == 'playing' && iptv.held) {
 		if (!active && nobody_subscribed()) {
-			if (m - iptv.low_m >= C.cfg.iptv.off_after) {
-				/* still no channel after the grace time: the decoder was switched off */
-				C.emit('info', 'iptv', 'stream', 'stream_off', { avg: round(iptv.avg, 0) }, iptv.low_w);
-				iptv.state = 'idle';
-				iptv.since = w;
-				/* (a dip noticed while it was going off kept the card yellow -
-				 * "bitrate much lower than usual" - for as long as it stayed off) */
-				iptv.dip = false;
-				iptv.low_m = iptv.low_w = null;
-				iptv.held = false;
-				iptv.hold_def = 0;
+			/* still no channel after the grace time: the decoder was switched
+			 * off (a start lost on the way is no reason to wait for ever) */
+			if (iptv.low_m == null || !(m - iptv.low_m < C.cfg.iptv.off_after)) {
+				iptv_mark_off(w);
 				off = true;
 			}
 		}
@@ -1342,6 +1398,31 @@ function sample_iptv(devres) {
 			iptv.prev_w = w;
 		}
 	}
+
+	/*
+	 * A stop that was never decided: on one router the stream fell to
+	 * 50 kbit/s when the decoder was switched off and the state stayed
+	 * "playing" for an hour - no freeze, no switch-off logged, and the other
+	 * router's freeze at that moment was put down to the cable between them.
+	 * Every stop ends in a freeze or a switch-off within off_after + a tick;
+	 * past that it is decided here, and the system log says it happened.
+	 */
+	/* judged on whole ticks below the threshold, not on low_m: a lost
+	 * start of the stop is exactly what would leave it undecided */
+	if (ok && iptv.state == 'playing' && kbps < C.cfg.iptv.min_kbps) {
+		let m = mono(), lim = max(C.cfg.iptv.off_after, C.cfg.iptv.stall_after) + C.cfg.interval * 2 + 5;
+		iptv.wd_m ??= m - (iptv.tick ? C.cfg.interval : 0);
+		iptv.wd_w ??= now() - (iptv.tick ? C.cfg.interval : 0);
+		if (m - iptv.wd_m > lim) {
+			warn(`isp-tester: iptv: a stop was not decided after ${round(m - iptv.wd_m, 0)} s (held: ${iptv.held}, start known: ${iptv.low_m != null}), deciding now\n`);
+			iptv.low_w ??= iptv.wd_w;
+			iptv.low_m ??= iptv.wd_m;
+			if (iptv.held) iptv_mark_off(now());
+			else iptv_flag_stall(round(kbps, 0));
+			iptv.wd_m = iptv.wd_w = null;
+		}
+	}
+	else iptv.wd_m = iptv.wd_w = null;
 
 	kbps = round(kbps ?? 0, 0);
 	iptv.kbps = kbps;
@@ -1632,7 +1713,7 @@ function tsm_poll() {
  * times noted since the start move with it, so durations stay right */
 function iptv_shift(by) {
 	let mv = (o, ks) => { for (let k in ks) if (type(o[k]) == 'int' || type(o[k]) == 'double') o[k] += by; };
-	mv(iptv, [ 'since', 'stall_since', 'low_w', 'prev_w' ]);
+	mv(iptv, [ 'since', 'stall_since', 'low_w', 'prev_w', 'wd_w' ]);
 	mv(igmp, [ 'proxy_since', 'last_change' ]);
 	mv(tsq, [ 'started', 'drop_ts' ]);
 	for (let g, t in igmp.joined) if (t > 0) igmp.joined[g] = t + by;
