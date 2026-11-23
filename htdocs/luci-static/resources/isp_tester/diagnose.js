@@ -214,7 +214,12 @@ return baseclass.extend({
 		var decRestarts = byAll(function(e) { return e.type === 'decoder_restart'; });
 		/* only a decoder that was the only one watching (d.alone): with another
 		 * one watching, the freeze stopped its channel too - the stream's */
+		/* a restart logged by the other router: its "alone" knows only its own
+		 * ports. With two channels or more subscribed here when the stream
+		 * stopped, another decoder watched - the VLAN-wide stop was not that
+		 * restart (the freeze was "the decoder" and left out of the analysis) */
 		var covers = function(r, s) {
+			if ((r.host || '') !== (s.host || '') && s.d && s.d.groups >= 2) return false;
 			return !(r.d && r.d.alone === false) && s.ts >= r.ts - 15 && s.ts <= r.ts + ((r.d && r.d.dur) || 0) + 10;
 		};
 		var duringRestart = function(s) {
