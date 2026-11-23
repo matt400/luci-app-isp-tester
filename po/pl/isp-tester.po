@@ -2926,3 +2926,42 @@ msgstr "zgłasza %s"
 
 msgid "channels on its port: %s"
 msgstr "kanały na jego porcie: %s"
+
+msgid "the ip command of busybox knows no bridge options: install ip-full"
+msgstr "polecenie ip z busyboksa nie zna opcji mostka: zainstaluj ip-full"
+
+msgid "the kernel or ip-full is too old for per-VLAN IGMP snooping (OpenWrt 23.05 or newer needed)"
+msgstr "jądro lub ip-full są za stare na snooping IGMP osobno dla VLAN (potrzebny OpenWrt 23.05 lub nowszy)"
+
+msgid "the script did not work when it was run (see the system log, tag iptv-querier)"
+msgstr "skrypt nie zadziałał po uruchomieniu (zobacz log systemowy, znacznik iptv-querier)"
+
+msgid "per-VLAN snooping"
+msgstr "snooping osobno dla VLAN"
+
+msgid "the router's querier"
+msgstr "querier routera"
+
+msgid "the port towards the ISP as a router port"
+msgstr "port do operatora jako port routera multicast"
+
+msgid "snooping off in the other VLANs"
+msgstr "wyłączenie snoopingu w pozostałych VLAN-ach"
+
+msgid "the filter of the ISP's queries (kmod-nft-bridge installed?)"
+msgstr "filtr zapytań operatora (czy jest zainstalowany kmod-nft-bridge?)"
+
+msgid "The script does not work: %s"
+msgstr "Skrypt nie działa: %s"
+
+msgid "failed: %s"
+msgstr "nie udało się: %s"
+
+msgid "The IGMP querier setting cannot work: the ip command of busybox knows no bridge options – install ip-full (Settings → IPTV → IGMP querier)"
+msgstr "Ustawienie queriera IGMP nie może działać: polecenie ip z busyboksa nie zna opcji mostka – zainstaluj ip-full (Ustawienia → IPTV → Querier IGMP)"
+
+msgid "The IGMP querier setting cannot work: the kernel or ip-full is too old for per-VLAN IGMP snooping (Settings → IPTV → IGMP querier)"
+msgstr "Ustawienie queriera IGMP nie może działać: jądro lub ip-full są za stare na snooping IGMP osobno dla VLAN (Ustawienia → IPTV → Querier IGMP)"
+
+msgid "The IGMP querier script did not work when it was run – see Settings → IPTV → IGMP querier and the system log (iptv-querier)"
+msgstr "Skrypt queriera IGMP nie zadziałał po uruchomieniu – zobacz Ustawienia → IPTV → Querier IGMP i log systemowy (iptv-querier)"

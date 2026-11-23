@@ -326,7 +326,11 @@ function reasonText(r) {
 	case 'no_ping_source':  return _('No ping data: enable the Ping plugin of luci-app-statistics (collectd) and add the ISP gateway and far hosts there.');
 	case 'proxy_down':      return _('Multicast proxy %s is not running').format(r.name || '');
 	case 'igmp_noquery':    return _('The operator has stopped sending IGMP queries');
-	case 'querier_script_err': return _('The IGMP querier script cannot be written: %s (Settings → IPTV → IGMP querier)').format(r.err);
+	case 'querier_script_err': return ({
+			no_ip_full: _('The IGMP querier setting cannot work: the ip command of busybox knows no bridge options – install ip-full (Settings → IPTV → IGMP querier)'),
+			no_vlan_snooping: _('The IGMP querier setting cannot work: the kernel or ip-full is too old for per-VLAN IGMP snooping (Settings → IPTV → IGMP querier)'),
+			apply_failed: _('The IGMP querier script did not work when it was run – see Settings → IPTV → IGMP querier and the system log (iptv-querier)')
+		})[r.err] || _('The IGMP querier script cannot be written: %s (Settings → IPTV → IGMP querier)').format(r.err);
 	case 'querier_diff':    return _('The bridge does not match the IGMP querier setting (%s) – a network restart without the script, or the script was changed by hand').format((r.what || []).join(', '));
 	case 'querier_block_fail': return _('The ISP (%s) is still the IGMP querier although its queries should be blocked – the filter does not catch them').format(r.addr || '?');
 	case 'querier_none':    return _('No IGMP querier on VLAN %d for %s – the channels expire').format(r.vlan, fmtDur(rnow() - r.since));
@@ -1489,7 +1493,8 @@ return view.extend({
 						((x.groups || []).length ? ' · ' + (x.igmp ? _('reports %s') : _('channels on its port: %s')).format(
 							x.groups.map(function(g) { return chLabel(t, g); }).join(', ')) : '') ]
 					: [ dot(x.off ? 'unknown' : 'fail'), (x.off ? _('off / unplugged since %s') : _('not visible for %s')).format(
-						x.off ? hhmm(x.since) : fmtDur(rnow() - x.since)) + ' (' + x.port + ')' ]));
+						/* with the day when it is not today (off since last night showed only "22:15") */
+						x.off ? fmtWhen(x.since) : fmtDur(rnow() - x.since)) + ' (' + x.port + ')' ]));
 		});
 
 		/* the decoders' DHCP lease from the operator */
@@ -1549,8 +1554,9 @@ return view.extend({
 			igmp.push(E('span', { 'class': 'k', 'title': _('Whether this router\'s own querier is switched on. It asks only while no other querier (the ISP) is elected.') }, _('Router\'s querier')),
 				E('span', {}, t.bridge.querier == null ? '–' : (t.bridge.querier === '1' ? _('on') : _('off'))));
 		}
-		if (t.querier && t.querier.who && t.querier.who !== 'off') {
-			var qr = t.querier, qwho, qlvl = 'ok';
+		var qr = t.querier;
+		if (qr && qr.who && qr.who !== 'off') {
+			var qwho, qlvl = 'ok';
 			switch (qr.who) {
 			case 'isp':    qwho = _('the ISP') + (qr.addr ? ' · ' + qr.addr : '') + (qr.port ? ' (' + qr.port + ')' : ''); break;
 			case 'other':  qwho = _('another device') + ' · ' + (qr.addr || '?') + (qr.port ? ' (' + qr.port + ')' : ''); qlvl = 'warn'; break;
@@ -1563,16 +1569,19 @@ return view.extend({
 			if (qr.since) qv.push(' · ' + _('since %s').format(fmtWhen(qr.since)));
 			igmp.push(E('span', { 'class': 'k', 'title': _('Who sends the IGMP queries on the IPTV VLAN right now, as elected by the bridge. Every change is in the timeline.') }, _('Asks now')),
 				E('span', {}, qv));
-			if (qr.mode && qr.mode !== 'unmanaged') {
-				var modeTxt = { off: _('the ISP alone'), backup: _('the ISP, the router as a backup'), router: _('only the router') }[qr.mode] || qr.mode;
-				var bad = (qr.diff && qr.diff.length) || (qr.script && qr.script.err);
-				var mv = [ dot(bad ? 'warn' : 'ok'), _('set: %s').format(modeTxt) ];
-				if (qr.diff && qr.diff.length) mv.push(' · ' + _('the bridge differs (%s)').format(qr.diff.join(', ')));
-				if (qr.nft && qr.nft.ok) mv.push(' · ' + _('ISP queries blocked: %d').format(qr.nft.drops || 0) +
-					(qr.nft.last ? ' (' + _('last %s ago').format(fmtDur(rnow() - qr.nft.last)) + ')' : ''));
-				if (qr.nft && qr.nft.ok && qr.nft.out != null) mv.push(' · ' + _('own queries kept from the ISP: %d').format(qr.nft.out));
-				igmp.push(E('span', { 'class': 'k', 'title': _('Settings → IPTV → IGMP querier, kept in the system script /etc/hotplug.d/iface/99-iptv-querier.') }, _('Querier setup')), E('span', {}, mv));
-			}
+		}
+		/* also when nobody is known to ask, or snooping is off: exactly what a
+		 * script that did not work leaves behind - the line with "the bridge
+		 * differs" was hidden then */
+		if (qr && qr.mode && qr.mode !== 'unmanaged') {
+			var modeTxt = { off: _('the ISP alone'), backup: _('the ISP, the router as a backup'), router: _('only the router') }[qr.mode] || qr.mode;
+			var bad = (qr.diff && qr.diff.length) || (qr.script && qr.script.err);
+			var mv = [ dot(bad ? 'warn' : 'ok'), _('set: %s').format(modeTxt) ];
+			if (qr.diff && qr.diff.length) mv.push(' · ' + _('the bridge differs (%s)').format(qr.diff.join(', ')));
+			if (qr.nft && qr.nft.ok) mv.push(' · ' + _('ISP queries blocked: %d').format(qr.nft.drops || 0) +
+				(qr.nft.last ? ' (' + _('last %s ago').format(fmtDur(rnow() - qr.nft.last)) + ')' : ''));
+			if (qr.nft && qr.nft.ok && qr.nft.out != null) mv.push(' · ' + _('own queries kept from the ISP: %d').format(qr.nft.out));
+			igmp.push(E('span', { 'class': 'k', 'title': _('Settings → IPTV → IGMP querier, kept in the system script /etc/hotplug.d/iface/99-iptv-querier.') }, _('Querier setup')), E('span', {}, mv));
 		}
 
 		if (t.igmpq) {

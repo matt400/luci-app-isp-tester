@@ -34,7 +34,7 @@
 'use strict';
 
 import * as fs from 'fs';
-import { VARDIR, SYSNET, BRIDGE, valid_dev } from './lib/common.uc';
+import { VARDIR, SYSNET, BRIDGE, IPCMD, valid_dev } from './lib/common.uc';
 import { rd, base, is_uplink, bridge_json } from './lib/sysinfo.uc';
 import { load_config } from './lib/config.uc';
 
@@ -156,17 +156,20 @@ OTHERS='${join(' ', others)}'
 [ "$ACTION" = ifup ] || [ "$ACTION" = ifupdate ] || [ "$1" = apply ] || exit 0
 [ -d "/sys/class/net/$BR" ] || exit 0
 
-ip link set dev "$BR" type bridge mcast_snooping 1 mcast_vlan_snooping 1
-bridge vlan global set vid "$VID" dev "$BR" mcast_snooping 1 mcast_querier 1 mcast_igmp_version "$VER"
-bridge vlan set vid "$VID" dev "$UP" mcast_router 2
+# what did not work (logged, and the exit status of "apply")
+F=
+# (needs the ip of iproute2, ip-full: the one of busybox knows no bridge options)
+ip link set dev "$BR" type bridge mcast_snooping 1 mcast_vlan_snooping 1 || F="$F vlan_snooping"
+bridge vlan global set vid "$VID" dev "$BR" mcast_snooping 1 mcast_querier 1 mcast_igmp_version "$VER" || F="$F querier"
+bridge vlan set vid "$VID" dev "$UP" mcast_router 2 || F="$F router_port"
 for v in $OTHERS; do
-	bridge vlan global set vid "$v" dev "$BR" mcast_snooping 0
+	bridge vlan global set vid "$v" dev "$BR" mcast_snooping 0 || F="$F others"
 done
 
 if [ "$MODE" = router ]; then
 	# set once (every interface going up runs this): kept, so its counter goes on
 	if [ "$1" = apply ] || ! nft list table bridge isp_tester >/dev/null 2>&1; then
-		nft -f - <<EOF || logger -t iptv-querier "cannot set the filter of the ISP's IGMP queries (kmod-nft-bridge installed?)"
+		nft -f - <<EOF || F="$F filter"
 table bridge isp_tester
 delete table bridge isp_tester
 table bridge isp_tester {
@@ -184,6 +187,13 @@ EOF
 	fi
 else
 	nft delete table bridge isp_tester 2>/dev/null
+fi
+if [ -n "$F" ]; then
+	logger -t iptv-querier "IGMP querier of VLAN $VID on $BR ($MODE): failed:$F (ip-full, kmod-nft-bridge installed?)"
+	# the settings page shows what failed (before, every failure ended with
+	# exit 0 and the setting looked applied)
+	[ "$1" = apply ] && { echo "failed:$F"; exit 1; }
+	exit 0
 fi
 [ "$1" = apply ] && logger -t iptv-querier "IGMP querier of VLAN $VID on $BR: $MODE"
 exit 0
@@ -220,8 +230,26 @@ if (changed || force || nft_missing) {
 	}
 	else {
 		let r = sh(`sh ${SCRIPT} apply`);
-		if (r.code != 0) st.err = substr(split(r.out, '\n')[0] ?? '', 0, 160) || 'apply_failed';
+		if (r.code != 0) {
+			/* the script's own summary ("failed: querier filter"), else its first line */
+			let m = match(r.out, /(^|\n)failed:([a-z_ ]*)/);
+			st.err = 'apply_failed';
+			st.failed = m ? filter(split(trim(m[2]), ' '), (x) => x != '') : null;
+			st.out = substr(split(r.out, '\n')[0] ?? '', 0, 160) || null;
+		}
 	}
 	st.applied = true;
+}
+/* the busybox ip knows no bridge options: per-VLAN snooping cannot be set
+ * (the script then fails at its first line) - said plainly, not as "the
+ * bridge differs: vlan_snooping" */
+if (Q.mode == 'backup' || Q.mode == 'router') {
+	let info = null;
+	if (IPCMD) {
+		let r = sh(`${IPCMD} -d -j link show dev ${br}`);
+		try { let j = json(r.out || 'null'); info = (type(j) == 'array') ? j[0]?.linkinfo?.info_data : null; } catch (e) { info = null; }
+	}
+	if (type(info) != 'object') st.err = 'no_ip_full';
+	else if (info.mcast_vlan_snooping == null) st.err = 'no_vlan_snooping';
 }
 finish();

@@ -597,8 +597,25 @@ static void mem_leave(struct mem_host *h, uint32_t grp, double t)
 static void member_frame(const uint8_t *g, int n, const uint8_t *src, const uint8_t *mac, double t)
 {
 	if (n < 8 || (g[0] != 0x12 && g[0] != 0x16 && g[0] != 0x17 && g[0] != 0x22)) return;
-	struct mem_host *h = mem_get(mac, t);
 	uint32_t grp;
+	/* a message about no channel at all (SSDP / SLP of a TV, a phone or
+	 * the decoder's UPnP stack) is no sign of a decoder: it took one of the
+	 * MEM_HOSTS places (pushing out a decoder silent by report suppression),
+	 * counted as one of its reports and kept a forgotten host alive */
+	if (g[0] == 0x22) {
+		int nrec = be16(g + 6), p = 8, any = 0;
+		for (int r = 0; r < nrec && p + 8 <= n; r++) {
+			memcpy(&grp, g + p + 4, 4);
+			if (!mem_skip(grp)) { any = 1; break; }
+			p += 8 + 4 * be16(g + p + 2) + 4 * g[p + 1];
+		}
+		if (!any) return;
+	}
+	else {
+		memcpy(&grp, g + 4, 4);
+		if (mem_skip(grp)) return;
+	}
+	struct mem_host *h = mem_get(mac, t);
 	memcpy(&h->ip, src, 4);
 	h->t_last = t;
 	if (g[0] == 0x22) {
@@ -608,7 +625,7 @@ static void member_frame(const uint8_t *g, int n, const uint8_t *src, const uint
 		for (int r = 0; r < nrec && p + 8 <= n; r++) {
 			int type = g[p], aux = g[p + 1], ns = be16(g + p + 2);
 			memcpy(&grp, g + p + 4, 4);
-			if (type == 2 || type == 4 || type == 5 || ((type == 1 || type == 3) && ns > 0)) { mem_join(h, grp, t); joins++; }
+			if (type == 2 || type == 4 || type == 5 || ((type == 1 || type == 3) && ns > 0)) { mem_join(h, grp, t); joins += !mem_skip(grp); }
 			else if ((type == 1 || type == 3) && ns == 0) mem_leave(h, grp, t);
 			p += 8 + 4 * ns + 4 * aux;
 		}

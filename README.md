@@ -272,10 +272,12 @@ A querier that sends from `0.0.0.0` is never elected by the bridge – typically
 | **The ISP, the router as a backup** (`backup`) | per-VLAN snooping, the router's querier in the IPTV VLAN (`igmp_version`), the port towards the ISP a permanent multicast router port (the decoders' reports reach the ISP), with `others_off` no snooping in the other VLANs. The router asks only after the ISP was silent for 255 s |
 | **Only the router** (`router`) | as *backup*, and the ISP's general queries (to 224.0.0.1) arriving on the port towards the ISP are dropped (nftables table `bridge isp_tester`, needs `kmod-nft-bridge`): the router asks every 125 s, no hand-overs. The router's own queries are not sent out of that port either (hooks output and postrouting): towards the ISP go only the decoders' reports, as before |
 
+*backup* and *router* need the `ip` of iproute2 (`ip-full`): the one built into busybox knows no bridge options, and per-VLAN snooping (kernel and iproute2 from OpenWrt 23.05 on) cannot be set without it. The settings page says so (*the ip command of busybox knows no bridge options: install ip-full*) instead of only "the bridge differs". When the script is run and a step fails, it says which one (*failed: per-VLAN snooping, the filter of the ISP's queries*) and logs it in the system log (tag `iptv-querier`).
+
 The script is rewritten only when the setting changes (no flash writes at every boot) and is then run once, so the change works at once; at boot it runs whenever an interface comes up. A script of the same name not written by ISP Tester is kept as `/etc/isp-tester/99-iptv-querier.orig` first. The filter matches by offsets from the Ethernet header, so it works whether the network card strips the VLAN tag or not; `isp-tester-tsmon` still sees the dropped queries (*ISP IGMP queries* keeps working). The card shows how many were dropped; if the ISP is still elected more than 255 s after the filter was set, it warns that the filter does not catch them.
 
 ```sh
-opkg install kmod-nft-bridge
+opkg install ip-full kmod-nft-bridge
 nft list table bridge isp_tester                      # the rule and its counter
 cat /etc/hotplug.d/iface/99-iptv-querier              # the script (MODE=... at the top)
 sh /etc/hotplug.d/iface/99-iptv-querier apply         # run it by hand

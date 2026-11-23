@@ -2923,3 +2923,42 @@ msgstr ""
 
 msgid "channels on its port: %s"
 msgstr ""
+
+msgid "the ip command of busybox knows no bridge options: install ip-full"
+msgstr ""
+
+msgid "the kernel or ip-full is too old for per-VLAN IGMP snooping (OpenWrt 23.05 or newer needed)"
+msgstr ""
+
+msgid "the script did not work when it was run (see the system log, tag iptv-querier)"
+msgstr ""
+
+msgid "per-VLAN snooping"
+msgstr ""
+
+msgid "the router's querier"
+msgstr ""
+
+msgid "the port towards the ISP as a router port"
+msgstr ""
+
+msgid "snooping off in the other VLANs"
+msgstr ""
+
+msgid "the filter of the ISP's queries (kmod-nft-bridge installed?)"
+msgstr ""
+
+msgid "The script does not work: %s"
+msgstr ""
+
+msgid "failed: %s"
+msgstr ""
+
+msgid "The IGMP querier setting cannot work: the ip command of busybox knows no bridge options – install ip-full (Settings → IPTV → IGMP querier)"
+msgstr ""
+
+msgid "The IGMP querier setting cannot work: the kernel or ip-full is too old for per-VLAN IGMP snooping (Settings → IPTV → IGMP querier)"
+msgstr ""
+
+msgid "The IGMP querier script did not work when it was run – see Settings → IPTV → IGMP querier and the system log (iptv-querier)"
+msgstr ""
