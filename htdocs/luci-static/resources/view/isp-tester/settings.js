@@ -229,8 +229,18 @@ function querierErr(e) {
 	case 'no_bridge_tool': return _('the bridge command is missing: install ip-bridge');
 	case 'write_failed':   return _('the file cannot be written');
 	case 'backup_failed':  return _('your script cannot be backed up, so it was not replaced');
+	case 'no_ip_full':     return _('the ip command of busybox knows no bridge options: install ip-full');
+	case 'no_vlan_snooping': return _('the kernel or ip-full is too old for per-VLAN IGMP snooping (OpenWrt 23.05 or newer needed)');
+	case 'apply_failed':   return _('the script did not work when it was run (see the system log, tag iptv-querier)');
 	default:               return e;
 	}
+}
+
+/* the steps of the script that failed (querier-gen.uc: st.failed) */
+function querierFailed(list) {
+	var t = { vlan_snooping: _('per-VLAN snooping'), querier: _('the router\'s querier'), router_port: _('the port towards the ISP as a router port'),
+		others: _('snooping off in the other VLANs'), filter: _('the filter of the ISP\'s queries (kmod-nft-bridge installed?)') };
+	return (list || []).map(function(x) { return t[x] || x; }).join(', ');
 }
 
 /* what of the bridge differs from the chosen mode */
@@ -619,7 +629,9 @@ return view.extend({
 					sc.ours ? _('written by ISP Tester, mode %s').format('<code>' + esc(sc.file_mode || '?') + '</code>') : _('your own (not written by ISP Tester)')) +
 					(sc.sysupgrade ? ' · ' + _('kept over a firmware upgrade') : ''));
 				if (sc.backup) out.push(_('Your previous script was kept as %s').format('<code>' + esc(sc.backup) + '</code>'));
-				if (sc.err && sc.mode !== 'unmanaged') out.push('<strong>' + _('Cannot write the script: %s').format(querierErr(sc.err)) + '</strong>');
+				if (sc.err && sc.mode !== 'unmanaged') out.push('<strong>' + ([ 'no_ip_full', 'no_vlan_snooping', 'apply_failed' ].indexOf(sc.err) >= 0
+					? _('The script does not work: %s') : _('Cannot write the script: %s')).format(esc(querierErr(sc.err)) +
+					(sc.failed && sc.failed.length ? ' – ' + esc(_('failed: %s').format(querierFailed(sc.failed))) : '')) + '</strong>');
 			}
 			if (q.diff && q.diff.length) out.push('<strong>' + _('The bridge differs from the setting: %s').format(q.diff.map(diffText).join(', ')) + '</strong>');
 			if (q.nft && q.nft.ok) out.push(_('ISP queries dropped so far: %d').format(q.nft.drops || 0));
