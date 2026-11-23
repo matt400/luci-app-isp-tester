@@ -1,0 +1,72 @@
+name: Lint and tests
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+  # the release build runs this first
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # ucode as in OpenWrt; pinned so a change upstream does not break CI
+  UCODE_REPO: https://github.com/jow-/ucode
+  UCODE_REF: a2c42eac6369a0bba0315007c7dc7b7130275340
+
+jobs:
+  test:
+    name: Lint and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends libjson-c-dev shellcheck cmake
+
+      - name: Cache ucode
+        id: ucode-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/ucode
+          key: ucode-${{ env.UCODE_REF }}-${{ runner.os }}
+
+      - name: Build ucode
+        if: steps.ucode-cache.outputs.cache-hit != 'true'
+        run: |
+          git init -q /tmp/ucode-src && cd /tmp/ucode-src
+          git fetch -q --depth 1 "$UCODE_REPO" "$UCODE_REF" && git checkout -q FETCH_HEAD
+          cmake -S . -B b -DCMAKE_INSTALL_PREFIX="$HOME/ucode" \
+            -DUBUS_SUPPORT=OFF -DUCI_SUPPORT=OFF -DULOOP_SUPPORT=OFF -DRTNL_SUPPORT=OFF \
+            -DNL80211_SUPPORT=OFF -DDIGEST_SUPPORT=OFF -DZLIB_SUPPORT=OFF -DDEBUG_SUPPORT=OFF \
+            -DSOCKET_SUPPORT=OFF
+          cmake --build b -j"$(nproc)"
+          cmake --install b
+
+      - name: ucode on PATH
+        run: |
+          echo "$HOME/ucode/bin" >> "$GITHUB_PATH"
+          echo "LD_LIBRARY_PATH=$HOME/ucode/lib" >> "$GITHUB_ENV"
+          echo "UCODE=ucode -L $HOME/ucode/lib/ucode" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install ESLint
+        run: npm install --no-save --no-audit --no-fund eslint@9.39 @eslint/js@9.39 globals@17
+
+      - name: Lint
+        run: sh tests/run.sh lint
+
+      - name: Tests
+        run: sh tests/run.sh test
