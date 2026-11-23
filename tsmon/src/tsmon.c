@@ -89,6 +89,7 @@ struct group {
 	double t_first, t_last, t_psi;
 	uint64_t pkts, bytes, ts_pkts;
 	uint64_t cc_err, lost, tei, sync_err;
+	unsigned tei_open;       /* TEI packets whose counter step has not shown up yet */
 	uint64_t gaps, restarts;
 	unsigned gap_last_ms, gap_max_ms;
 	int rtp;
@@ -471,6 +472,7 @@ static void cc_reset(struct group *g)
 	memset(g->dup, 0, sizeof(g->dup));
 	g->rtp_seq = -1;
 	g->rtp_back = 0;
+	g->tei_open = 0;
 }
 
 static struct group *group_get(uint32_t addr, double t)
@@ -810,6 +812,9 @@ static void handle_frame(const uint8_t *f, int caplen, int wirelen, double t, in
 			 * trusted - counted once here, not again as a CC error of a
 			 * random PID (the collector adds the two up) */
 			g->tei++;
+			/* its PID's counter then jumps by one at the next good packet:
+			 * that step is this packet, already counted */
+			if (g->tei_open < 16) g->tei_open++;
 			continue;
 		}
 		int pid = ((x1 & 0x1f) << 8) | x2;
@@ -842,8 +847,13 @@ static void handle_frame(const uint8_t *f, int caplen, int wirelen, double t, in
 				continue;
 			}
 			else {
-				g->cc_err++;
-				g->lost += (cc - exp) & 15;
+				/* skipped packets, less the damaged one(s) already counted as TEI */
+				unsigned d = (unsigned)(cc - exp) & 15, k = g->tei_open < d ? g->tei_open : d;
+				g->tei_open -= k;
+				if (d > k) {
+					g->cc_err++;
+					g->lost += d - k;
+				}
 				g->dup[pid] = 0;
 			}
 		}

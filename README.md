@@ -452,6 +452,26 @@ Further overrides: `ISP_TESTER_VARDIR`, `ISP_TESTER_PROC` (fake `/proc` with `st
 
 `ISP_TESTER_CONFIG` is a JSON file with the same keys as the UCI config (see `default_config()` in the collector).
 
+### Lint and tests
+
+Every push and pull request runs `.github/workflows/test.yml`; a release tag is built only when it passes. The same locally:
+
+```sh
+npm install --no-save eslint@9 @eslint/js@9 globals
+sh tests/run.sh          # or: sh tests/run.sh lint / sh tests/run.sh test
+```
+
+Needs ucode (with `fs`), shellcheck, gcc, python3 and node. What it checks:
+
+- **lint**: every `.uc` compiles and imports only names its modules export (`ucode -c`), shellcheck of the shell scripts, ESLint of the LuCI views, tsmon builds without warnings
+- **tsmon** (`tests/tsmon/`): synthetic pcap captures (CC jumps, duplicates, TEI, pauses, RTP, VLAN, IGMP queries / reports) run through `tsmon -r`, built with ASan + UBSan
+- **ucode** (`tests/uc/`): the parsers (mtr / traceroute / ethtool -m / logread lines), validators, both message languages
+- **querier-gen** (`tests/querier/`): the hotplug script it writes for each mode, against a fake `/sys` and fake `bridge` / `ip` / `nft`; the written script goes through shellcheck too
+- **diagnose.js** (`tests/js/`): the probable-cause verdicts for typical event sets
+- **consistency** (`tests/consistency/`): every UI string translated with the same `%s` / `%d`, every emitted event type has a text in the UI and in the notifications
+
+A bug found on the router is best added as a test first (a capture, a log line, an event list), then fixed.
+
 ## License
 
 Apache-2.0

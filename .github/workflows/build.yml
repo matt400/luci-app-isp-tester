@@ -9,7 +9,12 @@ permissions:
   contents: read
 
 jobs:
+  # no release from code that fails the lint / tests
+  test:
+    uses: ./.github/workflows/test.yml
+
   build:
+    needs: test
     name: OpenWrt ${{ matrix.release }} (${{ matrix.ext }})
     runs-on: ubuntu-latest
     strategy:
@@ -73,6 +78,7 @@ jobs:
 
   # the helper (isp-tester-tsmon) is compiled, so one package per architecture
   tsmon:
+    needs: test
     name: tsmon ${{ matrix.arch }} (${{ matrix.ext }})
     runs-on: ubuntu-latest
     strategy:

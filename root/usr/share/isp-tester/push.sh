@@ -73,7 +73,7 @@ ensure_key() {
 }
 
 pubkey() {
-	local key=${1:-$(conf key)}
+	local key="${1:-$(conf key)}"
 	: "${key:=$DEF_KEY}"
 	printf '%s' "$key" | grep -Eq '^/[A-Za-z0-9._/-]{1,120}$' || fail bad_key
 	ensure_key "$key"
@@ -90,7 +90,7 @@ pubkey() {
 # key is not accepted, instead of waiting for an answer nobody can give.
 ssh_run() {
 	# $1 = remote command, $2 = file for its stdin (default /dev/null)
-	local tmo=${SSH_TMO:-300} in=${2:-/dev/null} pid rc
+	local tmo="${SSH_TMO:-300}" in="${2:-/dev/null}" pid rc
 	# DROPBEAR_PASSWORD would be sent as the password: never use one
 	unset DROPBEAR_PASSWORD
 	if command -v timeout >/dev/null 2>&1; then
@@ -174,13 +174,15 @@ send() {
 	SENDING=1
 	load
 	ensure_key "$KEY"
-	local ts=$(date +%s) name size files= f out rc
+	local ts name size files='' f out rc
+	ts=$(date +%s)
 	state "{\"ok\":false,\"state\":\"running\",\"ts\":$ts}"
 	for f in $DATA_FILES; do [ -f "$RUNDIR/$f" ] && files="$files $f"; done
 	[ -n "$files" ] || fail no_data
 	name="isp-tester-$(host)-$(date +%Y%m%d-%H%M).tar.gz"
 	# the other device writes to a temporary name and renames at the end, so
 	# a cut transfer never leaves a broken .tar.gz behind
+	# shellcheck disable=SC2086 # $files is a list of bare names, split on purpose
 	( cd "$RUNDIR" && tar -czf "$tmp" $files ) 2>/dev/null || fail tar
 	size=$(wc -c < "$tmp")
 	# only the exit status counts: dbclient also prints notes (new host key)
