@@ -260,8 +260,10 @@ let dec = { list: {}, err: null, t: 0, shared: {}, t0: null };
  * The bridge's multicast table knows only "group -> port": two decoders
  * behind one port (a switch) could not be told apart - one in standby
  * looked on while the other one watched. off = the helper does not know -M
- * (an older isp-tester-tsmon) */
-let mem = { hosts: null, ts: null, off: false };
+ * (an older isp-tester-tsmon). rep = mac -> its last report seen: the
+ * helper forgets a group not reported for 10 min, the time of the report
+ * stays here */
+let mem = { hosts: null, ts: null, off: false, rep: {} };
 
 /* tsmon's members, with its ages turned into times */
 function mem_ingest(r, t) {
@@ -275,7 +277,9 @@ function mem_ingest(r, t) {
 			if (valid_group(g?.grp) && !mc_ignored(g.grp)) gs[g.grp] = int(t - (+g.age || 0) + 0.5);
 		out[mac] = { groups: gs, last: int(t - (+x.age || 0) + 0.5), ver: x.ver,
 			leave: (type(x.leave) == 'object') ? int(t - (+x.leave.age || 0) + 0.5) : null, leave_grp: x.leave?.grp };
+		for (let g, ts in gs) if (ts > (mem.rep[mac] ?? 0) && ts <= t) mem.rep[mac] = ts;
 	}
+	for (let mac, ts in mem.rep) if (out[mac] == null && t - ts > 86400) delete mem.rep[mac];
 	mem.hosts = out;
 	mem.ts = t;
 }
@@ -297,11 +301,18 @@ function mem_active(h, t) {
 	return sort(out);
 }
 
-/* it left its groups (a leave newer than every report) */
-function mem_left(h) {
+/* it left its groups: a leave newer than every report of it seen, not
+ * only than the groups the helper still lists. With IGMPv2 a decoder keeps
+ * quiet when another one behind the same switch already answered the query
+ * for the same channel (report suppression), so it may send no report for
+ * more than the helper's 10 min: its channel was forgotten, the leave of its
+ * last zap was the newest thing left, and it was logged as switched off while
+ * it watched. Strictly newer: a zap sends the leave and the new report in the
+ * same second */
+function mem_left(mac, h) {
 	if (h?.leave == null) return false;
-	for (let g, ts in h.groups) if (ts > h.leave) return false;
-	return true;
+	for (let g, ts in h.groups) if (ts >= h.leave) return false;
+	return h.leave > (mem.rep[mac] ?? 0);
 }
 
 function dhcp_src(mac) {
@@ -851,7 +862,7 @@ function dec_poll() {
 		 * expire by themselves). Only while it is in the table: gone (link
 		 * down, aged out) is judged by dec_off above - a restart with the
 		 * link down for more than dec_silence was logged as off and on */
-		let mh = mem_host(mac), left = !d.off && here && mh != null && mem_left(mh) && !length(mem_active(mh, t));
+		let mh = mem_host(mac), left = !d.off && here && mh != null && mem_left(mac, mh) && !length(mem_active(mh, t));
 		if (left && t - mh.leave >= C.cfg.iptv.dec_silence) {
 			/* it left its channels itself and reports none since: switched
 			 * off, also while another decoder behind the same port watches.
@@ -1509,6 +1520,26 @@ function sample_iptv(devres) {
 	}
 	else iptv.wd_m = iptv.wd_w = null;
 
+	/* no reading at all (the counters vanished: VLAN gone, bridge tool
+	 * failing): the watchdog above never ran and the card stayed "playing"
+	 * (or red "stalled") with nothing measured. After the same time it is
+	 * not known any more - idle, the reason (vlan_*) is shown on the card */
+	if (!ok && iptv.state != 'idle') {
+		let m = mono(), lim = max(C.cfg.iptv.off_after, C.cfg.iptv.stall_after) + C.cfg.interval * 2 + 5;
+		iptv.nr_m ??= m;
+		if (m - iptv.nr_m > lim) {
+			warn(`isp-tester: iptv: no bitrate reading for ${round(m - iptv.nr_m, 0)} s, stream state ${iptv.state} reset\n`);
+			iptv.state = 'idle';
+			iptv.since = now();
+			iptv.dip = iptv.held = false;
+			iptv.hold_def = 0;
+			iptv.low_m = iptv.low_w = null;
+			iptv.prev = null;
+			iptv.nr_m = null;
+		}
+	}
+	else iptv.nr_m = null;
+
 	kbps = round(kbps ?? 0, 0);
 	iptv.kbps = kbps;
 	iptv.pps = round(pps ?? 0, 0);
@@ -1846,6 +1877,11 @@ function iptv_shift(by) {
 		for (let g, ts in h.groups) h.groups[g] = ts + by;
 	}
 	mv(mem, [ 'ts' ]);
+	for (let mac, ts in mem.rep) mem.rep[mac] = ts + by;
+	/* the switch's MAC seen in another VLAN: a step forward made it "a day
+	 * ago" (forgotten, a decoder again), a step back held the next check */
+	mv(dec_other, [ 't' ]);
+	for (let mac, ts in dec_other.seen) dec_other.seen[mac] = ts + by;
 	/* the operator's queries: a step forward would look like a long silence
 	 * (a false igmp_noquery), the decoders' leases like expired ones */
 	mv(igq, [ 'last_ts', 'since', 'silent_ref' ]);
