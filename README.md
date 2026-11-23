@@ -104,7 +104,7 @@ The panel looks at what happened **at the same time** (within 30 s) in the selec
 | IPTV freeze while the router stayed subscribed to the channel | ISP multicast side |
 | IPTV freeze that started with the IGMP membership being dropped | IGMP timeout on the router / switch |
 | Freeze period matches the bridge's IGMP membership or query interval | IGMP timer, i.e. router configuration (stronger) |
-| IPTV interruption with a different group after it | channel change: ignored |
+| IPTV interruption that starts with a change of group | channel change: ignored (a change seconds later is you zapping because of the freeze: the freeze counts) |
 | Stream gone and no channel subscribed for 15 s (`off_after`) | decoder switched off: not a fault, not counted |
 | Multicast proxy stopped or restarted | router |
 | PPPoE/DHCP session dropped while the WAN link stayed up | ISP |
@@ -186,6 +186,8 @@ A decoder that restarts makes the picture stop just like a stream the ISP stoppe
 | **Port link down** | decoder plugged directly into this router's port |
 | **Vanished from the MAC table** and came back | the entry is flushed on a link change and ages out after 5 min of silence |
 | **Silent** for *Silent for* (40 s) **while the stream stopped**, then frames again | decoder behind a switch: its port on this router stays up |
+
+**Switched off** (standby) is seen from the channels: a decoder that watches keeps its channel subscribed. The bridge's multicast table only knows *channel → port*, so two decoders behind one switch could not be told apart (one in standby looked on while the other one watched). With `isp-tester-tsmon` the decoders' own IGMP reports and leaves are noted too (`-M`, on the port towards the ISP, where the bridge sends them), per MAC address: a decoder that left its channels and reports none for *Silent for* (40 s) is switched off, also while another one on the same port watches; it is *back* when it reports a channel again. The IPTV card shows *reports TVP 1 (239.…)* for such a decoder, *channels on its port* otherwise. Until a decoder sends its first report (the next query, within ~2 min after a start) it is judged by its port as before. Limit: two decoders on the **same** channel behind an unmanaged switch with IGMPv2 – one hears the other's report and stays silent (report suppression); IGMPv3 has none. An older helper without `-M` is restarted without it.
 
 Back within *Switched off after* (10 min): **decoder restarted**, with how long it was away and which signal saw it. Longer: *switched off or unplugged*, then *back*. The IPTV card lists the decoders with their port and state.
 
@@ -340,6 +342,7 @@ How it works, and what it costs:
 - It counts **every packet, all the time**, as it arrives: continuity errors, transport error flags, RTP gaps and pauses. Nothing is stored and no file is written except a small status file in RAM once a second. A HD stream is about 1000 packets/s and the work per packet is a few counter checks, so it is light even on small routers (`top` shows it after enabling).
 - The collector reads the counters every interval. The thresholds count the errors **of the last minute**, so short glitches that happen once an hour or less are caught too, which short sampled captures would usually miss.
 - If the router itself is too busy to take every packet (its socket buffer overflows), those packets are reported as *not counted*, and errors at that time are not logged as the ISP's fault.
+- Zapping away and back within a few seconds stops the channel at the operator and starts it again, which looks like lost packets. Errors read while another channel was just joined are not counted (shown as *Channel changes* on the IPTV card).
 - The channel being watched is the multicast group that carries TS, so channel changes need no setting and the log names the group. EPG/service groups are ignored. A second decoder on another channel is reported separately.
 - Events are limited by the same cooldown as port errors; errors held back by it are added to the next event.
 - It measures the stream **as it arrives at the router**, so lost packets found here come from the ISP side. Measured on the decoder port (direction *outgoing*), the result is only informational in the analysis.

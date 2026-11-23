@@ -2908,3 +2908,15 @@ msgstr "zatrzymane zapytania routera do operatora: %d"
 
 msgid "the router asks the decoders itself, the channels are not affected"
 msgstr "router sam pyta dekodery, kanały nie są zagrożone"
+
+msgid "Channel changes"
+msgstr "Zmiany kanału"
+
+msgid "%d errors right after a channel change not counted (zapping away and back restarts the stream at the operator)"
+msgstr "%d błędów tuż po zmianie kanału nie liczonych (szybkie przełączenie tam i z powrotem uruchamia strumień u operatora od nowa)"
+
+msgid "reports %s"
+msgstr "zgłasza %s"
+
+msgid "channels on its port: %s"
+msgstr "kanały na jego porcie: %s"
