@@ -1483,7 +1483,10 @@ return view.extend({
 			decs.push(E('span', { 'class': 'k' }, _('Decoder %s').format(x.label || x.mac)), E('span', { 'class': (x.present || x.off) ? '' : 'ispt-warn-text' },
 				(x.present && !x.off)
 					? [ dot(x.quiet ? 'warn' : 'ok'), _('on %s, for %s').format(x.port, fmtDur(rnow() - x.since)) +
-						(x.quiet ? ' · ' + _('silent for %s').format(fmtDur(rnow() - x.active)) : '') ]
+						(x.quiet ? ' · ' + _('silent for %s').format(fmtDur(rnow() - x.active)) : '') +
+						/* its own IGMP reports (isp-tester-tsmon): told apart from another decoder on the same port */
+						((x.groups || []).length ? ' · ' + (x.igmp ? _('reports %s') : _('channels on its port: %s')).format(
+							x.groups.map(function(g) { return chLabel(t, g); }).join(', ')) : '') ]
 					: [ dot(x.off ? 'unknown' : 'fail'), (x.off ? _('off / unplugged since %s') : _('not visible for %s')).format(
 						x.off ? hhmm(x.since) : fmtDur(rnow() - x.since)) + ' (' + x.port + ')' ]));
 		});
@@ -1533,6 +1536,9 @@ return view.extend({
 			if (q.drop_ts && rnow() - q.drop_ts < 600)
 				kv.push(E('span', { 'class': 'k' }, _('Not counted')),
 					E('span', {}, [ dot('warn'), ' ', _('%d packets the router was too busy to count (last %s ago) – errors at that time are not logged').format(q.dropped, fmtDur(rnow() - q.drop_ts)) ]));
+			if (q.zap_skip)
+				kv.push(E('span', { 'class': 'k' }, _('Channel changes')),
+					E('span', {}, _('%d errors right after a channel change not counted (zapping away and back restarts the stream at the operator)').format(q.zap_skip)));
 		}
 
 		if (t.bridge) {

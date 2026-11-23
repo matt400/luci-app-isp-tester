@@ -25,7 +25,8 @@ define Package/isp-tester-tsmon/description
   Listens on the IPTV port with a kernel filter (only the IPTV multicast)
   and counts MPEG-TS continuity errors, transport errors, RTP gaps and
   pauses of every multicast group, continuously and without storing
-  packets. Also reads the channel names (DVB SDT). Used by
+  packets. Also reads the channel names (DVB SDT), the operator's IGMP
+  queries and the decoders' own IGMP reports and leaves. Used by
   luci-app-isp-tester.
 endef
 

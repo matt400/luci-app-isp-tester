@@ -2905,3 +2905,15 @@ msgstr ""
 
 msgid "the router asks the decoders itself, the channels are not affected"
 msgstr ""
+
+msgid "Channel changes"
+msgstr ""
+
+msgid "%d errors right after a channel change not counted (zapping away and back restarts the stream at the operator)"
+msgstr ""
+
+msgid "reports %s"
+msgstr ""
+
+msgid "channels on its port: %s"
+msgstr ""

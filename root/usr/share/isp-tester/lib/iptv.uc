@@ -51,7 +51,7 @@ function igmpq_limit() {
 }
 
 let tsq = { proc: null, args: null, started: 0, fails: 0, next: 0, err: null, seen: {}, drops: null, flow: null,
-	win: [], last: null, pend: {}, last_ev: {}, last_lvl: {}, cc_acc: null, dropped: 0, drop_ts: 0 };
+	win: [], last: null, pend: {}, last_ev: {}, last_lvl: {}, cc_acc: null, dropped: 0, drop_ts: 0, read_t: null, zap_skip: 0 };
 /* channel names: db = group -> { name, provider, sid, ts } learned from the
  * streams (or { name: null, why, ts } when a stream carries none) */
 let chn = { db: {}, err: null };
@@ -176,7 +176,15 @@ function igmp_classify(from) {
 	let step = (C.cfg.iptv.sample_interval > 0) ? C.cfg.iptv.sample_interval : C.cfg.interval;
 	let lim = from + C.cfg.iptv.stall_after + step + 2;
 	let emptied = length(filter(rel, (h) => !length(h.after) && h.ts <= lim)) > 0;
-	if (length(before) && length(after) && join(',', before) != join(',', after)) return 'zap';
+	/* a channel change that stops the stream comes with the stop (the
+	 * decoder leaves the old group as it joins the new one). A change
+	 * seconds later is the viewer reacting to a freeze (a frozen picture,
+	 * channel up and back): it was taken for the cause, the freeze was
+	 * "a channel change - ignored" and left out of the analysis */
+	let zap = filter(rel, (h) => h.ts <= from + step + 2);
+	if (length(zap) && length(before) && length(zap[length(zap) - 1].after) &&
+	    join(',', before) != join(',', zap[length(zap) - 1].after))
+		return 'zap';
 	if (emptied || !length(before)) return 'left';
 	/* left and joined again later: subscribed when the data stopped */
 	return length(after) ? 'joined' : null;
@@ -246,6 +254,55 @@ function sample_proxy() {
 let dhl = { pid: null, seq: 0, mac: {} };
 /* decoders seen in the IPTV VLAN (see dec_poll) */
 let dec = { list: {}, err: null, t: 0, shared: {}, t0: null };
+/* the decoders' own IGMP messages, seen by tsmon -M on the port towards the
+ * ISP (reports and leaves go there): hosts = mac -> { groups: { grp: time
+ * of its last report }, last, leave: time of its last leave, leave_grp }.
+ * The bridge's multicast table knows only "group -> port": two decoders
+ * behind one port (a switch) could not be told apart - one in standby
+ * looked on while the other one watched. off = the helper does not know -M
+ * (an older isp-tester-tsmon) */
+let mem = { hosts: null, ts: null, off: false };
+
+/* tsmon's members, with its ages turned into times */
+function mem_ingest(r, t) {
+	if (type(r?.members) != 'array') { mem.hosts = null; return; }
+	let out = {};
+	for (let x in r.members) {
+		let mac = lc(`${x?.mac ?? ''}`);
+		if (!match(mac, /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/)) continue;
+		let gs = {};
+		for (let g in (type(x.groups) == 'array' ? x.groups : []))
+			if (valid_group(g?.grp) && !mc_ignored(g.grp)) gs[g.grp] = int(t - (+g.age || 0) + 0.5);
+		out[mac] = { groups: gs, last: int(t - (+x.age || 0) + 0.5), ver: x.ver,
+			leave: (type(x.leave) == 'object') ? int(t - (+x.leave.age || 0) + 0.5) : null, leave_grp: x.leave?.grp };
+	}
+	mem.hosts = out;
+	mem.ts = t;
+}
+
+/* the decoder as its IGMP shows it: null when the helper does not report
+ * the members, or this decoder sent nothing since it started (a decoder that
+ * watches answers the next query; until then the port is judged as before) */
+function mem_host(mac) {
+	if (mem.hosts == null || mem.ts == null || now() - mem.ts > 30) return null;
+	return mem.hosts[mac];
+}
+
+/* the groups it reported recently: a decoder that watches answers every
+ * query (the router's own when it asks, else the operator's) */
+function mem_active(h, t) {
+	let lim = 2 * (C.querier_query() ?? igmpq_expected()) + ((igq.max_resp > 0) ? igq.max_resp / 10.0 : 10) + 20;
+	let out = [];
+	for (let g, ts in (h?.groups ?? {})) if (t - ts <= lim) push(out, g);
+	return sort(out);
+}
+
+/* it left its groups (a leave newer than every report) */
+function mem_left(h) {
+	if (h?.leave == null) return false;
+	for (let g, ts in h.groups) if (ts > h.leave) return false;
+	return true;
+}
 
 function dhcp_src(mac) {
 	return C.cfg.iptv.dec_labels[mac] || mac;
@@ -628,6 +685,10 @@ function dec_alone(mac, port) {
 		if (p != port && length(port_groups(p))) return false;
 	for (let m, o in dec.list)
 		if (m != mac && o.port == port && o.present && !o.off) return false;
+	/* another decoder that reports a channel, also behind the same port */
+	let t = now();
+	for (let m, o in dec.list)
+		if (m != mac && !o.off && length(mem_active(mem_host(m), t))) return false;
 	return true;
 }
 
@@ -641,6 +702,18 @@ function dec_off_logged(mac) {
 		if (e.type == 'decoder_on' || e.type == 'decoder_restart') return false;
 	}
 	return false;
+}
+
+/* is it watching again (on after off)? By its own IGMP: a report after it
+ * went off (a decoder that is switched on joins its channel at once). Not
+ * known by it: a channel on its port, or anything without membership data */
+function dec_watches(mac, port, since, t, mdb_ok) {
+	let mh = mem_host(mac);
+	if (mh) {
+		for (let g in mem_active(mh, t)) if (mh.groups[g] > (since ?? 0)) return true;
+		return false;
+	}
+	return !mdb_ok || length(port_groups(port)) > 0;
 }
 
 function dec_poll() {
@@ -710,7 +783,7 @@ function dec_poll() {
 					 * and off again by "leave" below a tick later, with the same
 					 * time - a pair for every such frame. Without membership data
 					 * the frame is all there is */
-					if (!mdb_ok || length(port_groups(x.port))) {
+					if (dec_watches(mac, x.port, d.gone_at, t, mdb_ok)) {
 						C.emit('info', 'iptv', src, 'decoder_on', { mac, port: x.port, dur });
 						d.off = false;
 						d.on_t = t;
@@ -740,7 +813,7 @@ function dec_poll() {
 			/* switched off by its channel being left (below): on again when
 			 * it talks and watches again - not by a stray frame in standby */
 			else if (d.off) {
-				if (x.age != null && x.age < C.cfg.iptv.dec_silence && (!mdb_ok || length(port_groups(d.port)))) {
+				if (x.age != null && x.age < C.cfg.iptv.dec_silence && dec_watches(mac, d.port, d.gone_at, t, mdb_ok)) {
 					C.emit('info', 'iptv', src, 'decoder_on', { mac, port: x.port, dur: max(1, t - d.gone_at) });
 					d.off = false;
 					d.on_t = t;
@@ -778,7 +851,19 @@ function dec_poll() {
 		 * expire by themselves). Only while it is in the table: gone (link
 		 * down, aged out) is judged by dec_off above - a restart with the
 		 * link down for more than dec_silence was logged as off and on */
-		if (!d.off && here && mdb_ok && !length(port_groups(d.port))) {
+		let mh = mem_host(mac), left = !d.off && here && mh != null && mem_left(mh) && !length(mem_active(mh, t));
+		if (left && t - mh.leave >= C.cfg.iptv.dec_silence) {
+			/* it left its channels itself and reports none since: switched
+			 * off, also while another decoder behind the same port watches.
+			 * Its stray frames in standby do not matter */
+			d.off = true;
+			d.gone_at = mh.leave;
+			d.quiet_from = null;
+			if (mh.leave >= dec.t0 - 5 || !dec_off_logged(mac))
+				C.emit('info', 'iptv', src, 'decoder_off', { mac, port: d.port, via: 'leave', igmp: 1 }, mh.leave);
+		}
+		/* by its IGMP it still watches: not off, whatever the port shows */
+		else if (!d.off && here && mdb_ok && !length(port_groups(d.port)) && !length(mem_active(mh, t))) {
 			let last = active;
 			if (last != null && t - last >= C.cfg.iptv.dec_silence && !dec_noquery_hit(last)) {
 				d.off = true;
@@ -799,10 +884,10 @@ function dec_poll() {
 
 	let out = [];
 	for (let mac, d in dec.list) {
-		let chs = port_groups(d.port);
+		let mh = mem_host(mac), chs = mh ? mem_active(mh, t) : port_groups(d.port);
 		push(out, { mac, label: C.cfg.iptv.dec_labels[mac] ?? '', port: d.port, present: d.present, off: d.off,
 			since: (d.present && !d.off) ? d.since : d.gone_at, active: d.last_active, quiet: d.quiet_from != null,
-			groups: slice(chs, 0, 4) });
+			groups: slice(chs, 0, 4), igmp: mh != null });
 	}
 	return sort(out, (a, b) => (a.port < b.port) ? -1 : (a.port > b.port) ? 1 : 0);
 }
@@ -817,7 +902,7 @@ const TSQ_DROP_SHOW = 600;   /* s: how long packets the router dropped are shown
 function tsq_out() {
 	return { error: tsq.err, running: tsq.proc != null, since: tsq.proc ? tsq.started : null,
 		window: TSQ_WIN, warn: C.cfg.iptv.q_warn, fail: C.cfg.iptv.q_fail, last: tsq.last,
-		dropped: tsq.dropped, drop_ts: tsq.drop_ts || null };
+		dropped: tsq.dropped, drop_ts: tsq.drop_ts || null, zap_skip: tsq.zap_skip ?? 0 };
 }
 
 function iptv_on() {
@@ -1495,8 +1580,13 @@ function igq_want() {
 	return C.cfg.iptv.igmp_query && C.cfg.iptv.igmp && tsq_target()?.dir == 'in';
 }
 
+/* the decoders' own IGMP, towards the ISP: on the ISP-side port of the VLAN */
+function mem_want() {
+	return C.cfg.iptv.decoders && C.cfg.iptv.vlan && !mem.off && tsq_target()?.dir == 'in';
+}
+
 function tsm_want() {
-	return iptv_on() && (tsm_stream() || igq_want());
+	return iptv_on() && (tsm_stream() || igq_want() || mem_want());
 }
 
 function tsm_args(tg) {
@@ -1504,6 +1594,7 @@ function tsm_args(tg) {
 	if (tg.vid) push(a, '-v', `${int(tg.vid)}`);
 	if (C.cfg.iptv.dhcp && tsm_stream()) push(a, '-D');
 	if (igq_want()) push(a, '-Q');
+	if (mem_want()) push(a, '-M');
 	if (!tsm_stream()) push(a, '-I');
 	return join(' ', a);
 }
@@ -1517,6 +1608,7 @@ function tsm_stop() {
 	tsq.flow = null;
 	igq.on = false;
 	igq.pid = null;
+	mem.hosts = null;
 	if (p) kill_pids('TERM', [ p.pid() ]);
 	fs.unlink(TSQ_STATE);
 }
@@ -1534,6 +1626,15 @@ function tsm_start(tg) {
 		tsq.args = null;
 		tsq.seen = {};
 		tsq.drops = null;
+		mem.hosts = null;
+		/* an older helper without -M ends at once with its usage text (exit
+		 * 2): started again without it, the rest keeps working */
+		if (code == 2 && index(split(args, ' '), '-M') >= 0 && now() - tsq.started < 10) {
+			mem.off = true;
+			tsq.next = 0;
+			warn(`isp-tester: ${TSMON} has no -M (decoders' IGMP): update isp-tester-tsmon\n`);
+			return;
+		}
 		tsq.fails++;
 		tsq.err = 'helper_failed';
 		/* 10 s, 20 s, 40 s ... at most 5 min between restarts */
@@ -1581,6 +1682,7 @@ function tsm_read() {
 	if (t - tsq.started > 120) tsq.fails = 0;
 	dhcp_ingest(r);
 	igmpq_ingest(r.igmp, t, r.pid);
+	mem_ingest(r, t);
 
 	/* the socket overflowed: this router could not keep up, so lost packets
 	 * in this interval may be its own, not the ISP's */
@@ -1598,6 +1700,20 @@ function tsm_read() {
 	let seen = {}, list = [], fresh = [], named = [];
 	/* (an entry "from the future" after the clock was set back is dropped too) */
 	tsq.win = filter(tsq.win, (e) => t - e.ts < TSQ_WIN && e.ts <= t);
+	/* groups joined since the last read (and a few seconds before it): a
+	 * channel change. Zapping away and back within a few seconds (A -> B ->
+	 * A) stops group A at the operator and starts it again: its counter
+	 * jumps and the pause is counted, under the helper's 5 s "new stream"
+	 * limit - every quick zap was "picture errors" against the operator.
+	 * Errors of a group are not counted while another group was just joined
+	 * (a decoder leaving and joining the same group again - retrying after
+	 * an outage - still counts). With two decoders, one zapping hides the
+	 * other one's errors of these seconds. */
+	let zj = {}, zfrom = (tsq.read_t ?? t) - 5;
+	for (let h in igmp.hist)
+		if (h.ts >= zfrom && h.ts <= t)
+			for (let x in (h.after ?? [])) if (index(h.before ?? [], x) < 0) zj[x] = true;
+	tsq.read_t = t;
 	for (let g in r.groups) {
 		if (!valid_group(g?.grp)) continue;
 		let key = `${r.pid}:${g.id}`;
@@ -1617,7 +1733,12 @@ function tsm_read() {
 		if (!C.cfg.iptv.quality) continue;
 
 		push(list, g);
-		if (ddrop == 0 && (d.cc + d.tei + (C.cfg.iptv.q_gap > 0 ? d.gaps : 0)) > 0) {
+		let bad = d.cc + d.tei + (C.cfg.iptv.q_gap > 0 ? d.gaps : 0);
+		if (bad > 0 && length(filter(keys(zj), (x) => x != g.grp))) {
+			tsq.zap_skip = (tsq.zap_skip ?? 0) + bad;
+			continue;
+		}
+		if (ddrop == 0 && bad > 0) {
 			push(tsq.win, { ts: t, grp: g.grp, cc: d.cc, tei: d.tei, lost: d.lost, gaps: d.gaps,
 				gap: d.gaps ? (g.gap_last_ms ?? 0) : 0 });
 			push(fresh, { g, d });
@@ -1720,14 +1841,20 @@ function iptv_shift(by) {
 	for (let h in igmp.hist) h.ts += by;
 	for (let mac, d in dec.list) mv(d, [ 'since', 'gone_at', 'seen', 'last_active', 'quiet_from', 'on_t' ]);
 	mv(dec, [ 't0' ]);
+	for (let mac, h in (mem.hosts ?? {})) {
+		mv(h, [ 'last', 'leave' ]);
+		for (let g, ts in h.groups) h.groups[g] = ts + by;
+	}
+	mv(mem, [ 'ts' ]);
 	/* the operator's queries: a step forward would look like a long silence
 	 * (a false igmp_noquery), the decoders' leases like expired ones */
 	mv(igq, [ 'last_ts', 'since', 'silent_ref' ]);
 	for (let mac, s in dhl.mac) mv(s, [ 'offer_t', 'last_ack', 'boot_t' ]);
 	for (let e in tsq.win) e.ts += by;
+	mv(tsq, [ 'read_t' ]);
 	for (let g, t in tsq.last_ev) tsq.last_ev[g] = t + by;
 	for (let g, p in tsq.pend) mv(p, [ 'since' ]);
 	if (tsq.flow) mv(tsq.flow, [ 'ts' ]);
 }
 
-export { iptv_init, iptv_shift, iptv, vl, igmp, igq, tsq, chn, dhl, dec, IGQ_RING, TSQ_STATE, TSQ_WIN, TSQ_DROP_SHOW, CHN_MAX, igmp_groups, igmp_poll, igmp_classify, proxy_process, sample_proxy, dhcp_src, dhcp_seen, dhcp_ingest, dhcp_log_line, dhcp_tick, vlan_sample, dec_fdb, dec_stream_hit, dec_poll, tsq_out, iptv_on, iptv_fast, tsq_target, chn_load, chn_save, chn_name, chn_now, chn_current, chn_learn, chn_missing, chn_out, handle_chn_forget, igmpq_ingest, igmpq_expected, igmpq_limit, igmpq_check, igmpq_out, iptv_out, nobody_subscribed, iptv_flag_stall, iptv_update, iptv_counters, iptv_fast_sample, sample_iptv, tsm_stream, igq_want, tsm_want, tsm_args, tsm_stop, tsm_start, tsq_level, tsm_read, tsm_poll };
+export { iptv_init, iptv_shift, iptv, vl, igmp, igq, tsq, chn, dhl, dec, mem, mem_ingest, mem_host, mem_active, mem_left, mem_want, dec_watches, IGQ_RING, TSQ_STATE, TSQ_WIN, TSQ_DROP_SHOW, CHN_MAX, igmp_groups, igmp_poll, igmp_classify, proxy_process, sample_proxy, dhcp_src, dhcp_seen, dhcp_ingest, dhcp_log_line, dhcp_tick, vlan_sample, dec_fdb, dec_stream_hit, dec_poll, tsq_out, iptv_on, iptv_fast, tsq_target, chn_load, chn_save, chn_name, chn_now, chn_current, chn_learn, chn_missing, chn_out, handle_chn_forget, igmpq_ingest, igmpq_expected, igmpq_limit, igmpq_check, igmpq_out, iptv_out, nobody_subscribed, iptv_flag_stall, iptv_update, iptv_counters, iptv_fast_sample, sample_iptv, tsm_stream, igq_want, tsm_want, tsm_args, tsm_stop, tsm_start, tsq_level, tsm_read, tsm_poll };
