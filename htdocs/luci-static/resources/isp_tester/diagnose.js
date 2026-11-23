@@ -82,6 +82,30 @@ function inPeriods(list, ts, slack) {
 	return false;
 }
 
+/*
+ * A decoder switched off that was the only one watching (decoder_off with
+ * d.alone): the stream stops when its channel is gone at the operator - at
+ * once after its leave, or up to a membership interval after its last report
+ * when it lost power (no leave: the operator's membership just expires). A
+ * "freeze" then is the switch-off: nobody watched, so there was no stream to
+ * freeze. It was a freeze against the operator whenever the bridge still
+ * listed the channel at that moment. r = decoder_off, s = stream_stall,
+ * starts = stream_start / decoder_on events (watched again in between: the
+ * freeze is the new session's), mi = the bridge's membership interval (s).
+ * Older events (no d.alone) are not taken.
+ */
+function offCovers(r, s, starts, mi) {
+	if (!(r.d && r.d.alone === true)) return false;
+	/* logged by the other router: with two channels or more subscribed here
+	 * another decoder watched (as for restarts) */
+	if ((r.host || '') !== (s.host || '') && s.d && s.d.groups >= 2) return false;
+	var left = (r.d.left_at > 0) ? r.d.left_at : r.ts;
+	var lo = Math.min(r.ts, left) - 15;
+	var hi = Math.max(r.ts, left) + (r.d.igmp ? 30 : (mi > 0 ? mi : 260) + 60);
+	if (s.ts < lo || s.ts > hi) return false;
+	return !starts.some(function(x) { return (x.host || '') === (s.host || '') && x.ts > lo && x.ts < s.ts && x.ts > r.ts; });
+}
+
 /* "1 h 5 min" without the view's helpers (this module has none) */
 function fmtSec(s) {
 	s = Math.max(0, Math.round(s || 0));
@@ -116,6 +140,8 @@ function periodicity(list) {
 return baseclass.extend({
 	/* the view counts problems per hour with the same list */
 	recovery: RECOVERY,
+	/* the report leaves out the same freezes as the analysis */
+	offCovers: offCovers,
 
 	/*
 	 * events: [{ ts, lvl, area, src, type, d }]
@@ -225,6 +251,16 @@ return baseclass.extend({
 		var duringRestart = function(s) {
 			return decRestarts.some(function(r) { return covers(r, s); });
 		};
+		/* the only decoder watching was switched off (see offCovers); its
+		 * event is dated back to the switch-off, a stall may also come before
+		 * the end of the window: looked for an hour around it, as `sorted` */
+		var near1h = events.filter(function(e) { return e.ts >= from - 3600 && e.ts <= to + 3600 && !e.m; });
+		var decOffs = near1h.filter(function(e) { return e.type === 'decoder_off' && e.d && e.d.alone === true; });
+		var watchAgain = near1h.filter(function(e) { return e.type === 'stream_start' || e.type === 'decoder_on'; });
+		var mi = ctx.membership_interval;
+		var afterOff = function(s) {
+			return decOffs.some(function(r) { return offCovers(r, s, watchAgain, mi); });
+		};
 		/* the operator stopped sending IGMP queries: from the first silent moment until they were back */
 		/* not while the router asked the decoders itself (d.router): then no
 		 * membership expires, the operator's pause did not matter */
@@ -235,7 +271,7 @@ return baseclass.extend({
 		var qSwitch = by(function(e) { return e.type === 'igmp_querier' && e.d && (e.d.from === 'isp' || e.d.from === 'other') && e.d.to === 'router'; });
 		/* nobody asked at all on the IPTV VLAN */
 		var noQuerier = periods(sorted, [ 'igmp_no_querier' ], to);
-		var zaps = [], stalls = [], igmpLeft = [], igmpJoined = [], decStalls = [];
+		var zaps = [], stalls = [], igmpLeft = [], igmpJoined = [], decStalls = [], offStalls = [];
 		allStalls.forEach(function(s) {
 			var ig = igmpOf(s);
 			if (ig === 'zap') { zaps.push(s); return; }
@@ -243,6 +279,8 @@ return baseclass.extend({
 			 * silent and looks restarted when it speaks again: a freeze then is
 			 * the missing queries, not the decoder */
 			if (duringRestart(s) && !inPeriods(noQuery, s.ts, 30)) { decStalls.push(s); return; }
+			/* (nor then: without queries the memberships expire by themselves) */
+			if (afterOff(s) && !inPeriods(noQuery, s.ts, 30)) { offStalls.push(s); return; }
 			stalls.push(s);
 			if (ig === 'left') igmpLeft.push(s);
 			else if (ig === 'joined') igmpJoined.push(s);
@@ -376,6 +414,8 @@ return baseclass.extend({
 		add('info', 0, 'stall_zap', zaps, { total: allStalls.length });
 		add('info', 0, 'stall_decoder', decStalls, { total: allStalls.length,
 			devs: uniq(decRestarts.filter(function(r) { return decStalls.some(function(s) { return covers(r, s); }); }), 'src').join(', ') });
+		add('info', 0, 'stall_decoder_off', offStalls, { total: allStalls.length,
+			devs: uniq(decOffs.filter(function(r) { return offStalls.some(function(s) { return offCovers(r, s, watchAgain, mi); }); }), 'src').join(', ') });
 		/* a decoder that restarts by itself: power supply, firmware, overheating */
 		add('home', 1, 'decoder_restarts', decRestarts, { devs: uniq(decRestarts, 'src').join(', ') });
 
@@ -470,7 +510,7 @@ return baseclass.extend({
 				/* a port of the second router went down at that moment: the device on it went away */
 				if (remSorted.some(function(x) { return host(x) && x.area === 'ports' && (x.type === 'link_down' || x.type === 'link_flap') &&
 					Math.abs(x.ts - s.ts) <= 30; })) return false;
-				if (duringRestart(s)) return false;
+				if (duringRestart(s) || afterOff(s)) return false;
 				/* this router did not measure then: nothing to compare */
 				if (inPeriods(localGaps, s.ts, 30)) return false;
 				return true;
@@ -546,6 +586,7 @@ return baseclass.extend({
 			stalls: stalls.length,
 			zaps: zaps.length,
 			decoder_stalls: decStalls.length,
+			decoder_off_stalls: offStalls.length,
 			marks: marks.length,
 			problems: evAll.filter(function(e) { return e.lvl !== 'info' && e.type !== 'trace' && !RECOVERY[e.type]; }).length,
 			findings: findings
@@ -636,6 +677,7 @@ return baseclass.extend({
 			a.dir === 'up' ? _('upload') : a.dir === 'down' ? _('download') : _('download and upload')) +
 			(a.lags ? ' ' + _('%d high-ping warnings at those times are not counted against the ISP.').format(a.lags) : '');
 		case 'stall_decoder':   return _('%d of %d IPTV freezes happened while a decoder (%s) restarted – the decoder, not a lost stream; not counted against the ISP.').format(f.n, a.total, a.devs);
+		case 'stall_decoder_off': return _('%d of %d IPTV freezes came when the only decoder watching (%s) was switched off – the end of watching, not a lost stream; not counted against the ISP.').format(f.n, a.total, a.devs);
 		case 'decoder_restarts': return _('Decoder %s restarted %d× – power supply, firmware update or overheating (or someone switched it off and on).').format(a.devs, f.n);
 		case 'dhcp_change':     return _('The operator gave decoder %s a different address %d× – each change interrupts the picture; the operator\'s DHCP (address pool, lease).').format(a.devs, f.n);
 		case 'dhcp_bad':        return _('Decoder %s: lease refused or not renewed in time (%d×) – the operator\'s DHCP server.').format(a.devs, f.n);

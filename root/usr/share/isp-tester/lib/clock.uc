@@ -19,6 +19,8 @@ function clk_fields(typ, d) {
 	 * found at start begins in an earlier run, whose times are its own */
 	if (typ == 'data_gap') return (d?.why == 'stall') ? [ 'ts', 'd.from', 'd.to' ] : [ 'd.to' ];
 	if (typ == 'router_reboot') return [ 'ts', 'd.boot' ];
+	/* the moment its channel was left, matched with the stop of the stream */
+	if (typ == 'decoder_off') return [ 'ts', 'd.left_at' ];
 	return [ 'ts' ];
 }
 
