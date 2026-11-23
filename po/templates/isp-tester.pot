@@ -1673,6 +1673,12 @@ msgstr ""
 msgid "%d during decoder restarts"
 msgstr ""
 
+msgid "%d when the decoder was switched off"
+msgstr ""
+
+msgid "%d of %d IPTV freezes came when the only decoder watching (%s) was switched off – the end of watching, not a lost stream; not counted against the ISP."
+msgstr ""
+
 msgid "Decoder %s"
 msgstr ""
 

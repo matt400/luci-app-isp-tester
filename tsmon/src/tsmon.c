@@ -2,12 +2,13 @@
  * isp-tester-tsmon - continuous MPEG-TS quality counter for IPTV multicast
  * (part of luci-app-isp-tester)
  *
- *   isp-tester-tsmon -i DEV [-v VID] [-d in|out] -o STATE.json [-g GAP_MS] [-D] [-Q] [-M] [-I]
+ *   isp-tester-tsmon -i DEV [-v VID [-u]] [-d in|out] -o STATE.json [-g GAP_MS] [-D] [-Q] [-M] [-I]
  *   isp-tester-tsmon -r CAPTURE.pcap [-g GAP_MS] [-D] [-Q] [-M]
  *
  * Live mode listens on DEV with a packet socket. The kernel filter (classic
  * BPF) passes only IPv4 UDP multicast (not 224.0.0.x), in VLAN VID when -v is
- * given, so nothing else ever reaches this process. Every datagram is
+ * given (with -u also untagged frames: VID is the port's PVID), so nothing
+ * else ever reaches this process. Every datagram is
  * counted as it arrives, nothing is stored: per multicast group it counts
  *   - continuity counter (CC) errors per PID: a gap means lost TS packets
  *   - lost TS packets (estimated from the CC jump), transport error flags
@@ -157,6 +158,8 @@ static struct {
 static unsigned next_id = 1;
 static unsigned gap_ms = 500;
 static uint64_t other, sock_drops;
+/* -u: the VLAN is the port's PVID, its frames come untagged on the wire */
+static int untagged;
 static volatile sig_atomic_t stop;
 
 __attribute__((noreturn, format(printf, 2, 3)))
@@ -554,10 +557,15 @@ static struct mem_host *mem_get(const uint8_t *mac, double t)
 	return h;
 }
 
-/* 224.0.0.x (all hosts, all routers, IGMPv3 reports...) is no channel */
+/* 224.0.0.x (all hosts, all routers, IGMPv3 reports...) is no channel, nor
+ * SSDP / SLP (239.255.255.250 / .253), which decoders join and leave on their
+ * own: such a leave took the place of the leave of the channel (only the last
+ * one is kept), and while it watched the decoder looked switched off */
 static int mem_skip(uint32_t grp)
 {
-	return (ntohl(grp) & 0xffffff00) == 0xe0000000 || (ntohl(grp) & 0xf0000000) != 0xe0000000;
+	uint32_t a = ntohl(grp);
+	return (a & 0xffffff00) == 0xe0000000 || (a & 0xf0000000) != 0xe0000000 ||
+		a == 0xeffffffa || a == 0xeffffffd;
 }
 
 static void mem_join(struct mem_host *h, uint32_t grp, double t)
@@ -1101,13 +1109,23 @@ static void build_filter(struct prog *p, int vid)
 		emit_ipcheck(p, 14);
 		p->fix_jf[j_inline] = p->n;
 		emit(p, BPF_LD | BPF_H | BPF_ABS, 12, 0, 0);
-		emit(p, BPF_JMP | BPF_JEQ | BPF_K, 0x8100, p->n + 1, L_DROP);
+		int j_q = emit(p, BPF_JMP | BPF_JEQ | BPF_K, 0x8100, p->n + 1, untagged ? -2 : L_DROP);  /* jf fixed below */
 		emit(p, BPF_LD | BPF_H | BPF_ABS, 14, 0, 0);
 		emit(p, BPF_ALU | BPF_AND | BPF_K, 0x0fff, 0, 0);
 		emit(p, BPF_JMP | BPF_JEQ | BPF_K, vid, p->n + 1, L_DROP);
 		emit(p, BPF_LD | BPF_H | BPF_ABS, 16, 0, 0);
 		emit(p, BPF_JMP | BPF_JEQ | BPF_K, 0x0800, p->n + 1, L_DROP);
 		emit_ipcheck(p, 18);
+		if (untagged) {
+			/* no tag at all (-u): a frame of the port's PVID, i.e. of the
+			 * VLAN; A still holds the EtherType at offset 12. Without -u such
+			 * frames were dropped, and on a port where the IPTV VLAN is
+			 * untagged the helper saw nothing (no picture quality, no
+			 * operator queries, no decoders' IGMP) */
+			p->fix_jf[j_q] = p->n;
+			emit(p, BPF_JMP | BPF_JEQ | BPF_K, 0x0800, p->n + 1, L_DROP);
+			emit_ipcheck(p, 14);
+		}
 	}
 	accept = emit(p, BPF_RET | BPF_K, 0x40000, 0, 0);
 	drop = emit(p, BPF_RET | BPF_K, 0, 0, 0);
@@ -1218,7 +1236,7 @@ static int run_live(const char *dev, int vid, int dir_out, const char *state)
 			int caplen = (n > (ssize_t)sizeof(buf)) ? (int)sizeof(buf) : (int)n;
 			int wire = (int)n;
 			/* the kernel removed the VLAN tag: count it in the length */
-			if (vid && caplen >= 14 && be16(buf + 12) != 0x8100) wire += 4;
+			if (vid && !untagged && caplen >= 14 && be16(buf + 12) != 0x8100) wire += 4;
 			handle_frame(buf, caplen, wire, mono_now(), rev);
 		}
 
@@ -1248,12 +1266,13 @@ __attribute__((noreturn))
 static void usage(void)
 {
 	fprintf(stderr,
-		"usage: isp-tester-tsmon -i DEV [-v VID] [-d in|out] -o STATE.json [-g GAP_MS] [-D] [-Q] [-M] [-I]\n"
+		"usage: isp-tester-tsmon -i DEV [-v VID [-u]] [-d in|out] -o STATE.json [-g GAP_MS] [-D] [-Q] [-M] [-I]\n"
 		"       isp-tester-tsmon -r CAPTURE.pcap [-g GAP_MS] [-D] [-Q] [-M]\n"
 		"  -D  also note the DHCP server's replies (lease of the decoders)\n"
 		"  -Q  also note the IGMP queries of the operator (time since the last general query)\n"
 		"  -M  also note the decoders' own IGMP reports and leaves, per MAC address\n"
-		"  -I  with -Q / -M: only IGMP, do not look at the IPTV streams\n");
+		"  -I  with -Q / -M: only IGMP, do not look at the IPTV streams\n"
+		"  -u  with -v: VID is the port's PVID, also take its untagged frames\n");
 	exit(2);
 }
 
@@ -1262,12 +1281,13 @@ int main(int argc, char **argv)
 	const char *dev = NULL, *state = NULL, *pcap = NULL;
 	int vid = 0, dir_out = 0, c;
 
-	while ((c = getopt(argc, argv, "i:v:d:o:g:r:hDQMI")) != -1) {
+	while ((c = getopt(argc, argv, "i:v:d:o:g:r:hDQMIu")) != -1) {
 		switch (c) {
 		case 'D': want_dhcp = 1; break;
 		case 'Q': want_igmp = 1; break;
 		case 'M': want_members = 1; break;
 		case 'I': want_stream = 0; break;
+		case 'u': untagged = 1; break;
 		case 'i': dev = optarg; break;
 		case 'v': vid = atoi(optarg); if (vid < 1 || vid > 4094) usage(); break;
 		case 'd':

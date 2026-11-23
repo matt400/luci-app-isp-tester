@@ -1072,7 +1072,8 @@ return view.extend({
 				E('div', { 'class': 'ispt-muted', 'style': 'font-size:.85em;margin-top:.3em' },
 					diagnose.confidenceText(r.confidence) + ' · ' + _('%d problems, %d IPTV freezes').format(r.problems, r.stalls) +
 					(r.zaps ? ' · ' + _('%d channel changes ignored').format(r.zaps) : '') +
-					(r.decoder_stalls ? ' · ' + _('%d during decoder restarts').format(r.decoder_stalls) : ''))
+					(r.decoder_stalls ? ' · ' + _('%d during decoder restarts').format(r.decoder_stalls) : '') +
+					(r.decoder_off_stalls ? ' · ' + _('%d when the decoder was switched off').format(r.decoder_off_stalls) : ''))
 			]) : E('div', { 'class': 'ispt-muted', 'style': 'font-size:.9em' }, _('Nothing was logged that points at a fault.'))
 		]);
 
@@ -1999,9 +2000,15 @@ return view.extend({
 			else if (qOpen != null && (e.type === 'igmp_noquery_ok' || e.type === 'monitor_start' || e.type === 'data_gap')) { noQ.push([ qOpen, e.ts ]); qOpen = null; }
 		});
 		if (qOpen != null) noQ.push([ qOpen, w.to ]);
+		/* nor when the only decoder watching was switched off (as in the analysis) */
+		var near1h = this.events().filter(function(e) { return e.ts >= w.from - 3600 && e.ts <= w.to + 3600 && !e.m; });
+		var decO = near1h.filter(function(e) { return e.type === 'decoder_off' && e.d && e.d.alone === true; });
+		var again = near1h.filter(function(e) { return e.type === 'stream_start' || e.type === 'decoder_on'; });
+		var mi = st.iptv && st.iptv.bridge && st.iptv.bridge.membership_interval;
 		var byDecoder = function(s) {
 			if (noQ.some(function(p) { return s.ts >= p[0] - 30 && s.ts <= p[1] + 30; })) return false;
-			return decR.some(function(r) { return !(r.d && r.d.alone === false) && s.ts >= r.ts - 15 && s.ts <= r.ts + ((r.d && r.d.dur) || 0) + 10; });
+			return decR.some(function(r) { return !(r.d && r.d.alone === false) && s.ts >= r.ts - 15 && s.ts <= r.ts + ((r.d && r.d.dur) || 0) + 10; }) ||
+				decO.some(function(r) { return diagnose.offCovers(r, s, again, mi); });
 		};
 
 		/* outage / freeze durations from start/end pairs (this router's

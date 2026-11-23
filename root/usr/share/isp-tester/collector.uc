@@ -1313,7 +1313,7 @@ clock_init({ events: () => events, history: () => history, history_min: () => hi
 	agg_shift: (by) => { if (agg) agg.t += by; }, shift_started: shift_run,
 	reset_alive: () => { alive_ts = 0; }, emit, save_events, uptime_s });
 peer_init({ cfg, hostname: HOSTNAME, started: () => started, maint_on, maint_until: () => maint.until,
-	store_event, save_events, emit });
+	store_event, save_events, emit, clock_check: clk_check });
 maint_load();
 history = load_hist('state.json', cfg.history);
 chn_load();
@@ -1350,6 +1350,12 @@ if (iptv_fast()) {
 	iptv_timer = uloop.timer(int(cfg.iptv.sample_interval * 1000), () => {
 		iptv_timer.set(int(cfg.iptv.sample_interval * 1000));
 		try {
+			/* a step of the clock is caught here too, not only on the next
+			 * main tick: what this sampler noted after the step (the times of
+			 * joins, the start of a stop, a stall event marked for fixing) was
+			 * moved by the step once more when the tick found it - a channel
+			 * joined "an hour from now" kept a switch-off from being seen */
+			clk_check();
 			iptv_fast_sample();
 		}
 		catch (e) {

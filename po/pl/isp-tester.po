@@ -1676,6 +1676,12 @@ msgstr "Dekoder %s wrócił po %s"
 msgid "%d during decoder restarts"
 msgstr "%d podczas restartów dekodera"
 
+msgid "%d when the decoder was switched off"
+msgstr "%d przy wyłączeniu dekodera"
+
+msgid "%d of %d IPTV freezes came when the only decoder watching (%s) was switched off – the end of watching, not a lost stream; not counted against the ISP."
+msgstr "%d z %d zamrożeń IPTV przyszło przy wyłączeniu jedynego oglądającego dekodera (%s) – to koniec oglądania, nie zniknięcie streamu; nie liczy się przeciw operatorowi."
+
 msgid "Decoder %s"
 msgstr "Dekoder %s"
 

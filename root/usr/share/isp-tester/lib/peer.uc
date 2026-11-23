@@ -1,7 +1,8 @@
 'use strict';
 
 /* luci-app-isp-tester: second router (see ../collector.uc); init(ctx) gives it
- * cfg, hostname, started(), maint_on(), maint_until(), store_event, save_events, emit */
+ * cfg, hostname, started(), maint_on(), maint_until(), store_event, save_events, emit,
+ * clock_check() */
 
 import * as uloop from 'uloop';
 import * as fs from 'fs';
@@ -298,6 +299,10 @@ function peer_start() {
 	let rnd = fs.readfile('/dev/urandom', 2) ?? '';
 	peer.ep = C.started() * 1000 + ((length(rnd) == 2) ? (ord(rnd, 0) * 256 + ord(rnd, 1)) % 1000 : 0);
 	peer.h = uloop.handle(sk, () => {
+		/* a step of the clock before what is noted now (peer_back, "seen"),
+		 * as in the main tick: found only there, those times were moved by
+		 * the step a second time */
+		try { if (C.clock_check) C.clock_check(); } catch (e) {}
 		try { peer_recv(); }
 		catch (e) { warn(`isp-tester: peer receive failed: ${e}\n`); }
 	}, uloop.ULOOP_READ);
