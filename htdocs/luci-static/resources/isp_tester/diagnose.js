@@ -433,8 +433,41 @@ return baseclass.extend({
 		/* the second router saw a freeze that this router (nearer the ISP) did not:
 		 * the stream got lost between the routers or on the second one */
 		if (ctx.iptv_on) {
-			var onlyThere = remoteStalls.filter(function(e) { return !near(allStalls, e.ts); });
-			add('home', 2, 'stall_remote_only', onlyThere, { total: remoteStalls.length, hosts: uniq(onlyThere, 'host').join(', ') });
+			/* only freezes the second router saw for sure, and only where this
+			 * router measured at the time: a decoder (or a TV) switched off or
+			 * going to standby behind it, a channel change, its own restart or
+			 * settings being saved were "lost between the routers" */
+			var remSorted = events.filter(function(e) { return !!e.host && e.ts >= from - 3600 && e.ts <= to + 3600; })
+				.sort(function(a, b) { return a.ts - b.ts; });
+			/* this router saw the stream stop too: a stall at the same moment,
+			 * or the end of the stream a bit later - with nobody else watching
+			 * the bridge keeps sending until the membership expires (~260 s) */
+			var localStop = by(function(e) { return e.type === 'stream_off' || e.type === 'stream_lost' || e.type === 'stream_dip'; });
+			var localGaps = by(function(e) { return e.type === 'data_gap'; })
+				.map(function(e) { return { from: e.d.from || e.d.to, to: e.d.to }; });
+			var remoteCheck = function(s) {
+				var host = function(x) { return x.host === s.host; };
+				/* what ended it on the second router: resume, lost (no resume) or nothing */
+				var end = nextOf(remSorted, s.ts + 1, function(x) { return host(x) && (x.type === 'stream_resume' || x.type === 'stream_lost' ||
+					x.type === 'stream_off' || x.type === 'monitor_start' || x.type === 'data_gap'); });
+				if (!end || end.type !== 'stream_resume') return false;
+				if (end.d && end.d.igmp === 'zap') return false;
+				/* its collector just started (Save & Apply, reboot) or its IPTV device vanished */
+				if (remSorted.some(function(x) { return host(x) && ((x.type === 'monitor_start' && x.ts <= s.ts && s.ts - x.ts <= 300) ||
+					(x.type === 'dev_missing' && Math.abs(x.ts - s.ts) <= 300)); })) return false;
+				/* a port of the second router went down at that moment: the device on it went away */
+				if (remSorted.some(function(x) { return host(x) && x.area === 'ports' && (x.type === 'link_down' || x.type === 'link_flap') &&
+					Math.abs(x.ts - s.ts) <= 30; })) return false;
+				if (duringRestart(s)) return false;
+				/* this router did not measure then: nothing to compare */
+				if (inPeriods(localGaps, s.ts, 30)) return false;
+				return true;
+			};
+			var remoteSure = remoteStalls.filter(remoteCheck);
+			var onlyThere = remoteSure.filter(function(e) {
+				return !near(allStalls, e.ts) && !localStop.some(function(x) { return x.ts >= e.ts - 30 && x.ts <= e.ts + 300; });
+			});
+			add('home', 2, 'stall_remote_only', onlyThere, { total: remoteSure.length, hosts: uniq(onlyThere, 'host').join(', ') });
 		}
 		add('home', 1, 'peer_lost', peerLost, { hosts: uniq(peerLost, 'src').join(', ') });
 
