@@ -1196,6 +1196,9 @@ msgstr "VLAN %d na %s"
 msgid "IPTV stream ended: decoder switched off (no channel subscribed)"
 msgstr "Strumień IPTV zakończony: dekoder wyłączony (brak subskrybowanego kanału)"
 
+msgid "IPTV stream ended: it reached no device at home (nobody watching, not an outage)"
+msgstr "Strumień IPTV zakończony: nie trafiał do żadnego urządzenia w domu (nikt nie oglądał, nie awaria)"
+
 msgid "IPTV stream did not come back within %s (channel still subscribed: outage)"
 msgstr "Strumień IPTV nie wrócił w ciągu %s (kanał nadal subskrybowany: awaria)"
 

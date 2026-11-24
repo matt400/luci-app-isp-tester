@@ -19,7 +19,7 @@ const MSG = {
 		wan_if_down: 'WAN interface %s went down', wan_if_up: 'WAN interface %s up again after %s', wan_reconnect: 'WAN session restarted (was up %s)',
 		wan_ip_change: 'WAN address changed %s -> %s',
 		log: '%s: %s',
-		stream_stall: 'IPTV STREAM STOPPED', stream_resume: 'IPTV stream resumed after %s', stream_lost: 'IPTV stream did not come back within %s', stream_off: 'IPTV stream ended: decoder switched off (no channel subscribed)',
+		stream_stall: 'IPTV STREAM STOPPED', stream_resume: 'IPTV stream resumed after %s', stream_lost: 'IPTV stream did not come back within %s', stream_off: 'IPTV stream ended: decoder switched off (no channel subscribed)', stream_unwatched: 'IPTV stream ended: it reached no device at home (nobody watching, not an outage)',
 		stream_dip: 'IPTV bitrate dropped to %d kbit/s',
 		ts_errors: 'IPTV picture errors: %d lost-packet gaps (~%d packets) in %ss, channel %s',
 		proxy_down: 'Multicast proxy %s is not running', proxy_up: 'Multicast proxy %s running again', proxy_restart: 'Multicast proxy %s restarted',
@@ -63,7 +63,7 @@ const MSG = {
 		wan_if_down: 'Interfejs WAN %s rozłączony', wan_if_up: 'Interfejs WAN %s znów działa po %s', wan_reconnect: 'Sesja WAN zestawiona od nowa (trwała %s)',
 		wan_ip_change: 'Zmiana adresu WAN %s -> %s',
 		log: '%s: %s',
-		stream_stall: 'STRUMIEŃ IPTV ZATRZYMANY', stream_resume: 'Strumień IPTV wrócił po %s', stream_lost: 'Strumień IPTV nie wrócił w ciągu %s', stream_off: 'Strumień IPTV zakończony: dekoder wyłączony (brak subskrybowanego kanału)',
+		stream_stall: 'STRUMIEŃ IPTV ZATRZYMANY', stream_resume: 'Strumień IPTV wrócił po %s', stream_lost: 'Strumień IPTV nie wrócił w ciągu %s', stream_off: 'Strumień IPTV zakończony: dekoder wyłączony (brak subskrybowanego kanału)', stream_unwatched: 'Strumień IPTV zakończony: nie trafiał do żadnego urządzenia w domu (nikt nie oglądał, nie awaria)',
 		stream_dip: 'Bitrate IPTV spadł do %d kbit/s',
 		ts_errors: 'Błędy obrazu IPTV: %d przerw w pakietach (~%d pakietów) w %ss, kanał %s',
 		proxy_down: 'Proxy multicast %s nie działa', proxy_up: 'Proxy multicast %s znów działa', proxy_restart: 'Proxy multicast %s zrestartowany',
@@ -135,6 +135,7 @@ function querier_name(who, addr, port, lang) {
 
 function event_text(e, lang) {
 	let m = MSG[lang] ?? MSG.en, d = e.d ?? {}, f = m[e.type];
+	if (e.type == 'stream_off' && d.unwatched) f = m.stream_unwatched;
 	if (!f) return e.type;
 	switch (e.type) {
 	case 'link_down': case 'link_flap': return sprintf(f, d.dev);

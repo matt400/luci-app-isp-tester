@@ -111,3 +111,26 @@ test('every finding the analysis can produce has its own text', () => {
 	const missing = [ ...found ].filter((c) => diagnose.findingText({ code: c, n: 1, args: {} }) === c);
 	assert.deepEqual(missing, []);
 });
+
+test('a short burst right after the stream ended with nobody subscribed is not an ISP freeze', () => {
+	const e = [
+		ev(0, 'iptv', 'stream_start', { lvl: 'info', d: { kbps: 2600 } }),
+		ev(43, 'iptv', 'stream_off', { lvl: 'info', d: { avg: 1500 } }),
+		ev(90, 'iptv', 'stream_start', { lvl: 'info', d: { kbps: 788 } }),
+		ev(103, 'iptv', 'stream_stall', { lvl: 'err', d: { kbps: 9, avg: 1500, groups: 3 } }),
+		ev(163, 'iptv', 'stream_lost', { d: { dur: 60, groups: 3 } })
+	];
+	const r = diagnose.analyze(e, T0, T0 + H, { iptv_on: true });
+	assert.ok(!codes(r).some((c) => /^stall_upstream/.test(c)), codes(r).join());
+});
+
+test('a freeze after the decoder came back is still counted', () => {
+	const e = [
+		ev(43, 'iptv', 'stream_off', { lvl: 'info', d: { avg: 1500 } }),
+		ev(60, 'iptv', 'decoder_on', { lvl: 'info', src: 'aa:bb:cc:dd:ee:ff', d: { dur: 17 } }),
+		ev(103, 'iptv', 'stream_stall', { lvl: 'err', d: { kbps: 9, avg: 11400, groups: 3 } }),
+		ev(163, 'iptv', 'stream_lost', { d: { dur: 60, groups: 3 } })
+	];
+	const r = diagnose.analyze(e, T0, T0 + H, { iptv_on: true });
+	assert.ok(codes(r).some((c) => /^stall_upstream/.test(c)), codes(r).join());
+});
