@@ -1193,6 +1193,9 @@ msgstr ""
 msgid "IPTV stream ended: decoder switched off (no channel subscribed)"
 msgstr ""
 
+msgid "IPTV stream ended: it reached no device at home (nobody watching, not an outage)"
+msgstr ""
+
 msgid "IPTV stream did not come back within %s (channel still subscribed: outage)"
 msgstr ""
 

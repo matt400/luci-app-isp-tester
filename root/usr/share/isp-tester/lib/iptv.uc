@@ -23,7 +23,10 @@ let iptv = {
 	pend: false,                            /* stop with a channel still listed, waiting out leave_wait() */
 	wd_m: null, wd_w: null,                 /* first whole tick below the threshold while playing (watchdog) */
 	prev: null, prev_m: null, prev_w: null, /* last counter reading (fast sampler) */
-	acc: null                               /* per-tick aggregate of the fast samples */
+	acc: null,                              /* per-tick aggregate of the fast samples */
+	fw_up: 0, fw_dn: 0, fw_n: 0,            /* bytes in from the ISP / out to the home ports, last seconds of data (unwatched) */
+	fw_seen: false,                         /* this stream did reach the home ports at some point */
+	unw: false                              /* the stop being decided is of a stream nobody at home got */
 };
 /* bridged IPTV VLAN (see vlan_sample) */
 let vl = { bridge: null, upstream: null, ports: [], stats: null, mdb: null, error: null, cnt: null,
@@ -523,6 +526,19 @@ function vlan_sample() {
 
 	if (s?.rx_bytes == null) { vl.error = 'no_stats'; vl.cnt = null; }
 	else { vl.error = (vl.stats == '0') ? 'stats_off' : null; vl.cnt = { b: s.rx_bytes, p: s.rx_packets ?? 0 }; }
+
+	/* what the bridge sent on to the home ports (all their traffic, IPTV
+	 * and the rest): a stream that reaches none of them is watched by
+	 * nobody (see unwatched). Only with a known ISP-side port */
+	if (vl.cnt && valid_dev(vl.upstream)) {
+		let d = null;
+		for (let p in vl.ports) {
+			if (p == vl.upstream) continue;
+			let x = num(rd(p, 'statistics/tx_bytes'), null);
+			if (x != null) d = (d ?? 0) + x;
+		}
+		vl.cnt.d = d;
+	}
 
 	vl.mdb = (br && C.cfg.iptv.igmp)
 		? filter(bridge_mdb(br) ?? [], (e) => e.vid == null || e.vid == vid)
@@ -1324,6 +1340,27 @@ function nobody_subscribed() {
 }
 
 /*
+ * The stream comes in from the ISP but the bridge sent (almost) none of it
+ * on to the home ports: nobody at home gets it, so its stop is nobody's
+ * freeze. Seen at night: a decoder in standby fetches its guide/update
+ * group for a minute; after it left, the operator still sent the group
+ * for ~30 s until its own membership ran out, and that tail stopping was a
+ * freeze "with the channel still subscribed" (the service groups the
+ * decoders keep joined in standby are always listed) - an ISP fault in the
+ * analysis. Judged on the last seconds the data flowed (the window is not
+ * moved while it is below the threshold). Fail-safe: other traffic on the
+ * home ports only makes it look watched; with snooping off the bridge
+ * floods every port and it always does.
+ * Only a stream that never reached the home: one that did and then stopped
+ * being forwarded while still coming in is the bridge dropping a decoder's
+ * membership (snooping/querier trouble at home) - left to the usual checks.
+ */
+function unwatched() {
+	return !!C.cfg.iptv.vlan && C.cfg.iptv.off_after > 0 && !iptv.fw_seen && iptv.fw_n >= 3 &&
+		iptv.fw_up > 0 && iptv.fw_dn < iptv.fw_up * 0.25;
+}
+
+/*
  * s from the start of a stop until a channel that is still subscribed may be
  * called a freeze. A decoder switched off (standby) sends an IGMP leave; the
  * bridge keeps the group in its table for its last-member time after it
@@ -1348,14 +1385,14 @@ function leave_wait() {
 
 /* the decoder was switched off: the stream stopped with nobody subscribed */
 function iptv_mark_off(w) {
-	C.emit('info', 'iptv', 'stream', 'stream_off', { avg: round(iptv.avg, 0) }, iptv.low_w);
+	C.emit('info', 'iptv', 'stream', 'stream_off', { avg: round(iptv.avg, 0), unwatched: iptv.unw || null }, iptv.low_w);
 	iptv.state = 'idle';
 	iptv.since = w;
 	/* (a dip noticed while it was going off kept the card yellow -
 	 * "bitrate much lower than usual" - for as long as it stayed off) */
 	iptv.dip = false;
 	iptv.low_m = iptv.low_w = null;
-	iptv.held = iptv.pend = false;
+	iptv.held = iptv.pend = iptv.unw = false;
 	iptv.hold_def = 0;
 }
 
@@ -1367,7 +1404,7 @@ function iptv_flag_stall(kbps) {
 	iptv.stall_since = iptv.low_w;
 	iptv.stall_m = iptv.low_m;
 	iptv.low_m = iptv.low_w = null;
-	iptv.held = iptv.pend = false;
+	iptv.held = iptv.pend = iptv.unw = false;
 	if (iptv.acc) iptv.acc.stalls++;
 	if (iptv.acc) iptv.acc.stall_s += iptv.hold_def;
 	iptv.hold_def = 0;
@@ -1396,13 +1433,20 @@ function iptv_update(kbps, m, w, from_m, from_w) {
 
 	/* a stop with nobody subscribed was not reported yet (see below): decide */
 	if (iptv.state == 'playing' && iptv.held) {
-		if (!active && nobody_subscribed()) {
+		if (!active && (iptv.unw || nobody_subscribed())) {
 			/* still no channel after the grace time: the decoder was switched
-			 * off (a start lost on the way is no reason to wait for ever) */
-			if (iptv.low_m == null || !(m - iptv.low_m < C.cfg.iptv.off_after)) {
+			 * off (a start lost on the way is no reason to wait for ever).
+			 * Unwatched: nothing to wait for, nobody had the stream */
+			if (iptv.unw || iptv.low_m == null || !(m - iptv.low_m < C.cfg.iptv.off_after)) {
 				iptv_mark_off(w);
 				off = true;
 			}
+		}
+		else if (active && iptv.unw) {
+			/* the unwatched stream paused and goes on: still nobody's freeze */
+			iptv.held = iptv.unw = false;
+			iptv.low_m = iptv.low_w = null;
+			iptv.hold_def = 0;
 		}
 		else {
 			/* data is back or the decoder subscribed again: it was a freeze */
@@ -1423,6 +1467,8 @@ function iptv_update(kbps, m, w, from_m, from_w) {
 			iptv.avg = kbps;
 			iptv.dip = false;
 			iptv.watch = chn_current();
+			iptv.fw_up = iptv.fw_dn = iptv.fw_n = 0;
+			iptv.fw_seen = false;
 		}
 		break;
 
@@ -1444,7 +1490,8 @@ function iptv_update(kbps, m, w, from_m, from_w) {
 		if (m - iptv.low_m >= C.cfg.iptv.stall_after - 0.05) {
 			/* nobody subscribed: wait before calling it a fault, it may be
 			 * the decoder being switched off */
-			if (!iptv.held && nobody_subscribed()) { iptv.held = true; iptv.pend = false; }
+			if (!iptv.held && unwatched()) { iptv.held = iptv.unw = true; iptv.pend = false; }
+			else if (!iptv.held && nobody_subscribed()) { iptv.held = true; iptv.pend = false; }
 			/* still subscribed: a freeze - once a leave that came with the
 			 * stop would have emptied the bridge's table (asked again on
 			 * every sample until then) */
@@ -1513,6 +1560,15 @@ function iptv_fast_sample() {
 		a.n++;
 		if (a.min == null || kbps < a.min) a.min = kbps;
 		iptv_update(kbps, m, w, iptv.prev_m, iptv.prev_w);
+		/* in from the ISP / out to the home, while the data flows (unwatched);
+		 * a port added to the VLAN makes the sum jump: not counted */
+		if (c.d == null || p.d == null || c.d < p.d) iptv.fw_n = 0;
+		else if (iptv.state == 'playing' && kbps >= C.cfg.iptv.min_kbps) {
+			iptv.fw_up = iptv.fw_up * 0.7 + (c.b - p.b);
+			iptv.fw_dn = iptv.fw_dn * 0.7 + (c.d - p.d);
+			iptv.fw_n++;
+			if (iptv.fw_n >= 3 && iptv.fw_dn >= iptv.fw_up * 0.25) iptv.fw_seen = true;
+		}
 	}
 	iptv.prev = c;
 	iptv.prev_m = m;

@@ -257,8 +257,21 @@ return baseclass.extend({
 		var decOffs = near1h.filter(function(e) { return e.type === 'decoder_off' && e.d && e.d.alone === true; });
 		var watchAgain = near1h.filter(function(e) { return e.type === 'stream_start' || e.type === 'decoder_on'; });
 		var mi = ctx.membership_interval;
+		/* the stream had just ended with nobody subscribed (stream_off) and a
+		 * short burst came after it with no decoder back: what the operator
+		 * still sends until its own membership runs out (a decoder in standby
+		 * fetching its guide at night), not a freeze anybody saw. Older logs:
+		 * a newer collector logs that tail as stream_off (unwatched) itself */
+		var streamOffs = sorted.filter(function(e) { return e.type === 'stream_off'; });
+		var decBack = sorted.filter(function(e) { return e.type === 'decoder_on' || e.type === 'decoder_restart'; });
+		var offTail = function(s) {
+			return streamOffs.some(function(o) {
+				return o.ts < s.ts && s.ts - o.ts <= 120 &&
+					!decBack.some(function(b) { return b.ts > o.ts && b.ts <= s.ts; });
+			});
+		};
 		var afterOff = function(s) {
-			return decOffs.some(function(r) { return offCovers(r, s, watchAgain, mi); });
+			return offTail(s) || decOffs.some(function(r) { return offCovers(r, s, watchAgain, mi); });
 		};
 		/* the operator stopped sending IGMP queries: from the first silent moment until they were back */
 		/* not while the router asked the decoders itself (d.router): then no
