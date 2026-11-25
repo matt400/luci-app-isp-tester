@@ -19,7 +19,7 @@ const MSG = {
 		wan_if_down: 'WAN interface %s went down', wan_if_up: 'WAN interface %s up again after %s', wan_reconnect: 'WAN session restarted (was up %s)',
 		wan_ip_change: 'WAN address changed %s -> %s',
 		log: '%s: %s',
-		stream_stall: 'IPTV STREAM STOPPED', stream_resume: 'IPTV stream resumed after %s', stream_lost: 'IPTV stream did not come back within %s', stream_off: 'IPTV stream ended: decoder switched off (no channel subscribed)', stream_unwatched: 'IPTV stream ended - nobody was watching (not an outage)',
+		stream_stall: 'IPTV STREAM STOPPED', stream_resume: 'IPTV stream resumed after %s', stream_lost: 'IPTV stream did not come back within %s', stream_off: 'IPTV stream ended: decoder switched off (no channel subscribed)', stream_unwatched: 'IPTV stream ended - nobody was watching (not an outage)', stream_svc: 'Decoders fetched data in standby (guide or update) for %s - not an outage',
 		stream_dip: 'IPTV bitrate dropped to %d kbit/s',
 		ts_errors: '%s: ~%d IPTV packets lost in %ss (%d gaps) - possible picture glitch',
 		proxy_down: 'Multicast proxy %s is not running', proxy_up: 'Multicast proxy %s running again', proxy_restart: 'Multicast proxy %s restarted',
@@ -63,7 +63,7 @@ const MSG = {
 		wan_if_down: 'Interfejs WAN %s rozłączony', wan_if_up: 'Interfejs WAN %s znów działa po %s', wan_reconnect: 'Sesja WAN zestawiona od nowa (trwała %s)',
 		wan_ip_change: 'Zmiana adresu WAN %s -> %s',
 		log: '%s: %s',
-		stream_stall: 'STRUMIEŃ IPTV ZATRZYMANY', stream_resume: 'Strumień IPTV wrócił po %s', stream_lost: 'Strumień IPTV nie wrócił w ciągu %s', stream_off: 'Strumień IPTV zakończony: dekoder wyłączony (brak subskrybowanego kanału)', stream_unwatched: 'Strumień IPTV zakończony - nikt go nie oglądał (nie awaria)',
+		stream_stall: 'STRUMIEŃ IPTV ZATRZYMANY', stream_resume: 'Strumień IPTV wrócił po %s', stream_lost: 'Strumień IPTV nie wrócił w ciągu %s', stream_off: 'Strumień IPTV zakończony: dekoder wyłączony (brak subskrybowanego kanału)', stream_unwatched: 'Strumień IPTV zakończony - nikt go nie oglądał (nie awaria)', stream_svc: 'Dekodery pobrały dane w czuwaniu (EPG lub aktualizacja) przez %s - nie awaria',
 		stream_dip: 'Bitrate IPTV spadł do %d kbit/s',
 		ts_errors: '%s: zgubione pakiety IPTV ~%d w %ss (przerw: %d) - możliwe zakłócenie obrazu',
 		proxy_down: 'Proxy multicast %s nie działa', proxy_up: 'Proxy multicast %s znów działa', proxy_restart: 'Proxy multicast %s zrestartowany',
@@ -136,6 +136,7 @@ function querier_name(who, addr, port, lang) {
 function event_text(e, lang) {
 	let m = MSG[lang] ?? MSG.en, d = e.d ?? {}, f = m[e.type];
 	if (e.type == 'stream_off' && d.unwatched) f = m.stream_unwatched;
+	if (e.type == 'stream_off' && d.svc) f = m.stream_svc;
 	/* "not responding" only when nothing came back: 1 of 2 pings lost was that too */
 	if (e.type == 'target_fail' && d.loss != null && d.loss < 100) f = m.target_loss;
 	if (e.type == 'dhcp_expired' && d.unk) f = m.dhcp_expired_unk;
@@ -151,6 +152,7 @@ function event_text(e, lang) {
 	case 'target_fail': case 'target_loss': return sprintf(f, e.src, d.loss ?? 100);
 	case 'target_ok': return sprintf(f, e.src, dur_txt(d.dur));
 	case 'wan_up': case 'stream_resume': case 'stream_lost': return sprintf(f, dur_txt(d.dur));
+	case 'stream_off': case 'stream_svc': return d.svc || e.type == 'stream_svc' ? sprintf(f, dur_txt(d.dur)) : f;
 	case 'wan_if_down': return sprintf(f, d.iface);
 	case 'wan_if_up': return sprintf(f, d.iface, dur_txt(d.dur));
 	case 'wan_reconnect': return sprintf(f, dur_txt(d.prev));

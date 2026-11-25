@@ -59,7 +59,7 @@ function default_config() {
 		},
 		iptv: {
 			enabled: true, vlan: 0, upstream: '', device: '', direction: 'rx', bridge: '',
-			min_kbps: 500, idle_after: 60, off_after: 15, dip_pct: 40,
+			min_kbps: 500, idle_after: 60, off_after: 15, dip_pct: 40, svc_kbps: 3000,
 			sample_interval: 1, stall_after: 2,
 			igmp: true, igmp_device: '',
 			/* the operator's IGMP queries on the IPTV VLAN (needs isp-tester-tsmon) */
@@ -222,6 +222,7 @@ function load_config() {
 		c.iptv.idle_after = num(t.idle_after, c.iptv.idle_after);
 		c.iptv.off_after  = num(t.off_after, c.iptv.off_after);
 		c.iptv.dip_pct    = num(t.dip_pct, c.iptv.dip_pct);
+		c.iptv.svc_kbps   = num(t.svc_kbps, c.iptv.svc_kbps);
 		c.iptv.sample_interval = num(t.sample_interval, c.iptv.sample_interval);
 		c.iptv.stall_after = num(t.stall_after, c.iptv.stall_after);
 		c.iptv.quality    = bool(t.quality, false);
@@ -292,6 +293,7 @@ function load_config() {
 	/* 0 kbit/s: every reading is "playing" (kbps >= 0), a freeze was never logged */
 	if (!(c.iptv.min_kbps >= 1)) c.iptv.min_kbps = 500;
 	if (!(c.iptv.dip_pct >= 0 && c.iptv.dip_pct <= 100)) c.iptv.dip_pct = 40;
+	if (!(c.iptv.svc_kbps >= 0 && c.iptv.svc_kbps <= 20000)) c.iptv.svc_kbps = 3000;
 	/* "stream ended" before the freeze is even reported made every freeze a stream_lost */
 	if (!(c.iptv.idle_after >= c.iptv.stall_after + 5)) c.iptv.idle_after = max(c.iptv.stall_after + 5, 60);
 	/* picture quality: thresholds are lost-packet gaps per minute */

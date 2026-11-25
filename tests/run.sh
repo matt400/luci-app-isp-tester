@@ -60,7 +60,7 @@ if [ "$WHAT" = all ] || [ "$WHAT" = test ]; then
 
 	step "ucode unit tests"
 	for f in tests/uc/test_*.uc; do
-		TZ=UTC $UCODE "$f" || bad "$f"
+		TZ=UTC $UCODE -L "$PWD/tests/uc/stub/*.uc" "$f" || bad "$f"
 	done
 
 	step "querier-gen"

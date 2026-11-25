@@ -2983,3 +2983,12 @@ msgstr ""
 
 msgid "this router's own address: does not test the line"
 msgstr ""
+
+msgid "Decoders fetched data in standby (programme guide or update): %s, %s – not watching, not an outage"
+msgstr ""
+
+msgid "Decoder data stream below (kbit/s)"
+msgstr ""
+
+msgid "A stream below this bitrate, without a channel name and far below the usual TV bitrate, is taken as the decoders fetching data in standby (programme guide, update) – its pauses are not logged as freezes. 0 disables."
+msgstr ""

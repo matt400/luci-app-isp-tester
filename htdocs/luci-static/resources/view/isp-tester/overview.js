@@ -410,7 +410,9 @@ function eventText(e) {
 	case 'stream_start':    return _('IPTV stream started (%s)').format(fmtRate(d.kbps)) + chNote(d.ch);
 	case 'stream_stall':    return _('IPTV STREAM STOPPED (was %s)').format(fmtRate(d.avg)) + chNote(d.ch);
 	case 'stream_resume':   return _('IPTV stream resumed after %s').format(fmtDur(d.dur)) + igmpNote(d.igmp) + chNote(d.ch);
-	case 'stream_off':      return d.unwatched
+	case 'stream_off':      return d.svc
+		? _('Decoders fetched data in standby (programme guide or update): %s, %s – not watching, not an outage').format(fmtRate(d.avg), fmtDur(d.dur))
+		: d.unwatched
 		? _('IPTV stream ended: it reached no device at home (nobody watching, not an outage)')
 		: _('IPTV stream ended: decoder switched off (no channel subscribed)');
 	case 'stream_lost':     return ((d.groups > 0 && !d.left)

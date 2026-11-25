@@ -102,6 +102,10 @@ config iptv 'iptv'
 	option off_after '15'
 	# warn when bitrate falls below this % of its running average, 0 = off
 	option dip_pct '40'
+	# a stream below this (kbit/s), with no channel name and far below the usual
+	# TV bitrate, is the decoders fetching data in standby (guide, update):
+	# its pauses are no freezes; 0 = off
+	option svc_kbps '3000'
 	# watch IGMP group membership and the multicast proxy (igmpproxy, mcproxy)
 	option igmp '1'
 	# note the operator's IGMP general queries on the IPTV VLAN (time since the
