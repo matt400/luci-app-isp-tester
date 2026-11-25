@@ -2987,8 +2987,8 @@ msgstr "dekoder jest włączony"
 msgid "this router's own address: does not test the line"
 msgstr "własny adres tego routera – nie sprawdza łącza"
 
-msgid "Decoders fetched data in standby (programme guide or update): %s, %s – not watching, not an outage"
-msgstr "Dekodery pobrały dane w czuwaniu (EPG lub aktualizacja): %s, %s – nikt nie oglądał, to nie awaria"
+msgid "Decoders fetched data in standby (programme guide or update): %s, %s"
+msgstr "Dekodery pobrały dane w czuwaniu (EPG lub aktualizacja): %s, %s"
 
 msgid "Decoder data stream below (kbit/s)"
 msgstr "Strumień danych dekodera poniżej (kbit/s)"
