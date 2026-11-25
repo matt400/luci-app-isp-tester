@@ -315,7 +315,9 @@ function reasonText(r) {
 	case 'recent_events':   return r.dev
 		? _('%s: problems in the last minutes (see timeline)').format(r.dev)
 		: _('Problems in the last minutes (see timeline)');
-	case 'target_fail':     return _('%s: no response (%d%% loss)').format(targetName(r.t), r.loss);
+	case 'target_fail':     return (r.loss != null && r.loss < 100)
+		? _('%s: heavy packet loss (%d%%)').format(targetName(r.t), r.loss)
+		: _('%s: no response (%d%% loss)').format(targetName(r.t), r.loss != null ? r.loss : 100);
 	case 'target_degraded': return (r.loss > 0)
 		? _('%s: %d%% packet loss').format(targetName(r.t), r.loss)
 		: (r.why === 'jitter')
@@ -382,18 +384,26 @@ function eventText(e) {
 	case 'cleared':         return _('Logs cleared');
 	case 'dev_missing':     return _('Device %s disappeared').format(d.dev);
 	case 'dev_present':     return _('Device %s is back').format(d.dev);
-	case 'link_down':       return _('%s: link DOWN').format(d.dev);
-	case 'link_up':         return _('%s: link up again at %s after %s').format(d.dev, fmtSpeed(d.speed), fmtDur(d.dur));
-	case 'link_flap':       return _('%s: link flapped %d× between samples').format(d.dev, d.n);
+	/* (info: a port that may be unplugged - a TV, a decoder - not a fault) */
+	case 'link_down':       return e.lvl === 'info'
+		? _('%s: no link (device off or cable unplugged)').format(d.dev)
+		: _('%s: link DOWN').format(d.dev);
+	case 'link_up':         return _('%s: link back after %s (%s)').format(d.dev, fmtDur(d.dur), fmtSpeed(d.speed));
+	case 'link_flap':       return _('%s: link dropped and came back %d× between samples').format(d.dev, d.n);
 	case 'speed_change':    return _('%s: link speed changed %s → %s').format(d.dev, fmtSpeed(d.from), fmtSpeed(d.to));
-	case 'errors':          return _('%s: %d errors, %d CRC/frame errors').format(d.dev, d.err, d.crc);
+	case 'errors':          return _('%s: %d port errors, of them CRC/frame: %d').format(d.dev, d.err, d.crc) +
+		(d.crc > 0 ? ' · ' + _('cable or connector') : '');
 	case 'drops':           return _('%s: %d dropped packets').format(d.dev, d.n);
 	case 'target_degraded': return (d.loss > 0)
 		? _('%s: %d%% packet loss (avg %s)').format(targetName(e.src, d.host), d.loss, fmtMs(d.rtt))
 		: (d.why === 'jitter')
 		? _('%s: high jitter %s (ping %s)').format(targetName(e.src, d.host), fmtMs(d.jitter), fmtMs(d.rtt))
 		: _('%s: high latency %s').format(targetName(e.src, d.host), fmtMs(d.rtt));
-	case 'target_fail':     return _('%s: not responding (%d%% loss)').format(targetName(e.src, d.host), d.loss);
+	/* "not responding" only when nothing came back (with 2 pings per round
+	 * one lost was 50 % - and "not responding") */
+	case 'target_fail':     return (d.loss != null && d.loss < 100)
+		? _('%s: heavy packet loss (%d%%)').format(targetName(e.src, d.host), d.loss)
+		: _('%s: not responding (%d%% loss)').format(targetName(e.src, d.host), d.loss != null ? d.loss : 100);
 	case 'target_ok':       return _('%s: OK again after %s (%s)').format(targetName(e.src, d.host), fmtDur(d.dur), fmtMs(d.rtt));
 	case 'wan_down':        return _('INTERNET DOWN – no target responds');
 	case 'wan_up':          return _('Internet back after %s').format(fmtDur(d.dur));
@@ -407,8 +417,8 @@ function eventText(e) {
 		? _('IPTV stream did not come back within %s (channel still subscribed: outage)').format(fmtDur(d.dur))
 		: _('IPTV stream did not come back within %s (decoder off or outage)').format(fmtDur(d.dur))) + chNote(d.ch);
 	case 'stream_dip':      return _('IPTV bitrate dropped to %s (usual %s)').format(fmtRate(d.kbps), fmtRate(d.avg)) + chNote(d.ch);
-	case 'ts_errors':       return _('IPTV picture errors: %d lost-packet gaps (~%d packets) within %s, channel %s').format(d.cc + (d.tei || 0), d.lost, fmtDur(d.win),
-			d.ch ? '%s (%s)'.format(d.ch, d.grp) : (d.grp || '?')) +
+	case 'ts_errors':       return _('%s: ~%d IPTV packets lost in %s (%d gaps) – possible picture glitch').format(
+			d.ch ? '%s (%s)'.format(d.ch, d.grp) : (d.grp || '?'), d.lost, fmtDur(d.win), d.cc + (d.tei || 0)) +
 		(d.gap >= 100 ? ' · ' + _('longest pause %d ms').format(d.gap) : '');
 	case 'wan_if_down':     return _('WAN interface %s DOWN (PPPoE/DHCP session lost)').format(d.iface);
 	case 'wan_if_up':       return _('WAN interface %s up again after %s').format(d.iface, fmtDur(d.dur)) + (d.ip ? ' · ' + d.ip : '');
@@ -484,10 +494,12 @@ function eventText(e) {
 	case 'maint_start':     return (d.extend ? _('Maintenance extended until %s') : _('MAINTENANCE until %s: what happens meanwhile is not counted and not notified')).format(hhmm(d.until)) + (d.note ? ' – „' + d.note + '”' : '');
 	case 'maint_end':       return _('Maintenance over after %s').format(fmtDur(d.dur)) + (d.early ? ' (' + _('ended by hand') + ')' : '');
 	case 'dhcp_lease':      return _('Decoder %s: address %s from the operator').format(e.src, d.ip) + (d.lease ? ' · ' + _('lease %s').format(fmtDur(d.lease)) : '') + (d.server ? ' · ' + _('server %s').format(d.server) : '');
-	case 'dhcp_new':        return _('Decoder %s asked for an address from scratch (restarted or lost its lease): %s').format(e.src, d.ip);
+	case 'dhcp_new':        return _('Decoder %s took an address anew (switched on or restarted): %s').format(e.src, d.ip);
 	case 'dhcp_ip_change':  return _('Decoder %s: address CHANGED %s → %s – the operator gave it a new one, the picture may stop for a moment').format(e.src, d.from, d.to);
 	case 'dhcp_nak':        return _('Decoder %s: the operator REFUSED its lease (DHCPNAK)').format(e.src);
-	case 'dhcp_expired':    return _('Decoder %s: lease of %s ran out without a renewal').format(e.src, d.ip);
+	case 'dhcp_expired':    return d.unk
+		? _('Decoder %s: lease of %s ran out – probably switched off').format(e.src, d.ip)
+		: _('Decoder %s: lease of %s ran out without a renewal').format(e.src, d.ip) + ' · ' + _('the decoder is on');
 	case 'dhcp_late':       return _('Decoder %s renewed its lease %s after it had run out').format(e.src, fmtDur(d.late));
 	case 'clock_step':      return _('Clock set by %s%s').format(d.by > 0 ? '+' : '−', fmtDur(Math.abs(d.by))) +
 		(d.fixed ? ' · ' + _('%d earlier entries of this boot moved to the right time').format(d.fixed) : '');
@@ -1330,18 +1342,21 @@ return view.extend({
 		var targets = w.targets || [];
 		var rows = targets.map(function(t) {
 			return E('tr', {}, [
-				E('td', {}, [ dot(t.level), targetName(t.label, t.host) ]),
+				E('td', {}, [ dot(t.level), targetName(t.label, t.host),
+					t.own ? E('small', { 'class': 'ispt-muted' }, ' – ' + _('this router\'s own address: does not test the line')) : '' ]),
 				E('td', { 'class': 'n' + (t.loss ? ' bad' : (t.loss === 0 ? ' zero' : '')) }, (t.loss == null) ? '–' : num(t.loss) + ' %'),
 				E('td', { 'class': 'n' }, fmtMs(t.rtt)),
-				E('td', { 'class': 'n' }, fmtMs(t.jitter))
+				/* (a stable line's jitter is hundredths of a ms: 0.0 said "not measured") */
+				E('td', { 'class': 'n' }, (t.jitter != null && t.jitter < 1) ? num(t.jitter, 2) + ' ms' : fmtMs(t.jitter))
 			]);
 		});
 
 		/* the key numbers: the worst loss, the ping of the gateway (else of the
 		 * first target), the traffic */
-		var gw = targets.filter(function(t) { return t.label === 'gateway'; })[0] || targets[0];
+		var real = targets.filter(function(t) { return !t.own; });
+		var gw = real.filter(function(t) { return t.label === 'gateway'; })[0] || real[0];
 		var worst = null, worstLvl = 'ok';
-		targets.forEach(function(t) {
+		real.forEach(function(t) {
 			if (t.loss != null && (worst == null || t.loss > worst)) worst = t.loss;
 			if (t.level === 'fail' || (t.level === 'warn' && worstLvl !== 'fail')) worstLvl = t.level;
 		});
@@ -1980,12 +1995,19 @@ return view.extend({
 		return Promise.resolve();
 	},
 
+	/* this router's name, for the "router" column: its own events have no
+	 * host (only the second router's do), and the column was empty for them */
+	hostName: function() {
+		var st = this.last && this.last[0] && this.last[0].state;
+		return (st && st.host) || '';
+	},
+
 	/* the timeline of any period and hours, from what is loaded */
 	exportRange: function(w, hr) {
 		var list = this.events().filter(function(e) { return e.ts >= w.from && e.ts <= w.to && inHours(e.ts, hr); }).reverse();
-		var lines = [ 'time,level,router,area,source,event,message' ];
+		var lines = [ 'time,level,router,area,source,event,message' ], me = this.hostName();
 		list.forEach(function(e) {
-			lines.push([ isoTime(e.ts), e.lvl, e.host || '', e.area, e.src, e.type, eventText(e) ].map(csvCell).join(','));
+			lines.push([ isoTime(e.ts), e.lvl, e.host || me, e.area, e.src, e.type, eventText(e) ].map(csvCell).join(','));
 		});
 		download('isp-tester-events-' + dayStr(w.from) + '_' + dayStr(w.to) + (hr ? '_%02d-%02d'.format(hr.from, hr.to) : '') + '.csv', lines.join('\n') + '\n');
 	},
@@ -2311,9 +2333,9 @@ return view.extend({
 	exportEvents: function() {
 		var self = this;
 		return this.refreshSlow().then(function() {
-			var lines = [ 'time,level,router,area,source,event,message' ];
+			var lines = [ 'time,level,router,area,source,event,message' ], me = self.hostName();
 			self.events().slice().reverse().forEach(function(e) {
-				lines.push([ isoTime(e.ts), e.lvl, e.host || '', e.area, e.src, e.type, eventText(e) ].map(csvCell).join(','));
+				lines.push([ isoTime(e.ts), e.lvl, e.host || me, e.area, e.src, e.type, eventText(e) ].map(csvCell).join(','));
 			});
 			download('isp-tester-events-' + stamp() + '.csv', lines.join('\n') + '\n');
 		});

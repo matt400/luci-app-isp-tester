@@ -6,7 +6,7 @@
 
 import * as fs from 'fs';
 import * as uloop from 'uloop';
-import { RUNDIR, VARDIR, PROC, SYSNET, BRIDGE, PROXIES, TSMON, LEVEL, now, mono, num, round, valid_dev, valid_group, mc_ignored, write_atomic, kill_pids, worst } from './common.uc';
+import { RUNDIR, VARDIR, PROC, SYSNET, BRIDGE, PROXIES, TSMON, LEVEL, now, mono, num, round, valid_dev, valid_group, mc_ignored, write_atomic, kill_pids, worst, absf } from './common.uc';
 import { median } from './parsers.uc';
 import { rd, base, is_uplink, bridge_json, bridge_mdb } from './sysinfo.uc';
 
@@ -329,6 +329,14 @@ function dhcp_src(mac) {
 	return C.cfg.iptv.dec_labels[mac] || mac;
 }
 
+/* a DISCOVER at the end of the lease (± 1 min, or 5 % of a long one) or at
+ * T2 (7/8 of it): the decoder's own schedule, not a boot */
+function dhcp_on_schedule(s, t) {
+	if (s.last_ack == null || !(s.lease > 0)) return false;
+	let gap = t - s.last_ack, tol = max(60, s.lease * 0.05);
+	return absf(gap - s.lease) <= tol || absf(gap - s.lease * 0.875) <= tol;
+}
+
 function dhcp_seen(x, via) {
 	let mac = lc(`${x.mac ?? ''}`);
 	if (!match(mac, /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/)) return;
@@ -337,8 +345,18 @@ function dhcp_seen(x, via) {
 		lease: null, server: null, expired: false, via };
 	let src = dhcp_src(mac);
 	s.via = via;
-	/* an OFFER answers a DISCOVER: the decoder asks from scratch (booted) */
-	if (x.type == 2) { s.offer_t = t; s.boot_t = t; return; }
+	/* an OFFER answers a DISCOVER: the decoder asks from scratch (booted) -
+	 * unless it comes when its lease runs out (or at T2): some decoders (the
+	 * JAMBOX ones with the operator's 1 h lease) never renew, they let the lease
+	 * end and ask anew, on the hour, also in standby. Each of those was a
+	 * "decoder asked for an address anew (restart or lost lease)" every hour
+	 * and a proof of a restart for any silence around it */
+	if (x.type == 2) {
+		s.offer_t = t;
+		s.cyc = dhcp_on_schedule(s, t);
+		if (!s.cyc) s.boot_t = t;
+		return;
+	}
 	if (x.type == 6) {
 		s.naks++;
 		C.emit('warn', 'iptv', src, 'dhcp_nak', { mac, ip: s.ip, server: x.server, via });
@@ -359,17 +377,22 @@ function dhcp_seen(x, via) {
 	 * Without it (dnsmasq log, an older helper) by the schedule above */
 	if (x.renew === true) s.ci_ok = true;
 	let start = (s.ci_ok && x.renew === false) ? true : (s.ci_ok && x.renew === true) ? false : null;
-	if (start === true ||
-	    (start == null && s.last_ack != null && s.lease && t - s.last_ack > 30 && t - s.last_ack < ren * 0.9))
-		s.boot_t = t;
 	let fresh = s.offer_t != null && t - s.offer_t <= 15;
 	s.offer_t = null;
+	/* (an address asked for anew on the lease schedule has no ciaddr either:
+	 * no boot) */
+	if (!(fresh && s.cyc) && (start === true ||
+	    (start == null && s.last_ack != null && s.lease && t - s.last_ack > 30 && t - s.last_ack < ren * 0.9)))
+		s.boot_t = t;
 	if (s.ip == null)
 		C.emit('info', 'iptv', src, 'dhcp_lease', { mac, ip: x.ip, lease: x.lease, server: x.server, router: x.router, via });
 	else if (x.ip != s.ip) {
 		s.changes++;
 		C.emit('warn', 'iptv', src, 'dhcp_ip_change', { mac, from: s.ip, to: x.ip, lease: x.lease, server: x.server, via });
 	}
+	/* an OFFER before it, on the lease schedule (see above): its normal way
+	 * of keeping the address - counted as a renewal, not logged */
+	else if (fresh && s.cyc) { s.renew++; s.rebind = (s.rebind ?? 0) + 1; }
 	/* an OFFER before it: the decoder started from scratch - after a night
 	 * switched off its lease ran out, and every such morning start was a
 	 * "renewed too late" (warning, counted against the operator) */
@@ -1014,6 +1037,15 @@ function chn_name(grp) {
  * and the CSV; null when nobody watches or IGMP is not followed */
 function chn_now() {
 	if (!length(igmp.groups ?? [])) return null;
+	/* the channel being watched, when it can be told: the list of all joined
+	 * groups starts with the service groups the decoders keep joined also in
+	 * standby (guide, updates), so it was the same "224.2.2.2, 225.0.71.1,
+	 * 239.239.0.32, …" in every row and event - never the channel */
+	let cur = chn_current();
+	if (cur != null) {
+		let n = chn_name(cur);
+		return n ? `${n} (${cur})` : cur;
+	}
 	let out = [];
 	for (let g in igmp.groups) {
 		if (length(out) == 3) { push(out, '…'); break; }

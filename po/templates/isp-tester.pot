@@ -110,16 +110,16 @@ msgstr ""
 msgid "%s: link DOWN"
 msgstr ""
 
-msgid "%s: link up again at %s after %s"
+msgid "%s: link back after %s (%s)"
 msgstr ""
 
-msgid "%s: link flapped %d× between samples"
+msgid "%s: link dropped and came back %d× between samples"
 msgstr ""
 
 msgid "%s: link speed changed %s → %s"
 msgstr ""
 
-msgid "%s: %d errors, %d CRC/frame errors"
+msgid "%s: %d port errors, of them CRC/frame: %d"
 msgstr ""
 
 msgid "%s: %d dropped packets"
@@ -1301,7 +1301,7 @@ msgstr ""
 msgid "Fault from (errors per minute)"
 msgstr ""
 
-msgid "IPTV picture errors: %d lost-packet gaps (~%d packets) within %s, channel %s"
+msgid "%s: ~%d IPTV packets lost in %s (%d gaps) – possible picture glitch"
 msgstr ""
 
 msgid "Lost packets were counted in the IPTV stream (%d×) – the picture glitches come with the stream itself: ISP IPTV/multicast side, not your home network."
@@ -1883,7 +1883,7 @@ msgstr ""
 msgid "server %s"
 msgstr ""
 
-msgid "Decoder %s asked for an address from scratch (restarted or lost its lease): %s"
+msgid "Decoder %s took an address anew (switched on or restarted): %s"
 msgstr ""
 
 msgid "Decoder %s: address CHANGED %s → %s – the operator gave it a new one, the picture may stop for a moment"
@@ -2964,4 +2964,22 @@ msgid "The IGMP querier setting cannot work: the kernel or ip-full is too old fo
 msgstr ""
 
 msgid "The IGMP querier script did not work when it was run – see Settings → IPTV → IGMP querier and the system log (iptv-querier)"
+msgstr ""
+
+msgid "%s: no link (device off or cable unplugged)"
+msgstr ""
+
+msgid "cable or connector"
+msgstr ""
+
+msgid "%s: heavy packet loss (%d%%)"
+msgstr ""
+
+msgid "Decoder %s: lease of %s ran out – probably switched off"
+msgstr ""
+
+msgid "the decoder is on"
+msgstr ""
+
+msgid "this router's own address: does not test the line"
 msgstr ""

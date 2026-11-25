@@ -101,7 +101,7 @@ function trace_target(t, fam) {
 	if (t && t.label != 'gateway') return t;
 	fam ??= t?.fam ?? 4;
 	for (let k, x in targets)
-		if (x.active && x.label != 'gateway' && x.fam == fam) return x;
+		if (x.active && !x.own && x.label != 'gateway' && x.fam == fam) return x;
 	return t;
 }
 
@@ -383,10 +383,18 @@ function sfp_out() {
 }
 
 /* responding / all targets of one address family */
+/* a ping target that is this router itself (its own WAN address, loopback):
+ * the ping never leaves the router - 0.1 ms, never lost. It said nothing about
+ * the line, and as one of the targets that "still answer" it kept a full
+ * outage from being seen as "Internet down" */
+function own_host(host) {
+	return host == wansess.ip || match(host, /^127\./) || host == '::1';
+}
+
 function fam_count(fam) {
 	let all = 0, failed = 0;
 	for (let k, t in targets) {
-		if (!t.active || t.res == null || t.fam != fam) continue;
+		if (!t.active || t.own || t.res == null || t.fam != fam) continue;
 		all++;
 		if (t.res.loss >= 100) failed++;
 	}
@@ -485,6 +493,7 @@ function sample_pings() {
 			fam: (index(host, ':') >= 0) ? 6 : 4 };
 		t.active = true;
 		t.label = (host == gw) ? 'gateway' : host;
+		t.own = own_host(host);
 
 		/* collectd reports once per its interval: only new values count */
 		if (v.ts == t.last_ts) {
@@ -495,8 +504,11 @@ function sample_pings() {
 		t.last_ts = v.ts;
 		let loss = (v.ping_droprate != null) ? round(v.ping_droprate * 100, 0) : null;
 		if (loss == null && v.ping == null) continue;
-		let res = { loss: loss ?? 0, rtt: round(v.ping, 1), jitter: round(v.ping_stddev, 1), ts: v.ts };
+		/* jitter to 0.01 ms: a stable line's few hundredths all came out as 0 */
+		let res = { loss: loss ?? 0, rtt: round(v.ping, 1), jitter: round(v.ping_stddev, 2), ts: v.ts };
 		t.res = res;
+		/* this router itself: shown, never judged */
+		if (t.own) { t.state = 'ok'; continue; }
 
 		let lvl = target_level(res);
 		if (lvl != t.state) {

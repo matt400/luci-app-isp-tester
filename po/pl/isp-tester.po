@@ -75,7 +75,7 @@ msgid "%s: high jitter %s"
 msgstr "%s: duży jitter %s"
 
 msgid "%s: high latency %s"
-msgstr "%s: wysokie opóźnienie %s"
+msgstr "%s: wysoki ping %s"
 
 msgid "Internet unreachable for %s"
 msgstr "Internet niedostępny od %s"
@@ -113,17 +113,17 @@ msgstr "Urządzenie %s wróciło"
 msgid "%s: link DOWN"
 msgstr "%s: łącze PADŁO"
 
-msgid "%s: link up again at %s after %s"
-msgstr "%s: łącze wróciło z prędkością %s po %s"
+msgid "%s: link back after %s (%s)"
+msgstr "%s: łącze wróciło po %s (%s)"
 
-msgid "%s: link flapped %d× between samples"
-msgstr "%s: łącze mrugnęło %d× między pomiarami"
+msgid "%s: link dropped and came back %d× between samples"
+msgstr "%s: łącze na chwilę zanikło i wróciło (%d×)"
 
 msgid "%s: link speed changed %s → %s"
 msgstr "%s: zmiana prędkości łącza %s → %s"
 
-msgid "%s: %d errors, %d CRC/frame errors"
-msgstr "%s: %d błędów, %d błędów CRC/ramki"
+msgid "%s: %d port errors, of them CRC/frame: %d"
+msgstr "%s: błędy portu: %d, w tym CRC/ramki: %d"
 
 msgid "%s: %d dropped packets"
 msgstr "%s: %d odrzuconych pakietów"
@@ -150,7 +150,7 @@ msgid "IPTV stream started (%s)"
 msgstr "Strumień IPTV ruszył (%s)"
 
 msgid "IPTV STREAM STOPPED (was %s)"
-msgstr "STRUMIEŃ IPTV ZATRZYMANY (był %s)"
+msgstr "IPTV STANĘŁO – przestały płynąć dane (było %s)"
 
 msgid "IPTV stream resumed after %s"
 msgstr "Strumień IPTV wrócił po %s"
@@ -252,10 +252,10 @@ msgid "channel change"
 msgstr "zmiana kanału"
 
 msgid "IGMP membership was dropped"
-msgstr "członkostwo IGMP zostało porzucone"
+msgstr "router przestał zamawiać kanał (IGMP)"
 
 msgid "still subscribed, data stopped"
-msgstr "nadal subskrybowany, dane przestały płynąć"
+msgstr "kanał był zamówiony, a operator przestał nadawać"
 
 msgid "Collecting data…"
 msgstr "Zbieram dane…"
@@ -303,7 +303,7 @@ msgid "Router / home %d%%"
 msgstr "Router / dom %d%%"
 
 msgid "%d problems, %d IPTV freezes"
-msgstr "%d problemów, %d zawieszeń IPTV"
+msgstr "%d problemów, %d zacięć IPTV"
 
 msgid "%d channel changes ignored"
 msgstr "pominięto %d zmian kanału"
@@ -1050,16 +1050,16 @@ msgid "Errors on the WAN port (%d×) – cable to the ONT/modem or its port."
 msgstr "Błędy na porcie WAN (%d×) – kabel do ONT/modemu albo jego port."
 
 msgid "%d of %d IPTV freezes happened together with Internet problems – shared cause on the ISP line."
-msgstr "%d z %d zawieszeń IPTV wystąpiło razem z problemami Internetu – wspólna przyczyna na linii operatora."
+msgstr "%d z %d zacięć IPTV wystąpiło razem z problemami Internetu – wspólna przyczyna na linii operatora."
 
 msgid "%d of %d IPTV freezes coincided with port problems (%s) – cable or switch at home."
-msgstr "%d z %d zawieszeń IPTV zbiegło się z problemami na portach (%s) – kabel lub switch w domu."
+msgstr "%d z %d zacięć IPTV zbiegło się z problemami na portach (%s) – kabel lub switch w domu."
 
 msgid "%d of %d IPTV freezes came with errors on the IPTV device – cable/port on the IPTV path."
-msgstr "%d z %d zawieszeń IPTV wystąpiło z błędami na urządzeniu IPTV – kabel/port na ścieżce IPTV."
+msgstr "%d z %d zacięć IPTV wystąpiło z błędami na urządzeniu IPTV – kabel/port na ścieżce IPTV."
 
 msgid "IPTV freezes repeat every ~%d s – the same as the bridge's IGMP %s interval (%d s): the membership times out. Enable the IGMP querier on the bridge or fix the proxy."
-msgstr "Zamrożenia IPTV powtarzają się co ~%d s – tyle samo, co interwał IGMP %s mostka (%d s): członkostwo wygasa. Włącz querier IGMP na mostku albo popraw proxy."
+msgstr "Zacięcia IPTV powtarzają się co ~%d s – jak interwał IGMP %s mostka (%d s), więc kanał wygasa. Włącz querier IGMP albo popraw proxy."
 
 msgid "membership"
 msgstr "członkostwa"
@@ -1068,28 +1068,28 @@ msgid "query"
 msgstr "zapytań"
 
 msgid "IPTV freezes repeat every ~%d s – typical IGMP membership timeout: check the IGMP querier / snooping / proxy on the router."
-msgstr "Zawieszenia IPTV powtarzają się co ~%d s – typowy timeout członkostwa IGMP: sprawdź IGMP querier / snooping / proxy na routerze."
+msgstr "Zacięcia IPTV powtarzają się co ~%d s – typowe wygasanie IGMP. Sprawdź querier / snooping / proxy na routerze."
 
 msgid "%d of %d IPTV freezes started when the IGMP membership was dropped, then the decoder joined again – IGMP timeout on the router/switch (querier, snooping, proxy)."
-msgstr "%d z %d zamrożeń IPTV zaczęło się, gdy członkostwo IGMP zostało porzucone, po czym dekoder dołączył ponownie – timeout IGMP na routerze/switchu (querier, snooping, proxy)."
+msgstr "%d z %d zacięć IPTV – router przestał zamawiać kanał, potem dekoder zamówił go ponownie. Przyczyna: IGMP na routerze/switchu (querier, snooping, proxy)."
 
 msgid "%d of %d IPTV freezes: the router stayed subscribed to the channel but the ISP stopped sending – ISP multicast side."
-msgstr "%d z %d zamrożeń IPTV: router cały czas subskrybował kanał, ale operator przestał wysyłać – strona multicast operatora."
+msgstr "%d z %d zacięć IPTV – kanał był zamówiony, a operator przestał go nadawać. Przyczyna: operator."
 
 msgid "%d IPTV interruptions were channel changes – ignored."
 msgstr "%d przerw IPTV to zmiany kanału – pominięte."
 
 msgid "%d of %d IPTV freezes happened when the multicast proxy stopped or restarted."
-msgstr "%d z %d zamrożeń IPTV wystąpiło, gdy proxy multicast zatrzymało się lub zrestartowało."
+msgstr "%d z %d zacięć IPTV wystąpiło, gdy proxy multicast zatrzymało się lub zrestartowało."
 
 msgid "Multicast proxy %s stopped or restarted (%d×) – router: check its configuration and the system log."
 msgstr "Proxy multicast %s zatrzymało się lub zrestartowało (%d×) – router: sprawdź jego konfigurację i log systemowy."
 
 msgid "No multicast proxy (igmpproxy / mcproxy) is running – fine if the IPTV VLAN is bridged, otherwise IPTV cannot work reliably."
-msgstr "Nie działa żadne proxy multicast (igmpproxy / mcproxy) – w porządku, jeśli VLAN IPTV jest zmostkowany, w przeciwnym razie IPTV nie może działać stabilnie."
+msgstr "Brak proxy multicast (igmpproxy / mcproxy) – w porządku przy zmostkowanym VLAN-ie IPTV, w innym wypadku IPTV nie będzie stabilne."
 
 msgid "WAN session dropped/restarted %d× (PPPoE/DHCP) while the cable link stayed up – ISP side (authentication, BRAS, DHCP server)."
-msgstr "Sesja WAN zerwana/zestawiona od nowa %d× (PPPoE/DHCP), choć łącze na kablu było – po stronie operatora (uwierzytelnianie, BRAS, serwer DHCP)."
+msgstr "Sesja WAN (PPPoE/DHCP) zerwana %d× przy działającym kablu – przyczyna po stronie operatora."
 
 msgid "pppd: the ISP stopped answering LCP echo requests (%d×) – line or ISP access network."
 msgstr "pppd: operator przestał odpowiadać na zapytania LCP echo (%d×) – linia lub sieć dostępowa operatora."
@@ -1116,13 +1116,13 @@ msgid "%d of %d of your reports match a measured problem."
 msgstr "%d z %d Twoich zgłoszeń pokrywa się ze zmierzonym problemem."
 
 msgid "%d of %d of your reports have nothing measured around them – the problem is not visible on this router: check the IPTV device setting, or the cause is the decoder, the TV or Wi-Fi. With a bridged IPTV VLAN the stream is measured as it comes from the ISP: when the router stops passing a channel to one port only (another decoder keeps it), that is not seen either."
-msgstr "%d z %d Twoich zgłoszeń nie ma wokół siebie żadnego pomiaru – problemu nie widać na tym routerze: sprawdź ustawienie urządzenia IPTV albo przyczyną jest dekoder, telewizor lub Wi-Fi. Przy mostkowanym VLAN-ie IPTV strumień jest mierzony tak, jak przychodzi od operatora: gdy router przestaje przekazywać kanał tylko na jeden port (inny dekoder go trzyma), tego też nie widać."
+msgstr "%d z %d Twoich zgłoszeń bez żadnego pomiaru w pobliżu – problemu nie widać na routerze. Przyczyną może być dekoder, telewizor, Wi-Fi albo zła konfiguracja IPTV w ustawieniach."
 
 msgid "%d of %d IPTV freezes: the router stopped sending to the decoder while everything else was fine – IGMP snooping/querier on the router."
-msgstr "%d z %d zawieszeń IPTV: router przestał wysyłać do dekodera, choć reszta działała – IGMP snooping/querier na routerze."
+msgstr "%d z %d zacięć IPTV – router przestał wysyłać kanał do dekodera. Przyczyna: IGMP snooping/querier na routerze."
 
 msgid "%d of %d IPTV freezes: multicast stopped arriving from the ISP while Internet and ports were fine – ISP IPTV/multicast side (less often an IGMP issue on the router)."
-msgstr "%d z %d zawieszeń IPTV: multicast przestał przychodzić od operatora, choć Internet i porty działały – strona IPTV/multicast operatora (rzadziej problem z IGMP na routerze)."
+msgstr "%d z %d zacięć IPTV – operator przestał nadawać, a Internet i porty działały. Przyczyna: najpewniej operator."
 
 msgid "IGMP snooping is on but the querier is off on %s – streams can time out on the switch."
 msgstr "IGMP snooping włączony, ale querier wyłączony na %s – strumienie mogą wygasać na switchu."
@@ -1194,10 +1194,10 @@ msgid "VLAN %d on %s"
 msgstr "VLAN %d na %s"
 
 msgid "IPTV stream ended: decoder switched off (no channel subscribed)"
-msgstr "Strumień IPTV zakończony: dekoder wyłączony (brak subskrybowanego kanału)"
+msgstr "Strumień IPTV zakończony – dekoder wyłączony"
 
 msgid "IPTV stream ended: it reached no device at home (nobody watching, not an outage)"
-msgstr "Strumień IPTV zakończony: nie trafiał do żadnego urządzenia w domu (nikt nie oglądał, nie awaria)"
+msgstr "Strumień IPTV zakończony – nikt go nie oglądał (nie awaria)"
 
 msgid "IPTV stream did not come back within %s (channel still subscribed: outage)"
 msgstr "Strumień IPTV nie wrócił w ciągu %s (kanał nadal subskrybowany: awaria)"
@@ -1304,11 +1304,11 @@ msgstr "Liczy zgubione pakiety (błędy ciągłości MPEG-TS) w strumieniu IPTV 
 msgid "Fault from (errors per minute)"
 msgstr "Awaria od (błędów na minutę)"
 
-msgid "IPTV picture errors: %d lost-packet gaps (~%d packets) within %s, channel %s"
-msgstr "Błędy obrazu IPTV: %d przerw w pakietach (~%d pakietów) w ciągu %s, kanał %s"
+msgid "%s: ~%d IPTV packets lost in %s (%d gaps) – possible picture glitch"
+msgstr "%s: zgubione pakiety IPTV ~%d w %s (przerw: %d) – możliwe zakłócenie obrazu"
 
 msgid "Lost packets were counted in the IPTV stream (%d×) – the picture glitches come with the stream itself: ISP IPTV/multicast side, not your home network."
-msgstr "W strumieniu IPTV policzono zgubione pakiety (%d×) – zakłócenia obrazu przychodzą razem ze strumieniem: po stronie IPTV/multicastu operatora, nie w Twojej sieci domowej."
+msgstr "Zgubione pakiety w strumieniu IPTV (%d×) – przyszły już od operatora, nie z sieci domowej."
 
 msgid "Lost-packet gaps within one minute that are logged as a fault."
 msgstr "Przerwy w pakietach w ciągu jednej minuty, od których zapisywana jest awaria."
@@ -1365,7 +1365,7 @@ msgid "the measuring helper stopped, restarting"
 msgstr "program pomiarowy przestał działać, ponowne uruchamianie"
 
 msgid "%d of %d IPTV freezes seen by %s did not happen here – the stream is lost between the routers (cable, the second router, its Wi-Fi or switch), not at the ISP."
-msgstr "%d z %d zamrożeń IPTV widzianych przez %s nie wystąpiło tutaj – strumień ginie między routerami (kabel, drugi router, jego Wi-Fi lub switch), nie u operatora."
+msgstr "%d z %d zacięć IPTV z %s nie było tutaj – strumień ginie między routerami (kabel, drugi router, switch), nie u operatora."
 
 msgid "Router %s stopped reporting %d× – switched off, rebooted or the cable between the routers."
 msgstr "Router %s przestał się zgłaszać %d× – wyłączony, restart albo kabel między routerami."
@@ -1500,13 +1500,13 @@ msgid "MAC address"
 msgstr "Adres MAC"
 
 msgid "Path snapshots (%d): the loss started at hop %d (%s) and carried on to the destination (%d× there) – inside the ISP's network or beyond; the hops before it were fine. Show this to the ISP."
-msgstr "Migawki trasy (%d): straty zaczynały się od hopa %d (%s) i ciągnęły do celu (%d× tam) – w sieci operatora lub dalej; hopy przed nim były w porządku. Pokaż to operatorowi."
+msgstr "Traceroute (%d): straty od hopa %d (%s) aż do celu (%d×) – w sieci operatora lub dalej. Pokaż to operatorowi."
 
 msgid "Path snapshots (%d): the loss started already at the first hop (%s) – the access line or the ISP's first router."
-msgstr "Migawki trasy (%d): straty zaczynały się już na pierwszym hopie (%s) – łącze dostępowe lub pierwszy router operatora."
+msgstr "Traceroute (%d): straty od pierwszego hopa (%s) – łącze dostępowe lub pierwszy router operatora."
 
 msgid "Path snapshot (%s) to %s"
-msgstr "Migawka trasy (%s) do %s"
+msgstr "Sprawdzenie trasy (%s) do %s"
 
 msgid "(%s after the loss started)"
 msgstr "(%s po początku strat)"
@@ -1515,7 +1515,7 @@ msgid "no result"
 msgstr "brak wyniku"
 
 msgid "no loss to the destination any more – the loss was over, or only ICMP replies of a router on the way were slow"
-msgstr "już bez strat do celu – straty minęły albo tylko router po drodze wolno odpowiadał na ICMP"
+msgstr "bez strat do celu – straty już minęły"
 
 msgid "loss from the first hop (%s) to the destination – the access line or the ISP's first router"
 msgstr "straty od pierwszego hopa (%s) do celu – łącze dostępowe lub pierwszy router operatora"
@@ -1551,7 +1551,7 @@ msgid "At most every (s)"
 msgstr "Najwyżej co (s)"
 
 msgid "Bufferbloat %d×: the ping went up by as much as %d ms only while the link was full (%s) – your own traffic fills a buffer in the modem or at the ISP. Not an outage and not the ISP's fault: SQM (luci-app-sqm, cake) set a bit below the line speed fixes it."
-msgstr "Bufferbloat %d×: ping rósł nawet o %d ms tylko wtedy, gdy łącze było pełne (%s) – własny ruch zapełnia bufor w modemie lub u operatora. To nie awaria i nie wina operatora: pomoże SQM (luci-app-sqm, cake) ustawione nieco poniżej prędkości łącza."
+msgstr "Bufferbloat %d×: ping rósł do +%d ms przy pełnym łączu (%s) – to nie awaria. Pomoże SQM (luci-app-sqm, cake) ustawione nieco poniżej prędkości łącza."
 
 msgid "upload"
 msgstr "wysyłanie"
@@ -1647,7 +1647,7 @@ msgid "Off"
 msgstr "Wyłączone"
 
 msgid "%d of %d IPTV freezes happened while a decoder (%s) restarted – the decoder, not a lost stream; not counted against the ISP."
-msgstr "%d z %d zamrożeń IPTV wystąpiło podczas restartu dekodera (%s) – to dekoder, nie zniknięcie streamu; nie liczy się przeciw operatorowi."
+msgstr "%d z %d zacięć IPTV – przy restarcie dekodera (%s). Wina dekodera, nie operatora."
 
 msgid "Decoder %s restarted %d× – power supply, firmware update or overheating (or someone switched it off and on)."
 msgstr "Dekoder %s restartował się %d× – zasilacz, aktualizacja oprogramowania lub przegrzewanie (albo ktoś go wyłączył i włączył)."
@@ -1683,7 +1683,7 @@ msgid "%d when the decoder was switched off"
 msgstr "%d przy wyłączeniu dekodera"
 
 msgid "%d of %d IPTV freezes came when the only decoder watching (%s) was switched off – the end of watching, not a lost stream; not counted against the ISP."
-msgstr "%d z %d zamrożeń IPTV przyszło przy wyłączeniu jedynego oglądającego dekodera (%s) – to koniec oglądania, nie zniknięcie streamu; nie liczy się przeciw operatorowi."
+msgstr "%d z %d zacięć IPTV – to wyłączenie dekodera (%s), nie awaria. Nie liczone przeciw operatorowi."
 
 msgid "Decoder %s"
 msgstr "Dekoder %s"
@@ -1740,10 +1740,10 @@ msgid "e.g. Living room"
 msgstr "np. Salon"
 
 msgid "IPv6 did not work while IPv4 did (%d×, %s in total, longest %s) – browsers try IPv6 first, so pages load slowly or hang. ISP IPv6 (prefix, routing) – ask them to check it, or switch IPv6 off as a workaround."
-msgstr "IPv6 nie działało, gdy IPv4 działało (%d×, łącznie %s, najdłużej %s) – przeglądarki najpierw próbują IPv6, więc strony ładują się wolno albo wiszą. IPv6 operatora (prefiks, routing) – poproś o sprawdzenie albo tymczasowo wyłącz IPv6."
+msgstr "IPv6 nie działało przy działającym IPv4 (%d×, łącznie %s, najdłużej %s) – strony ładują się wolno. Przyczyna: IPv6 u operatora. Zgłoś to albo tymczasowo wyłącz IPv6."
 
 msgid "IPv6 prefix from the ISP lost %d× / changed %d× – devices at home lose or change their IPv6 addresses, open connections break. ISP DHCPv6 (prefix delegation)."
-msgstr "Prefiks IPv6 od operatora utracony %d× / zmieniony %d× – urządzenia w domu tracą lub zmieniają adresy IPv6, otwarte połączenia się zrywają. DHCPv6 operatora (delegacja prefiksu)."
+msgstr "Prefiks IPv6 utracony %d× / zmieniony %d× – zrywa połączenia urządzeń w domu. Przyczyna: DHCPv6 operatora."
 
 msgid "No IPv6 router advertisement from the ISP (%d×) – the IPv6 default route vanished. ISP side (less often the router's firewall dropping ICMPv6)."
 msgstr "Brak ogłoszeń routera IPv6 (RA) od operatora (%d×) – zniknęła domyślna trasa IPv6. Po stronie operatora (rzadziej firewall routera blokujący ICMPv6)."
@@ -1758,7 +1758,7 @@ msgid "Packet loss over IPv6 only (%d×) – ISP IPv6 routing."
 msgstr "Straty pakietów tylko po IPv6 (%d×) – routing IPv6 operatora."
 
 msgid "DNS failed %d× while ping worked – pages do not open although the line is fine. The upstream DNS server (the ISP's, or the one set in the router) does not answer: try another one."
-msgstr "DNS zawiódł %d×, gdy ping działał – strony się nie otwierają, choć łącze jest w porządku. Nadrzędny serwer DNS (operatora albo ustawiony w routerze) nie odpowiada: spróbuj innego."
+msgstr "DNS zawiódł %d× przy działającym pingu – strony się nie otwierają, choć łącze działa. Ustaw inny serwer DNS."
 
 msgid "DNS server %s retried or failed many queries (%d×) – slow or overloaded; consider another server."
 msgstr "Serwer DNS %s ponawiał lub nie obsłużył wielu zapytań (%d×) – wolny lub przeciążony; rozważ inny serwer."
@@ -1773,7 +1773,7 @@ msgid "The router restarted %d× – a power cut, a crash or on purpose. Problem
 msgstr "Router uruchomił się ponownie %d× – zanik zasilania, awaria albo celowo. Problemy w tych chwilach nie są winą operatora."
 
 msgid "Not measured for %s in this period (%d×: router off, monitoring off) – nothing is known about that time."
-msgstr "Brak pomiarów przez %s w tym okresie (%d×: router wyłączony, monitorowanie wyłączone) – o tym czasie nic nie wiadomo."
+msgstr "Brak pomiarów przez %s (%d×: router lub monitorowanie wyłączone)."
 
 msgid "IPv6 does not work for %s while IPv4 does – pages load slowly (the browser tries IPv6 first)"
 msgstr "IPv6 nie działa od %s, choć IPv4 działa – strony ładują się wolno (przeglądarka najpierw próbuje IPv6)"
@@ -1886,8 +1886,8 @@ msgstr "dzierżawa %s"
 msgid "server %s"
 msgstr "serwer %s"
 
-msgid "Decoder %s asked for an address from scratch (restarted or lost its lease): %s"
-msgstr "Dekoder %s poprosił o adres od nowa (restart lub utrata dzierżawy): %s"
+msgid "Decoder %s took an address anew (switched on or restarted): %s"
+msgstr "Dekoder %s pobrał adres od nowa (włączenie lub restart): %s"
 
 msgid "Decoder %s: address CHANGED %s → %s – the operator gave it a new one, the picture may stop for a moment"
 msgstr "Dekoder %s: ZMIANA adresu %s → %s – operator dał nowy, obraz może na chwilę stanąć"
@@ -2286,22 +2286,22 @@ msgid "Lease renewals and address changes from the operator. In a bridged IPTV V
 msgstr "Odnowienia dzierżawy i zmiany adresu od operatora. W mostkowanym VLAN-ie IPTV dzierżawy nie ma w routerze, więc pomocnik pomiarowy (isp-tester-tsmon) zapisuje też odpowiedzi DHCP operatora w tym VLAN-ie; gdy to router nadaje dekoderom adresy, używane są komunikaty dnsmasq z logu systemowego dla dekoderów nazwanych poniżej."
 
 msgid "%d of %d IPTV freezes happened while the operator sent no IGMP queries – the memberships expire without them: ISP multicast side, not the router."
-msgstr "%d z %d zawieszeń IPTV wystąpiło, gdy operator nie wysyłał zapytań IGMP – bez nich członkostwa wygasają: strona multicastu operatora, nie router."
+msgstr "%d z %d zacięć IPTV – gdy operator nie wysyłał zapytań IGMP i kanały wygasały. Przyczyna: operator."
 
 msgid "The operator's IGMP queries stopped %d× (see the timeline)."
 msgstr "Zapytania IGMP od operatora ustały %d× (zobacz oś czasu)."
 
 msgid "No IGMP query from the operator was seen in %d min although IPTV freezes occurred – the ISP side does not keep the memberships alive (check that the capture port faces the ISP)."
-msgstr "Przez %d min nie widziano zapytania IGMP od operatora, mimo zawieszeń IPTV – operator nie podtrzymuje członkostw (sprawdź, czy port nasłuchu jest skierowany do operatora)."
+msgstr "Brak zapytań IGMP od operatora przez %d min, a IPTV się zacinało – operator nie podtrzymuje kanałów (sprawdź, czy port nasłuchu jest od strony operatora)."
 
 msgid "No light came from the line (SFP RX at the noise floor, %d×) – the fibre is broken or unplugged, a connector is dirty or loose, or the ISP's equipment is down. Hard evidence of a fault in the line, not in the router: clean and re-seat the connector first, then show this to the ISP."
-msgstr "Z linii nie dochodziło światło (SFP RX na poziomie szumu, %d×) – włókno jest zerwane lub wypięte, złącze brudne lub luźne albo sprzęt operatora nie działa. Twardy dowód awarii linii, nie routera: najpierw wyczyść i wepnij złącze, potem pokaż to operatorowi."
+msgstr "Brak światła z linii (SFP RX, %d×) – włókno, złącze albo sprzęt operatora, nie router. Wyczyść i wepnij złącze; jeśli nie pomoże – zgłoś operatorowi."
 
 msgid "The received optical power fell %d× (by up to %s dB, down to %s dBm) – a fault in the line: fibre bent or damaged, a dirty or loose connector, a splitter or the ISP's side. Hard evidence, no ping can show it."
-msgstr "Odbierana moc optyczna spadła %d× (maks. o %s dB, do %s dBm) – awaria linii: zagięte lub uszkodzone włókno, brudne lub luźne złącze, splitter albo strona operatora. Twardy dowód, którego nie pokaże żaden ping."
+msgstr "Sygnał optyczny spadł %d× (o %s dB, do %s dBm) – zagięte włókno, brudne złącze, splitter albo operator. Mocny dowód dla operatora."
 
 msgid "%d Internet problems happened while the optical signal was weak or gone – they have the same cause, in the line."
-msgstr "%d problemów z Internetem wystąpiło przy słabym lub zaniklym sygnale optycznym – mają wspólną przyczynę, w linii."
+msgstr "%d problemów z Internetem przy słabym sygnale optycznym – wspólna przyczyna w linii."
 
 msgid "The SFP module raised an alarm (%d×: %s) – overheating, laser current or voltage; the module may be failing."
 msgstr "Moduł SFP zgłosił alarm (%d×: %s) – przegrzanie, prąd lasera lub napięcie; moduł może się psuć."
@@ -2781,10 +2781,10 @@ msgid "Switches IGMP snooping off in the bridge's other VLANs: they have no quer
 msgstr "Wyłącza IGMP snooping w pozostałych VLAN-ach bridge'a: nie mają queriera, a przy włączonym snoopingu ich multicast (np. wykrywanie urządzeń) mógłby wygasać."
 
 msgid "%d of %d IPTV freezes came within a minute and a half of the IGMP querier passing from the ISP to the router – the ISP asks irregularly, and during the 255 s hand-over it lets the channel expire. Fix on the router: Settings → IPTV → IGMP querier → Who asks: “Only the router”; also worth reporting to the ISP."
-msgstr "%d z %d zacięć IPTV nastąpiło w ciągu półtorej minuty od przejścia queriera IGMP od operatora do routera – operator pyta nieregularnie, a w czasie 255-sekundowego przejęcia pozwala kanałowi wygasnąć. Naprawa na routerze: Ustawienia → IPTV → Querier IGMP → Kto pyta: „Tylko router”; warto też zgłosić to operatorowi."
+msgstr "%d z %d zacięć IPTV – do 1,5 min po przejęciu queriera IGMP przez router (operator pyta nieregularnie). Naprawa: Ustawienia → IPTV → Querier IGMP → „Tylko router”."
 
 msgid "%d of %d IPTV freezes happened while nobody sent IGMP queries on the IPTV VLAN – the channels expire. Switch the router's querier on: Settings → IPTV → IGMP querier → Who asks."
-msgstr "%d z %d zacięć IPTV nastąpiło, gdy nikt nie wysyłał zapytań IGMP w VLAN-ie IPTV – kanały wygasają. Włącz querier routera: Ustawienia → IPTV → Querier IGMP → Kto pyta."
+msgstr "%d z %d zacięć IPTV – nikt nie wysyłał zapytań IGMP, więc kanały wygasały. Włącz querier: Ustawienia → IPTV → Querier IGMP."
 
 msgid "The IGMP querier script cannot be written: %s (Settings → IPTV → IGMP querier)"
 msgstr "Nie można zapisać skryptu queriera IGMP: %s (Ustawienia → IPTV → Querier IGMP)"
@@ -2968,3 +2968,21 @@ msgstr "Ustawienie queriera IGMP nie może działać: jądro lub ip-full są za 
 
 msgid "The IGMP querier script did not work when it was run – see Settings → IPTV → IGMP querier and the system log (iptv-querier)"
 msgstr "Skrypt queriera IGMP nie zadziałał po uruchomieniu – zobacz Ustawienia → IPTV → Querier IGMP i log systemowy (iptv-querier)"
+
+msgid "%s: no link (device off or cable unplugged)"
+msgstr "%s: brak łącza (urządzenie wyłączone lub kabel odpięty)"
+
+msgid "cable or connector"
+msgstr "kabel lub złącze"
+
+msgid "%s: heavy packet loss (%d%%)"
+msgstr "%s: duże straty pakietów (%d%%)"
+
+msgid "Decoder %s: lease of %s ran out – probably switched off"
+msgstr "Dekoder %s: dzierżawa %s wygasła – pewnie wyłączony"
+
+msgid "the decoder is on"
+msgstr "dekoder jest włączony"
+
+msgid "this router's own address: does not test the line"
+msgstr "własny adres tego routera – nie sprawdza łącza"
