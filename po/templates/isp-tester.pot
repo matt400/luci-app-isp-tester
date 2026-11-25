@@ -2984,7 +2984,7 @@ msgstr ""
 msgid "this router's own address: does not test the line"
 msgstr ""
 
-msgid "Decoders fetched data in standby (programme guide or update): %s, %s – not watching, not an outage"
+msgid "Decoders fetched data in standby (programme guide or update): %s, %s"
 msgstr ""
 
 msgid "Decoder data stream below (kbit/s)"
