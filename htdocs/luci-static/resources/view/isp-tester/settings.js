@@ -557,6 +557,11 @@ return view.extend({
 		o.datatype = 'range(0,100)';
 		o.placeholder = '40';
 
+		o = s.taboption('advanced', form.Value, 'svc_kbps', _('Decoder data stream below (kbit/s)'),
+			_('A stream below this bitrate, without a channel name and far below the usual TV bitrate, is taken as the decoders fetching data in standby (programme guide, update) – its pauses are not logged as freezes. 0 disables.'));
+		o.datatype = 'range(0,20000)';
+		o.placeholder = '3000';
+
 		o = s.taboption('basic', form.Flag, 'quality', _('Picture quality'),
 			_('Counts lost packets (MPEG-TS continuity errors) in the IPTV stream – what a viewer sees as pixelation – continuously, every packet of the channel being watched. Needs the isp-tester-tsmon package.'));
 		o.default = '0';

@@ -11,17 +11,17 @@ function tstamp(t) {
  * has its own translated texts) */
 const MSG = {
 	en: {
-		link_down: '%s: link DOWN', link_up: '%s: link up again after %s', link_flap: '%s: link flapped',
-		speed_change: '%s: link speed %s -> %s Mbit/s', errors: '%s: %d errors, %d CRC errors', drops: '%s: %d dropped packets',
+		link_down: '%s: link DOWN', link_up: '%s: link up again after %s', link_flap: '%s: link dropped for a moment',
+		speed_change: '%s: link speed %s -> %s Mbit/s', errors: '%s: %d port errors (%d CRC)', drops: '%s: %d dropped packets',
 		dev_missing: 'Device %s disappeared', dev_present: 'Device %s is back',
-		target_degraded: '%s: degraded (loss %d%%, ping %s ms, jitter %s ms)', target_fail: '%s: not responding', target_ok: '%s: OK again after %s',
+		target_degraded: '%s: degraded (loss %d%%, ping %s ms, jitter %s ms)', target_fail: '%s: not responding (%d%% loss)', target_loss: '%s: heavy packet loss (%d%%)', target_ok: '%s: OK again after %s',
 		wan_down: 'INTERNET DOWN - no target responds', wan_up: 'Internet back after %s',
 		wan_if_down: 'WAN interface %s went down', wan_if_up: 'WAN interface %s up again after %s', wan_reconnect: 'WAN session restarted (was up %s)',
 		wan_ip_change: 'WAN address changed %s -> %s',
 		log: '%s: %s',
-		stream_stall: 'IPTV STREAM STOPPED', stream_resume: 'IPTV stream resumed after %s', stream_lost: 'IPTV stream did not come back within %s', stream_off: 'IPTV stream ended: decoder switched off (no channel subscribed)', stream_unwatched: 'IPTV stream ended: it reached no device at home (nobody watching, not an outage)',
+		stream_stall: 'IPTV STREAM STOPPED', stream_resume: 'IPTV stream resumed after %s', stream_lost: 'IPTV stream did not come back within %s', stream_off: 'IPTV stream ended: decoder switched off (no channel subscribed)', stream_unwatched: 'IPTV stream ended - nobody was watching (not an outage)', stream_svc: 'Decoders fetched data in standby (guide or update) for %s',
 		stream_dip: 'IPTV bitrate dropped to %d kbit/s',
-		ts_errors: 'IPTV picture errors: %d lost-packet gaps (~%d packets) in %ss, channel %s',
+		ts_errors: '%s: ~%d IPTV packets lost in %ss (%d gaps) - possible picture glitch',
 		proxy_down: 'Multicast proxy %s is not running', proxy_up: 'Multicast proxy %s running again', proxy_restart: 'Multicast proxy %s restarted',
 		cpu_high: 'Router CPU busy: %d%% (softirq %d%%)', mem_low: 'Router RAM low: %d%% free', conntrack_full: 'Connection table %d%% full',
 		igmp_noquery: 'No IGMP query from the operator for %s (usually every %s)', igmp_noquery_ok: 'IGMP queries from the operator again after %s',
@@ -50,22 +50,22 @@ const MSG = {
 		ntp_sync: 'Clock synchronized (NTP stratum %s)', ntp_unsync: 'Clock NOT synchronized - times in the log may be wrong',
 		ntp_off: 'No NTP client running - times in the log may be wrong', clock_step: 'Clock set by %ss',
 		maint_start: 'Maintenance until %s: not counted, no notifications (%s)', maint_end: 'Maintenance over after %s',
-		dhcp_lease: 'Decoder %s: address %s from the operator (lease %s)', dhcp_new: 'Decoder %s asked for an address anew: %s',
+		dhcp_lease: 'Decoder %s: address %s from the operator (lease %s)', dhcp_new: 'Decoder %s took an address anew (switched on or restarted): %s',
 		dhcp_ip_change: 'Decoder %s: address CHANGED %s -> %s', dhcp_nak: 'Decoder %s: operator REFUSED the lease (DHCPNAK)',
-		dhcp_expired: 'Decoder %s: lease of %s expired without renewal', dhcp_late: 'Decoder %s renewed its lease %s too late'
+		dhcp_expired: 'Decoder %s: lease of %s expired without renewal while switched on', dhcp_expired_unk: 'Decoder %s: lease of %s expired - probably switched off', dhcp_late: 'Decoder %s renewed its lease %s too late'
 	},
 	pl: {
-		link_down: '%s: BRAK ŁĄCZA', link_up: '%s: łącze wróciło po %s', link_flap: '%s: łącze mrugnęło',
-		speed_change: '%s: prędkość łącza %s -> %s Mbit/s', errors: '%s: %d błędów, %d błędów CRC', drops: '%s: %d odrzuconych pakietów',
+		link_down: '%s: BRAK ŁĄCZA', link_up: '%s: łącze wróciło po %s', link_flap: '%s: łącze na chwilę zanikło',
+		speed_change: '%s: prędkość łącza %s -> %s Mbit/s', errors: '%s: błędy portu: %d (CRC: %d)', drops: '%s: %d odrzuconych pakietów',
 		dev_missing: 'Urządzenie %s zniknęło', dev_present: 'Urządzenie %s wróciło',
-		target_degraded: '%s: problemy (straty %d%%, ping %s ms, jitter %s ms)', target_fail: '%s: nie odpowiada', target_ok: '%s: znów OK po %s',
+		target_degraded: '%s: problemy (straty %d%%, ping %s ms, jitter %s ms)', target_fail: '%s: nie odpowiada (%d%% strat)', target_loss: '%s: duże straty pakietów (%d%%)', target_ok: '%s: znów OK po %s',
 		wan_down: 'BRAK INTERNETU - żaden cel nie odpowiada', wan_up: 'Internet wrócił po %s',
 		wan_if_down: 'Interfejs WAN %s rozłączony', wan_if_up: 'Interfejs WAN %s znów działa po %s', wan_reconnect: 'Sesja WAN zestawiona od nowa (trwała %s)',
 		wan_ip_change: 'Zmiana adresu WAN %s -> %s',
 		log: '%s: %s',
-		stream_stall: 'STRUMIEŃ IPTV ZATRZYMANY', stream_resume: 'Strumień IPTV wrócił po %s', stream_lost: 'Strumień IPTV nie wrócił w ciągu %s', stream_off: 'Strumień IPTV zakończony: dekoder wyłączony (brak subskrybowanego kanału)', stream_unwatched: 'Strumień IPTV zakończony: nie trafiał do żadnego urządzenia w domu (nikt nie oglądał, nie awaria)',
+		stream_stall: 'STRUMIEŃ IPTV ZATRZYMANY', stream_resume: 'Strumień IPTV wrócił po %s', stream_lost: 'Strumień IPTV nie wrócił w ciągu %s', stream_off: 'Strumień IPTV zakończony: dekoder wyłączony (brak subskrybowanego kanału)', stream_unwatched: 'Strumień IPTV zakończony - nikt go nie oglądał (nie awaria)', stream_svc: 'Dekodery pobrały dane w czuwaniu (EPG lub aktualizacja) przez %s',
 		stream_dip: 'Bitrate IPTV spadł do %d kbit/s',
-		ts_errors: 'Błędy obrazu IPTV: %d przerw w pakietach (~%d pakietów) w %ss, kanał %s',
+		ts_errors: '%s: zgubione pakiety IPTV ~%d w %ss (przerw: %d) - możliwe zakłócenie obrazu',
 		proxy_down: 'Proxy multicast %s nie działa', proxy_up: 'Proxy multicast %s znów działa', proxy_restart: 'Proxy multicast %s zrestartowany',
 		cpu_high: 'Router przeciążony: CPU %d%% (softirq %d%%)', mem_low: 'Mało RAM: wolne %d%%', conntrack_full: 'Tablica połączeń zajęta w %d%%',
 		igmp_noquery: 'Brak zapytań IGMP od operatora od %s (zwykle co %s)', igmp_noquery_ok: 'Zapytania IGMP od operatora wróciły po %s',
@@ -94,9 +94,9 @@ const MSG = {
 		ntp_sync: 'Zegar zsynchronizowany (NTP stratum %s)', ntp_unsync: 'Zegar NIE jest zsynchronizowany - czasy w logu mogą być błędne',
 		ntp_off: 'Brak klienta NTP - czasy w logu mogą być błędne', clock_step: 'Zegar przestawiony o %ss',
 		maint_start: 'Prace serwisowe do %s: bez liczenia i powiadomień (%s)', maint_end: 'Prace serwisowe zakończone po %s',
-		dhcp_lease: 'Dekoder %s: adres %s od operatora (dzierżawa %s)', dhcp_new: 'Dekoder %s poprosił o adres od nowa: %s',
+		dhcp_lease: 'Dekoder %s: adres %s od operatora (dzierżawa %s)', dhcp_new: 'Dekoder %s pobrał adres od nowa (włączenie lub restart): %s',
 		dhcp_ip_change: 'Dekoder %s: ZMIANA adresu %s -> %s', dhcp_nak: 'Dekoder %s: operator ODMÓWIŁ dzierżawy (DHCPNAK)',
-		dhcp_expired: 'Dekoder %s: dzierżawa %s wygasła bez odnowienia', dhcp_late: 'Dekoder %s odnowił dzierżawę %s za późno'
+		dhcp_expired: 'Dekoder %s: dzierżawa %s wygasła bez odnowienia, choć dekoder jest włączony', dhcp_expired_unk: 'Dekoder %s: dzierżawa %s wygasła - pewnie wyłączony', dhcp_late: 'Dekoder %s odnowił dzierżawę %s za późno'
 	}
 };
 
@@ -136,6 +136,10 @@ function querier_name(who, addr, port, lang) {
 function event_text(e, lang) {
 	let m = MSG[lang] ?? MSG.en, d = e.d ?? {}, f = m[e.type];
 	if (e.type == 'stream_off' && d.unwatched) f = m.stream_unwatched;
+	if (e.type == 'stream_off' && d.svc) f = m.stream_svc;
+	/* "not responding" only when nothing came back: 1 of 2 pings lost was that too */
+	if (e.type == 'target_fail' && d.loss != null && d.loss < 100) f = m.target_loss;
+	if (e.type == 'dhcp_expired' && d.unk) f = m.dhcp_expired_unk;
 	if (!f) return e.type;
 	switch (e.type) {
 	case 'link_down': case 'link_flap': return sprintf(f, d.dev);
@@ -145,16 +149,17 @@ function event_text(e, lang) {
 	case 'drops': return sprintf(f, d.dev, d.n);
 	case 'dev_missing': case 'dev_present': return sprintf(f, d.dev);
 	case 'target_degraded': return sprintf(f, e.src, d.loss, d.rtt ?? '-', d.jitter ?? '-');
-	case 'target_fail': return sprintf(f, e.src);
+	case 'target_fail': case 'target_loss': return sprintf(f, e.src, d.loss ?? 100);
 	case 'target_ok': return sprintf(f, e.src, dur_txt(d.dur));
 	case 'wan_up': case 'stream_resume': case 'stream_lost': return sprintf(f, dur_txt(d.dur));
+	case 'stream_off': case 'stream_svc': return d.svc || e.type == 'stream_svc' ? sprintf(f, dur_txt(d.dur)) : f;
 	case 'wan_if_down': return sprintf(f, d.iface);
 	case 'wan_if_up': return sprintf(f, d.iface, dur_txt(d.dur));
 	case 'wan_reconnect': return sprintf(f, dur_txt(d.prev));
 	case 'wan_ip_change': return sprintf(f, d.from, d.to);
 	case 'log': return sprintf(f, d.prog, d.msg) + ((d.n > 1) ? ` (${d.n}x)` : '');
 	case 'stream_dip': return sprintf(f, d.kbps);
-	case 'ts_errors': return sprintf(f, d.cc + (d.tei ?? 0), d.lost, d.win, d.ch ? `${d.ch} (${d.grp})` : (d.grp ?? '?'));
+	case 'ts_errors': return sprintf(f, d.ch ? `${d.ch} (${d.grp})` : (d.grp ?? '?'), d.lost, d.win, d.cc + (d.tei ?? 0));
 	case 'proxy_down': case 'proxy_up': case 'proxy_restart': return sprintf(f, d.name);
 	case 'cpu_high': return sprintf(f, d.cpu, d.sirq);
 	case 'mem_low': return sprintf(f, d.pct);
@@ -214,7 +219,7 @@ function event_text(e, lang) {
 	case 'dhcp_new': return sprintf(f, e.src, d.ip);
 	case 'dhcp_ip_change': return sprintf(f, e.src, d.from, d.to);
 	case 'dhcp_nak': return sprintf(f, e.src);
-	case 'dhcp_expired': return sprintf(f, e.src, d.ip);
+	case 'dhcp_expired': case 'dhcp_expired_unk': return sprintf(f, e.src, d.ip);
 	case 'dhcp_late': return sprintf(f, e.src, dur_txt(d.late));
 	case 'data_gap': return sprintf(f, d.from ? tstamp(d.from) : '?', tstamp(d.to), dur_txt(d.len),
 		(lang == 'pl' ? GAP_WHY_PL : GAP_WHY_EN)[d.why] ?? d.why);

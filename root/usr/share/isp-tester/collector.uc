@@ -37,7 +37,7 @@
 
 import * as fs from 'fs';
 import * as uloop from 'uloop';
-import { RUNDIR, NO_UBUS, VARDIR, PROC, LOGREAD, MTR, TRACEROUTE, LEVEL, now, mono, num, write_atomic, round, worst } from './lib/common.uc';
+import { RUNDIR, NO_UBUS, VARDIR, PROC, LOGREAD, MTR, TRACEROUTE, LEVEL, now, mono, num, write_atomic, round, worst, kill_pids } from './lib/common.uc';
 import { parse_log_line } from './lib/parsers.uc';
 import { read_dev, pid_usage, read_cpus, meminfo } from './lib/sysinfo.uc';
 import { load_config } from './lib/config.uc';
@@ -87,6 +87,56 @@ let sys = { prev: null, cpu_n: 0, cpu: false, mem: false, ct: false, cpu_since: 
 let logst = { tail: null, min_ts: null, kinds: {} };
 const HOSTNAME = trim(fs.readfile(`${PROC}/sys/kernel/hostname`) ?? '') || 'OpenWrt';
 notify_init({ cfg, hostname: HOSTNAME });
+
+/* ------------------------------------------------------ one collector only */
+
+/*
+ * Two collectors at once (one left from a start by hand, or by a restart
+ * that did not end the old run) each logged every stream event: a pair 0-1 s
+ * apart, one with the channel and one without (the second run has no helper
+ * of its own), and while one saw the decoder switched off the other logged
+ * a freeze ("err") at the same second. Both rewrote the same timeline.
+ * The run started by procd (with its watchdog) ends the others and their
+ * helpers; a run started by hand while procd's runs does not start.
+ */
+function other_collectors() {
+	let me = fs.readlink(`${PROC}/self`), out = [];
+	for (let d in (fs.lsdir(PROC) ?? [])) {
+		if (!match(d, /^[0-9]+$/) || d == me) continue;
+		let c = fs.readfile(`${PROC}/${d}/cmdline`);
+		if (c && index(c, 'isp-tester/collector.uc') >= 0) push(out, int(d));
+	}
+	return out;
+}
+
+function their_helpers(pids) {
+	let set = {}, out = [];
+	for (let p in pids) set[p] = true;
+	for (let d in (fs.lsdir(PROC) ?? [])) {
+		if (!match(d, /^[0-9]+$/)) continue;
+		let st = fs.readfile(`${PROC}/${d}/stat`);
+		let f = st ? split(trim(substr(st, rindex(st, ')') + 2)), ' ') : null;
+		if (f && set[int(f[1])]) push(out, int(d));
+	}
+	return out;
+}
+
+{
+	let others = other_collectors();
+	if (length(others)) {
+		if (!getenv('ISP_TESTER_WATCHDOG')) {
+			warn(`isp-tester: the collector already runs (pid ${join(', ', others)}), not starting a second one\n`);
+			exit(1);
+		}
+		let kids = their_helpers(others);
+		warn(`isp-tester: ending an older collector (pid ${join(', ', others)})\n`);
+		kill_pids('TERM', others);
+		kill_pids('TERM', kids);
+		/* its last write of the timeline must be done before this run reads it */
+		for (let i = 0; i < 10 && length(other_collectors()); i++) system('sleep 0.5');
+		kill_pids('KILL', other_collectors());
+	}
+}
 
 /* ----------------------------------------------------------------- events */
 
@@ -1031,10 +1081,11 @@ function tick() {
 			if (!t.active) continue;
 			let r = t.res;
 			push(tl, {
-				label: t.label, host: t.host, level: r ? target_level(r) : 'unknown',
-				loss: r?.loss, rtt: r?.rtt, jitter: r?.jitter, since: t.since
+				label: t.label, host: t.host, level: r ? (t.own ? 'ok' : target_level(r)) : 'unknown',
+				loss: r?.loss, rtt: r?.rtt, jitter: r?.jitter, since: t.since, own: t.own || null
 			});
-			if (!r) continue;
+			/* the router's own address: measures nothing of the line */
+			if (!r || t.own) continue;
 			n_active++;
 			let lv = target_level(r);
 			if (lv == 'fail') n_fail++;
@@ -1241,6 +1292,7 @@ function tick() {
 
 	let state = {
 		ts: t,
+		host: HOSTNAME,
 		started: started,
 		interval: cfg.interval,
 		overall,

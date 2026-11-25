@@ -6,7 +6,7 @@
 
 import * as fs from 'fs';
 import * as uloop from 'uloop';
-import { RUNDIR, VARDIR, PROC, SYSNET, BRIDGE, PROXIES, TSMON, LEVEL, now, mono, num, round, valid_dev, valid_group, mc_ignored, write_atomic, kill_pids, worst } from './common.uc';
+import { RUNDIR, VARDIR, PROC, SYSNET, BRIDGE, PROXIES, TSMON, LEVEL, now, mono, num, round, valid_dev, valid_group, mc_ignored, write_atomic, kill_pids, worst, absf } from './common.uc';
 import { median } from './parsers.uc';
 import { rd, base, is_uplink, bridge_json, bridge_mdb } from './sysinfo.uc';
 
@@ -26,7 +26,12 @@ let iptv = {
 	acc: null,                              /* per-tick aggregate of the fast samples */
 	fw_up: 0, fw_dn: 0, fw_n: 0,            /* bytes in from the ISP / out to the home ports, last seconds of data (unwatched) */
 	fw_seen: false,                         /* this stream did reach the home ports at some point */
-	unw: false                              /* the stop being decided is of a stream nobody at home got */
+	unw: false,                             /* the stop being decided is of a stream nobody at home got */
+	/* decoders fetching data in standby (see svc_stream): typ = the usual TV
+	 * bitrate (learned), sess_avg = highest average of this stream, svc = this
+	 * stream is one, svc_q = a quiet one (not logged), svc_until = until when
+	 * a new low stream continues the data fetch just ended */
+	typ: null, sess_avg: null, svc: false, svc_q: false, svc_until: 0
 };
 /* bridged IPTV VLAN (see vlan_sample) */
 let vl = { bridge: null, upstream: null, ports: [], stats: null, mdb: null, error: null, cnt: null,
@@ -329,6 +334,14 @@ function dhcp_src(mac) {
 	return C.cfg.iptv.dec_labels[mac] || mac;
 }
 
+/* a DISCOVER at the end of the lease (± 1 min, or 5 % of a long one) or at
+ * T2 (7/8 of it): the decoder's own schedule, not a boot */
+function dhcp_on_schedule(s, t) {
+	if (s.last_ack == null || !(s.lease > 0)) return false;
+	let gap = t - s.last_ack, tol = max(60, s.lease * 0.05);
+	return absf(gap - s.lease) <= tol || absf(gap - s.lease * 0.875) <= tol;
+}
+
 function dhcp_seen(x, via) {
 	let mac = lc(`${x.mac ?? ''}`);
 	if (!match(mac, /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/)) return;
@@ -337,8 +350,18 @@ function dhcp_seen(x, via) {
 		lease: null, server: null, expired: false, via };
 	let src = dhcp_src(mac);
 	s.via = via;
-	/* an OFFER answers a DISCOVER: the decoder asks from scratch (booted) */
-	if (x.type == 2) { s.offer_t = t; s.boot_t = t; return; }
+	/* an OFFER answers a DISCOVER: the decoder asks from scratch (booted) -
+	 * unless it comes when its lease runs out (or at T2): some decoders (the
+	 * JAMBOX ones with the operator's 1 h lease) never renew, they let the lease
+	 * end and ask anew, on the hour, also in standby. Each of those was a
+	 * "decoder asked for an address anew (restart or lost lease)" every hour
+	 * and a proof of a restart for any silence around it */
+	if (x.type == 2) {
+		s.offer_t = t;
+		s.cyc = dhcp_on_schedule(s, t);
+		if (!s.cyc) s.boot_t = t;
+		return;
+	}
 	if (x.type == 6) {
 		s.naks++;
 		C.emit('warn', 'iptv', src, 'dhcp_nak', { mac, ip: s.ip, server: x.server, via });
@@ -359,17 +382,22 @@ function dhcp_seen(x, via) {
 	 * Without it (dnsmasq log, an older helper) by the schedule above */
 	if (x.renew === true) s.ci_ok = true;
 	let start = (s.ci_ok && x.renew === false) ? true : (s.ci_ok && x.renew === true) ? false : null;
-	if (start === true ||
-	    (start == null && s.last_ack != null && s.lease && t - s.last_ack > 30 && t - s.last_ack < ren * 0.9))
-		s.boot_t = t;
 	let fresh = s.offer_t != null && t - s.offer_t <= 15;
 	s.offer_t = null;
+	/* (an address asked for anew on the lease schedule has no ciaddr either:
+	 * no boot) */
+	if (!(fresh && s.cyc) && (start === true ||
+	    (start == null && s.last_ack != null && s.lease && t - s.last_ack > 30 && t - s.last_ack < ren * 0.9)))
+		s.boot_t = t;
 	if (s.ip == null)
 		C.emit('info', 'iptv', src, 'dhcp_lease', { mac, ip: x.ip, lease: x.lease, server: x.server, router: x.router, via });
 	else if (x.ip != s.ip) {
 		s.changes++;
 		C.emit('warn', 'iptv', src, 'dhcp_ip_change', { mac, from: s.ip, to: x.ip, lease: x.lease, server: x.server, via });
 	}
+	/* an OFFER before it, on the lease schedule (see above): its normal way
+	 * of keeping the address - counted as a renewal, not logged */
+	else if (fresh && s.cyc) { s.renew++; s.rebind = (s.rebind ?? 0) + 1; }
 	/* an OFFER before it: the decoder started from scratch - after a night
 	 * switched off its lease ran out, and every such morning start was a
 	 * "renewed too late" (warning, counted against the operator) */
@@ -1014,6 +1042,15 @@ function chn_name(grp) {
  * and the CSV; null when nobody watches or IGMP is not followed */
 function chn_now() {
 	if (!length(igmp.groups ?? [])) return null;
+	/* the channel being watched, when it can be told: the list of all joined
+	 * groups starts with the service groups the decoders keep joined also in
+	 * standby (guide, updates), so it was the same "224.2.2.2, 225.0.71.1,
+	 * 239.239.0.32, …" in every row and event - never the channel */
+	let cur = chn_current();
+	if (cur != null) {
+		let n = chn_name(cur);
+		return n ? `${n} (${cur})` : cur;
+	}
 	let out = [];
 	for (let g in igmp.groups) {
 		if (length(out) == 3) { push(out, '…'); break; }
@@ -1361,6 +1398,25 @@ function unwatched() {
 }
 
 /*
+ * The decoders in standby fetch data every night (~04:27: programme guide,
+ * update): a group of 1.5-2.5 Mbit/s for ~3 min, which reaches the home ports
+ * (both decoders take it) and pauses on and off while it is sent. Each pause
+ * was a freeze (err) and a "fail" sample, though nobody watched: the
+ * unwatched check does not catch it, the data did reach the decoders.
+ * Taken as such a fetch: a stream whose highest average stayed below
+ * svc_kbps, far below the usual TV bitrate (30 %, once one was learned), and
+ * whose group has no channel name (a TV or radio channel has one, from the
+ * stream's own SDT) - a radio or SD channel is not mistaken for it.
+ */
+function svc_stream() {
+	let lim = C.cfg.iptv.svc_kbps;
+	if (!(lim > 0) || iptv.sess_avg == null || iptv.sess_avg >= lim) return false;
+	if (iptv.typ != null && iptv.sess_avg >= iptv.typ * 0.3) return false;
+	let g = iptv.watch ?? chn_current();
+	return !(g != null && chn_name(g) != null);
+}
+
+/*
  * s from the start of a stop until a channel that is still subscribed may be
  * called a freeze. A decoder switched off (standby) sends an IGMP leave; the
  * bridge keeps the group in its table for its last-member time after it
@@ -1385,7 +1441,17 @@ function leave_wait() {
 
 /* the decoder was switched off: the stream stopped with nobody subscribed */
 function iptv_mark_off(w) {
-	C.emit('info', 'iptv', 'stream', 'stream_off', { avg: round(iptv.avg, 0), unwatched: iptv.unw || null }, iptv.low_w);
+	/* a data fetch of the decoders: logged once (its end), the pauses in it
+	 * and its next pieces not at all */
+	if (iptv.svc || iptv.svc_q) {
+		/* logged when no next piece came for 2 min (svc_flush) */
+		iptv.svc_until = now() + 120;
+		iptv.svc_end = iptv.low_w ?? w;
+		iptv.svc_max = max(iptv.svc_max ?? 0, iptv.sess_avg ?? 0);
+	}
+	else
+		C.emit('info', 'iptv', 'stream', 'stream_off', { avg: round(iptv.avg, 0), unwatched: iptv.unw || null }, iptv.low_w);
+	iptv.svc = iptv.svc_q = false;
 	iptv.state = 'idle';
 	iptv.since = w;
 	/* (a dip noticed while it was going off kept the card yellow -
@@ -1417,7 +1483,16 @@ function iptv_flag_stall(kbps) {
  * below min_kbps for at least stall_after seconds; its timestamp is the
  * moment the data stopped, not the moment it was noticed.
  */
+/* the decoders' data fetch is over (no next piece for 2 min): one entry */
+function svc_flush() {
+	if (iptv.svc_end == null || now() < iptv.svc_until || (iptv.state != 'idle' && iptv.svc_q)) return;
+	C.emit('info', 'iptv', 'stream', 'stream_off', { svc: 1, avg: round(iptv.svc_max, 0),
+		dur: max(1, int(iptv.svc_end - (iptv.svc_t0 ?? iptv.svc_end))) }, iptv.svc_end);
+	iptv.svc_end = iptv.svc_max = null;
+}
+
 function iptv_update(kbps, m, w, from_m, from_w) {
+	svc_flush();
 	kbps = round(kbps, 0);
 	let active = kbps >= C.cfg.iptv.min_kbps;
 	let off = false;
@@ -1461,7 +1536,14 @@ function iptv_update(kbps, m, w, from_m, from_w) {
 	switch (iptv.state) {
 	case 'idle':
 		if (active) {
-			C.emit('info', 'iptv', 'stream', 'stream_start', { kbps, ch: chn_now() });
+			/* the next piece of a data fetch just ended: not logged */
+			let lim = C.cfg.iptv.svc_kbps;
+			iptv.svc_q = lim > 0 && now() < iptv.svc_until && kbps < lim;
+			if (!iptv.svc_q) {
+				C.emit('info', 'iptv', 'stream', 'stream_start', { kbps, ch: chn_now() });
+				iptv.svc_t0 = now();
+			}
+			iptv.sess_avg = kbps;
 			iptv.state = 'playing';
 			iptv.since = w;
 			iptv.avg = kbps;
@@ -1490,7 +1572,8 @@ function iptv_update(kbps, m, w, from_m, from_w) {
 		if (m - iptv.low_m >= C.cfg.iptv.stall_after - 0.05) {
 			/* nobody subscribed: wait before calling it a fault, it may be
 			 * the decoder being switched off */
-			if (!iptv.held && unwatched()) { iptv.held = iptv.unw = true; iptv.pend = false; }
+			if (!iptv.held && svc_stream()) { iptv.held = iptv.unw = iptv.svc = true; iptv.pend = false; }
+			else if (!iptv.held && unwatched()) { iptv.held = iptv.unw = true; iptv.pend = false; }
 			else if (!iptv.held && nobody_subscribed()) { iptv.held = true; iptv.pend = false; }
 			/* still subscribed: a freeze - once a leave that came with the
 			 * stop would have emptied the bridge's table (asked again on
@@ -1678,7 +1761,8 @@ function sample_iptv(devres) {
 		iptv.avg_ch = chans;
 		if (C.cfg.iptv.dip_pct > 0 && iptv.avg > 0) {
 			let ratio = kbps * 100 / iptv.avg;
-			if (!iptv.dip && ratio < C.cfg.iptv.dip_pct) {
+			/* (a data fetch of the decoders swings on and off: no dip) */
+			if (!iptv.dip && ratio < C.cfg.iptv.dip_pct && !iptv.svc_q && !svc_stream()) {
 				iptv.dip = true;
 				iptv.dip_m = mono();
 				C.emit('warn', 'iptv', 'stream', 'stream_dip', { kbps, avg: round(iptv.avg, 0), ch: chn_now() });
@@ -1696,6 +1780,20 @@ function sample_iptv(devres) {
 		if (!iptv.dip)
 			iptv.avg = (iptv.avg ?? kbps) * 0.9 + kbps * 0.1;
 	}
+	/* the highest average of this stream, and the usual TV bitrate: from
+	 * streams that played 2 min and more, slowly forgotten (halved in ~4 h) */
+	if (ok && iptv.state == 'playing' && iptv.avg != null) {
+		if (kbps >= C.cfg.iptv.min_kbps) iptv.sess_avg = max(iptv.sess_avg ?? kbps, iptv.avg);
+		/* a quiet piece that turned out to be a channel after all: now logged */
+		if (iptv.svc_q && !(iptv.sess_avg < C.cfg.iptv.svc_kbps)) {
+			iptv.svc_q = false;
+			iptv.svc_t0 = now();
+			C.emit('info', 'iptv', 'stream', 'stream_start', { kbps, ch: chn_now() });
+		}
+		if (!iptv.svc && !iptv.svc_q && now() - iptv.since >= 120 && !iptv.dip && iptv.avg >= C.cfg.iptv.svc_kbps)
+			iptv.typ = (iptv.typ == null) ? iptv.avg : max(iptv.typ * 0.9995, iptv.avg);
+	}
+	else if (iptv.typ != null && ok) iptv.typ *= 0.9995;
 
 	return iptv_out(devres);
 }
@@ -1991,7 +2089,7 @@ function tsm_poll() {
  * times noted since the start move with it, so durations stay right */
 function iptv_shift(by) {
 	let mv = (o, ks) => { for (let k in ks) if (type(o[k]) == 'int' || type(o[k]) == 'double') o[k] += by; };
-	mv(iptv, [ 'since', 'stall_since', 'low_w', 'prev_w', 'wd_w' ]);
+	mv(iptv, [ 'since', 'stall_since', 'low_w', 'prev_w', 'wd_w', 'svc_t0', 'svc_end', 'svc_until' ]);
 	mv(igmp, [ 'proxy_since', 'last_change' ]);
 	mv(tsq, [ 'started', 'drop_ts' ]);
 	for (let g, t in igmp.joined) if (t > 0) igmp.joined[g] = t + by;
