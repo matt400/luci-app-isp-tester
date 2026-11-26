@@ -31,7 +31,12 @@ let iptv = {
 	 * bitrate (learned), sess_avg = highest average of this stream, svc = this
 	 * stream is one, svc_q = a quiet one (not logged), svc_until = until when
 	 * a new low stream continues the data fetch just ended */
-	typ: null, sess_avg: null, svc: false, svc_q: false, svc_until: 0
+	typ: null, sess_avg: null, svc: false, svc_q: false, svc_until: 0,
+	svc_t1: null,                           /* start of the data fetch whose entry is not written yet */
+	sess_named: false,                      /* a named channel played in this stream: no data fetch */
+	zap: false,                             /* the stop is a channel change, waiting for the new channel (ZAP_MAX) */
+	stall_zap: false,                       /* the stall is a new channel that did not start (yellow) */
+	tmin: null                              /* lowest bitrate of a stop not decided yet (min_note) */
 };
 /* bridged IPTV VLAN (see vlan_sample) */
 let vl = { bridge: null, upstream: null, ports: [], stats: null, mdb: null, error: null, cnt: null,
@@ -61,7 +66,12 @@ function igmpq_limit() {
 
 let tsq = { proc: null, args: null, started: 0, fails: 0, next: 0, err: null, seen: {}, drops: null, flow: null,
 	win: [], last: null, pend: {}, last_ev: {}, last_lvl: {}, cc_acc: null, dropped: 0, drop_ts: 0, read_t: null, zap_skip: 0,
-	no_u: false };   /* the helper has no -u (older isp-tester-tsmon) */
+	no_u: false,     /* the helper has no -u (older isp-tester-tsmon) */
+	peek_until: 0, peek_m: 0 };   /* read every second until then (channel change, see tsm_peek) */
+/* s the helper's output is read every second after a channel change or a
+ * start/stop of the stream: the new channel and its name (SDT, sent every
+ * <= 2 s) are known 1-3 s after the switch, not at the next tick (10 s) */
+const PEEK_S = 15;
 /* channel names: db = group -> { name, provider, sid, ts } learned from the
  * streams (or { name: null, why, ts } when a stream carries none) */
 let chn = { db: {}, err: null };
@@ -148,6 +158,7 @@ function igmp_poll() {
 	let cur = sort(g.groups);
 	if (igmp.groups != null && join(',', cur) != join(',', igmp.groups)) {
 		igmp.last_change = now();
+		tsq.peek_until = mono() + PEEK_S;
 		push(igmp.hist, { ts: now(), before: igmp.groups, after: cur });
 		if (length(igmp.hist) > 20) igmp.hist = slice(igmp.hist, -20);
 	}
@@ -1068,6 +1079,30 @@ function chn_current() {
 	return length(gs) == 1 ? gs[0] : null;
 }
 
+/* "Name (group)", or the group when its name is not known */
+function chn_label(g) {
+	if (g == null) return null;
+	let n = chn_name(g);
+	return n ? `${n} (${g})` : g;
+}
+
+/*
+ * The group carrying the TV stream right now, from a fresh read of the
+ * helper (<= 3 s old), whether still joined or not: at a channel change the
+ * decoder leaves the old group as it joins the new one, while the old data
+ * is still arriving - picked by "newest join", the channel that played was
+ * already the new one (a freeze at the switch was put on the new channel).
+ * null when the helper was not read lately or nothing flows at TV bitrate.
+ */
+function chn_playing() {
+	let f = tsq.flow;
+	if (!f || now() - f.ts > 3) return null;
+	let best = null;
+	for (let e in f.groups)
+		if ((e.idle ?? 0) <= 2 && (e.kbps ?? 0) >= C.cfg.iptv.min_kbps && (best == null || e.kbps > best.kbps)) best = e;
+	return best?.grp;
+}
+
 /* names (or groups, when not known) of the channels joined now, for C.events()
  * and the CSV; null when nobody watches or IGMP is not followed */
 function chn_now() {
@@ -1077,10 +1112,7 @@ function chn_now() {
 	 * standby (guide, updates), so it was the same "224.2.2.2, 225.0.71.1,
 	 * 239.239.0.32, …" in every row and event - never the channel */
 	let cur = chn_current();
-	if (cur != null) {
-		let n = chn_name(cur);
-		return n ? `${n} (${cur})` : cur;
-	}
+	if (cur != null) return chn_label(cur);
 	let out = [];
 	for (let g in igmp.groups) {
 		if (length(out) == 3) { push(out, '…'); break; }
@@ -1089,19 +1121,49 @@ function chn_now() {
 	return join(', ', out);
 }
 
+/* the channel fields of an IPTV event: ch = what is shown, grp = the one
+ * channel it is about (the name is filled in later when it is learned only
+ * after the event, see chn_learn) */
+function ch_fields(g) {
+	g ??= chn_current();
+	return (g != null) ? { ch: chn_label(g), grp: g } : { ch: chn_now(), grp: null };
+}
+
+/*
+ * A channel just switched to has its name only once its SDT came (every
+ * <= 2 s): the start or the resume logged at the first second of data
+ * showed the bare group ("kanał 239.239.3.35", named in the next CSV row).
+ * Events of the last 2 min about a group that just got its name get it.
+ * (An event already sent to the second router or as a notification keeps
+ * the group.)
+ */
+function chn_name_events(fresh, t) {
+	let evs = C.events ? C.events() : null, n = 0;
+	for (let i = length(evs ?? []) - 1; i >= 0; i--) {
+		let e = evs[i];
+		if (e.ts < t - 120) break;
+		if (e.host || e.area != 'iptv' || e.d?.grp == null || !fresh[e.d.grp]) continue;
+		let lbl = chn_label(e.d.grp);
+		if (e.d.ch != lbl && (e.d.ch == null || e.d.ch == e.d.grp)) { e.d.ch = lbl; n++; }
+	}
+	if (n && C.save_events) C.save_events();
+}
+
 /* names found in the streams (helper groups with .svc) */
 function chn_learn(groups) {
-	let changed = false, t = now();
+	let changed = false, t = now(), fresh = {};
 	for (let g in (groups ?? [])) {
 		if (!valid_group(g?.grp) || !g.svc?.name) continue;
 		let o = chn.db[g.grp], n = substr(`${g.svc.name}`, 0, 64);
 		if (o?.name != n || o?.sid != g.svc.sid || t - (o?.ts ?? 0) > 3600) {
+			if (!o?.name) fresh[g.grp] = true;
 			chn.db[g.grp] = { name: n, provider: g.svc.provider ? substr(`${g.svc.provider}`, 0, 64) : null,
 				sid: g.svc.sid, ts: t };
 			changed = true;
 		}
 	}
 	if (changed) chn_save();
+	if (length(fresh)) chn_name_events(fresh, t);
 }
 
 /* a stream that has played a while without a name: remember why */
@@ -1135,6 +1197,34 @@ function handle_chn_forget() {
 	fs.unlink(f);
 	chn.db = {};
 	chn_save();
+}
+
+/*
+ * The helper writes what flows once a second, the tick read it every 10 s:
+ * after a channel change the samples, the stall and the resume named the
+ * channel of up to 10 s before (or a bare group, its name not yet read), and
+ * a channel watched for a few seconds while zapping never got its name.
+ * For PEEK_S s after a change of the joined groups, a start or a stop of the
+ * stream, only what flows and the names are read every second (a few kB of
+ * JSON; the counters, errors and DHCP stay with the tick). The name comes
+ * with the channel's SDT, sent at least every 2 s, so it is known 1-3 s
+ * after the switch - sooner is not possible without the SDT.
+ */
+function tsm_peek() {
+	if (!tsq.proc || !(mono() < tsq.peek_until)) return;
+	let m = mono();
+	if (m - tsq.peek_m < 0.8) return;
+	tsq.peek_m = m;
+	let r;
+	try { r = json(fs.readfile(TSQ_STATE) || 'null'); } catch (e) { return; }
+	let t = now();
+	if (type(r?.groups) != 'array' || r.pid != tsq.proc.pid() || !(t - (r.ts ?? 0) <= 3)) return;
+	let named = [];
+	tsq.flow = { ts: t, groups: map(filter(r.groups, (g) => valid_group(g?.grp)), (g) => {
+		if (g.svc?.name) push(named, g);
+		return { grp: g.grp, kbps: g.kbps, idle: g.idle };
+	}) };
+	if (C.cfg.iptv.names && length(named)) chn_learn(named);
 }
 
 /* -------------------------------------- IGMP queries of the operator */
@@ -1249,7 +1339,9 @@ function iptv_out(devres) {
 	let level = 'ok', reasons = [];
 
 	if (iptv.state == 'stalled') {
-		level = 'fail';
+		/* the new channel did not start after a channel change: yellow, the
+		 * operator's stop of a channel being watched is red */
+		level = iptv.stall_zap ? 'warn' : 'fail';
 		push(reasons, { c: 'stream_stalled', since: iptv.stall_since });
 	}
 	else if (iptv.dip) {
@@ -1410,6 +1502,10 @@ function unwatched() {
  */
 function svc_stream() {
 	let lim = C.cfg.iptv.svc_kbps;
+	/* a named channel played in this stream (TVN HD watched for 15 s while
+	 * zapping, its end judged when the decoder had already joined the next,
+	 * still unnamed group): not a data fetch */
+	if (iptv.sess_named) return false;
 	if (!(lim > 0) || iptv.sess_avg == null || iptv.sess_avg >= lim) return false;
 	if (iptv.typ != null && iptv.sess_avg >= iptv.typ * 0.3) return false;
 	let g = iptv.watch ?? chn_current();
@@ -1444,8 +1540,11 @@ function iptv_mark_off(w) {
 	/* a data fetch of the decoders: logged once (its end), the pauses in it
 	 * and its next pieces not at all */
 	if (iptv.svc || iptv.svc_q) {
-		/* logged when no next piece came for 2 min (svc_flush) */
+		/* logged when no next piece came for 2 min (svc_flush). Its start:
+		 * of the first piece (svc_t0 is set again by the next stream that
+		 * starts before the entry is written - the fetch was "1 s") */
 		iptv.svc_until = now() + 120;
+		iptv.svc_t1 ??= iptv.svc_t0 ?? iptv.since;
 		iptv.svc_end = iptv.low_w ?? w;
 		iptv.svc_max = max(iptv.svc_max ?? 0, iptv.sess_avg ?? 0);
 	}
@@ -1458,22 +1557,69 @@ function iptv_mark_off(w) {
 	 * "bitrate much lower than usual" - for as long as it stayed off) */
 	iptv.dip = false;
 	iptv.low_m = iptv.low_w = null;
-	iptv.held = iptv.pend = iptv.unw = false;
+	iptv.held = iptv.pend = iptv.unw = iptv.zap = false;
 	iptv.hold_def = 0;
+	iptv.tmin = null;
 }
 
-/* log the start of a stall (ts = moment the data stopped) */
-function iptv_flag_stall(kbps) {
-	C.emit('err', 'iptv', 'stream', 'stream_stall', { kbps, avg: round(iptv.avg, 0),
-		groups: igmp.groups != null ? length(igmp.groups) : null, ch: chn_now() }, iptv.low_w);
+/* the low seconds of a stop not decided yet count in the minimum only once
+ * it is a freeze (or a short drop): a switch-off or a channel change are no
+ * low bitrate of the stream */
+function tmin_keep() {
+	if (iptv.tmin != null && iptv.acc)
+		iptv.acc.min = (iptv.acc.min == null) ? iptv.tmin : min(iptv.acc.min, iptv.tmin);
+	iptv.tmin = null;
+}
+
+/* log the start of a stall (ts = moment the data stopped). The channel is
+ * the one that stopped (iptv.watch), not the one being switched to: at a
+ * channel change the new group is already joined, it was the freeze's
+ * channel. zap: the new channel did not start after a channel change */
+function iptv_flag_stall(kbps, zap) {
+	let f = ch_fields(iptv.watch);
+	C.emit(zap ? 'warn' : 'err', 'iptv', 'stream', 'stream_stall', { kbps, avg: round(iptv.avg, 0),
+		groups: igmp.groups != null ? length(igmp.groups) : null, ch: f.ch, grp: f.grp, zap: zap ? 1 : null }, iptv.low_w);
 	iptv.state = 'stalled';
+	iptv.stall_zap = !!zap;
 	iptv.stall_since = iptv.low_w;
 	iptv.stall_m = iptv.low_m;
 	iptv.low_m = iptv.low_w = null;
-	iptv.held = iptv.pend = iptv.unw = false;
+	iptv.held = iptv.pend = iptv.unw = iptv.zap = false;
 	if (iptv.acc) iptv.acc.stalls++;
 	if (iptv.acc) iptv.acc.stall_s += iptv.hold_def;
 	iptv.hold_def = 0;
+	tmin_keep();
+}
+
+/* s a channel change may take before "the new channel did not start" */
+const ZAP_MAX = 15;
+
+/*
+ * The stop came with a channel change: the channel that played was left and
+ * another one joined, from 3 s before the data stopped to a sample and 2 s
+ * after it (as in igmp_classify: a change seconds later is the viewer
+ * reacting to a freeze). The gap of a zap is no freeze: it was an err
+ * stream_stall, a red "fail" sample and 15 min of a yellow card for every
+ * channel change - 11:16 / 12:35 in a real export. A group joined again
+ * that was the one playing (a decoder retrying after an outage) is no change.
+ */
+function zap_seen(from) {
+	if (!C.cfg.iptv.igmp || from == null || igmp.groups == null) return false;
+	let step = (C.cfg.iptv.sample_interval > 0) ? C.cfg.iptv.sample_interval : C.cfg.interval;
+	/* joined: up to a sample and 2 s after the stop; left: any time since
+	 * (the bridge drops a group only after its last-member time) */
+	let add = {}, rem = {};
+	for (let h in igmp.hist) {
+		if (h.ts < from - 3) continue;
+		for (let x in (h.before ?? [])) if (index(h.after ?? [], x) < 0) rem[x] = true;
+		if (h.ts > from + step + 2) continue;
+		for (let x in (h.after ?? [])) if (index(h.before ?? [], x) < 0) add[x] = true;
+	}
+	let w = iptv.watch, left = length(rem) > 0 || (w != null && index(igmp.groups, w) < 0);
+	if (!left) return false;
+	for (let x in add)
+		if (!rem[x] && index(igmp.groups, x) >= 0) return true;
+	return false;
 }
 
 /*
@@ -1484,11 +1630,23 @@ function iptv_flag_stall(kbps) {
  * moment the data stopped, not the moment it was noticed.
  */
 /* the decoders' data fetch is over (no next piece for 2 min): one entry */
-function svc_flush() {
-	if (iptv.svc_end == null || now() < iptv.svc_until || (iptv.state != 'idle' && iptv.svc_q)) return;
+/* force: a stream that is no next piece of it started (a channel): the
+ * fetch is over now */
+function svc_flush(force) {
+	if (iptv.svc_end == null || (!force && (now() < iptv.svc_until || (iptv.state != 'idle' && iptv.svc_q)))) return;
 	C.emit('info', 'iptv', 'stream', 'stream_off', { svc: 1, avg: round(iptv.svc_max, 0),
-		dur: max(1, int(iptv.svc_end - (iptv.svc_t0 ?? iptv.svc_end))) }, iptv.svc_end);
-	iptv.svc_end = iptv.svc_max = null;
+		dur: max(1, int(iptv.svc_end - (iptv.svc_t1 ?? iptv.svc_end))) }, iptv.svc_end);
+	iptv.svc_end = iptv.svc_max = iptv.svc_t1 = null;
+}
+
+/* a quiet piece (taken for the next piece of a data fetch) that is a
+ * channel after all: its start is logged now, with the time it began */
+function svc_q_end() {
+	iptv.svc_q = false;
+	svc_flush(true);
+	iptv.svc_t0 = iptv.since;
+	let f = ch_fields(iptv.watch);
+	C.emit('info', 'iptv', 'stream', 'stream_start', { kbps: round(iptv.avg, 0), ch: f.ch, grp: f.grp }, iptv.since);
 }
 
 function iptv_update(kbps, m, w, from_m, from_w) {
@@ -1505,6 +1663,7 @@ function iptv_update(kbps, m, w, from_m, from_w) {
 	let prev_def = iptv.last_def ?? 0;
 	iptv.last_def = def;
 	let was_low = iptv.state == 'stalled' || iptv.low_m != null;
+	let was_zap = !!iptv.zap;
 
 	/* a stop with nobody subscribed was not reported yet (see below): decide */
 	if (iptv.state == 'playing' && iptv.held) {
@@ -1538,17 +1697,22 @@ function iptv_update(kbps, m, w, from_m, from_w) {
 		if (active) {
 			/* the next piece of a data fetch just ended: not logged */
 			let lim = C.cfg.iptv.svc_kbps;
-			iptv.svc_q = lim > 0 && now() < iptv.svc_until && kbps < lim;
+			iptv.watch = chn_playing() ?? chn_current();
+			iptv.sess_named = iptv.watch != null && chn_name(iptv.watch) != null;
+			iptv.svc_q = lim > 0 && now() < iptv.svc_until && kbps < lim && !iptv.sess_named;
 			if (!iptv.svc_q) {
-				C.emit('info', 'iptv', 'stream', 'stream_start', { kbps, ch: chn_now() });
-				iptv.svc_t0 = now();
+				svc_flush(true);
+				let f = ch_fields(iptv.watch);
+				C.emit('info', 'iptv', 'stream', 'stream_start', { kbps, ch: f.ch, grp: f.grp });
+				iptv.svc_t0 = w;
 			}
 			iptv.sess_avg = kbps;
 			iptv.state = 'playing';
 			iptv.since = w;
 			iptv.avg = kbps;
 			iptv.dip = false;
-			iptv.watch = chn_current();
+			iptv.zap = false;
+			tsq.peek_until = mono() + PEEK_S;
 			iptv.fw_up = iptv.fw_dn = iptv.fw_n = 0;
 			iptv.fw_seen = false;
 		}
@@ -1556,10 +1720,24 @@ function iptv_update(kbps, m, w, from_m, from_w) {
 
 	case 'playing':
 		if (active) {
+			/* the data is back: a channel change is over (not counted as a
+			 * stall, nor its seconds in the minimum), a short drop is kept */
+			if (iptv.zap) {
+				iptv.zap = false;
+				iptv.hold_def = 0;
+				iptv.tmin = null;
+			}
+			else tmin_keep();
 			iptv.low_m = iptv.low_w = null;
-			/* the channel being watched, for telling "switched off" from a freeze */
-			let cur = chn_current();
-			if (cur != null || !length(igmp.groups ?? [])) iptv.watch = cur;
+			/* the channel being watched, for telling "switched off" from a
+			 * freeze: the group the data flows on when the helper was just
+			 * read (a joined group may already be the next channel) */
+			let fresh = tsq.flow && now() - tsq.flow.ts <= 3;
+			let cur = chn_playing() ?? (fresh ? null : chn_current());
+			if (cur != null) iptv.watch = cur;
+			else if (!length(igmp.groups ?? [])) iptv.watch = null;
+			if (iptv.watch != null && chn_name(iptv.watch) != null) iptv.sess_named = true;
+			if (iptv.svc_q && iptv.sess_named) svc_q_end();
 			break;
 		}
 		if (iptv.low_m == null) {
@@ -1567,9 +1745,24 @@ function iptv_update(kbps, m, w, from_m, from_w) {
 			iptv.low_w = from_w;
 			/* the freeze probably began inside the previous interval */
 			iptv.missing = prev_def;
+			tsq.peek_until = mono() + PEEK_S;
 		}
 		iptv.missing += def;
+		/* a channel change: wait for the new channel (ZAP_MAX s), no freeze;
+		 * switched off on the way (nothing joined any more): as below */
+		if (iptv.zap) {
+			if (length(igmp.groups ?? [ 1 ]) == 0) { iptv.zap = false; iptv.held = true; }
+			else {
+				if (m - iptv.low_m >= ZAP_MAX - 0.05) iptv_flag_stall(kbps, true);
+				break;
+			}
+		}
 		if (m - iptv.low_m >= C.cfg.iptv.stall_after - 0.05) {
+			if (!iptv.held && !iptv.unw && zap_seen(iptv.low_w)) {
+				iptv.zap = true;
+				iptv.pend = false;
+				break;
+			}
 			/* nobody subscribed: wait before calling it a fault, it may be
 			 * the decoder being switched off */
 			if (!iptv.held && svc_stream()) { iptv.held = iptv.unw = iptv.svc = true; iptv.pend = false; }
@@ -1589,27 +1782,34 @@ function iptv_update(kbps, m, w, from_m, from_w) {
 		if (active) {
 			/* data came back somewhere inside the last interval */
 			let dur = round(iptv.missing + def, 0);
+			let f = ch_fields(chn_playing());
 			C.emit('warn', 'iptv', 'stream', 'stream_resume', { dur: dur < 1 ? 1 : dur, kbps,
-				igmp: igmp_classify(iptv.stall_since), ch: chn_now() });
+				igmp: igmp_classify(iptv.stall_since), ch: f.ch, grp: f.grp });
 			iptv.state = 'playing';
+			iptv.stall_zap = false;
 			iptv.dip = false;
+			tsq.peek_until = mono() + PEEK_S;
 		}
 		else {
 			iptv.missing += def;
 		}
 		if (iptv.state == 'stalled' && m - iptv.stall_m >= C.cfg.iptv.idle_after) {
+			let f = ch_fields(null);
 			C.emit('warn', 'iptv', 'stream', 'stream_lost', { dur: round(m - iptv.stall_m, 0),
-				groups: igmp.groups != null ? length(igmp.groups) : null, left: watch_left() || null, ch: chn_now() });
+				groups: igmp.groups != null ? length(igmp.groups) : null, left: watch_left() || null, ch: f.ch, grp: f.grp });
 			iptv.state = 'idle';
+			iptv.stall_zap = false;
 			iptv.since = w;
 			iptv.dip = false;
 		}
 		break;
 	}
 
-	if (iptv.acc && !off && (was_low || iptv.state == 'stalled' || iptv.low_m != null)) {
+	/* (the second a channel change ended in is not a stall's either) */
+	let zap_over = was_zap && !iptv.zap && iptv.state == 'playing';
+	if (iptv.acc && !off && !zap_over && (was_low || iptv.state == 'stalled' || iptv.low_m != null)) {
 		/* (the seconds of a stop still undecided go to the stall only when it is one) */
-		if (iptv.held || iptv.pend) iptv.hold_def += def;
+		if (iptv.held || iptv.pend || iptv.zap) iptv.hold_def += def;
 		else iptv.acc.stall_s += def;
 	}
 }
@@ -1623,10 +1823,23 @@ function iptv_counters() {
 	return (b == null || p == null) ? null : { b, p };
 }
 
+/* the lowest bitrate of the stream in this tick (a = iptv.acc), after
+ * iptv_update: only seconds it played (the idle seconds before a start gave
+ * "min 14 kbit/s" next to 3 Mbit/s); those of a stop not decided yet only
+ * once it is a freeze or a short drop (tmin_keep), not a switch-off or a
+ * channel change */
+function min_note(a, kbps) {
+	if (iptv.state == 'stalled' || (iptv.state == 'playing' && iptv.low_m == null)) {
+		if (a.min == null || kbps < a.min) a.min = kbps;
+	}
+	else if (iptv.state == 'playing' && (iptv.tmin == null || kbps < iptv.tmin)) iptv.tmin = kbps;
+}
+
 /* fast sampler: one counter reading per sample_interval */
 function iptv_fast_sample() {
 	if (C.cfg.iptv.vlan) vlan_sample();
 	igmp_poll();
+	tsm_peek();
 	let c = iptv_counters(), m = mono(), w = now();
 	if (!c) {
 		iptv.prev = null;
@@ -1641,8 +1854,8 @@ function iptv_fast_sample() {
 		a.pkts += c.p - p.p;
 		a.dt += dt;
 		a.n++;
-		if (a.min == null || kbps < a.min) a.min = kbps;
 		iptv_update(kbps, m, w, iptv.prev_m, iptv.prev_w);
+		min_note(a, kbps);
 		/* in from the ISP / out to the home, while the data flows (unwatched);
 		 * a port added to the VLAN makes the sum jump: not counted */
 		if (c.d == null || p.d == null || c.d < p.d) iptv.fw_n = 0;
@@ -1749,7 +1962,7 @@ function sample_iptv(devres) {
 	 * seconds go to hold_def, not stall_s, so the tick in which a decoder was
 	 * switched off looked like a whole tick at a third of the usual rate - a
 	 * stream_dip at every switch-off, and that tick lowered the average */
-	if (ok && iptv.state == 'playing' && !iptv.held && !iptv.pend && !(iptv.tick?.stall_s > 0) && kbps >= C.cfg.iptv.min_kbps) {
+	if (ok && iptv.state == 'playing' && !iptv.held && !iptv.pend && !iptv.zap && !(iptv.tick?.stall_s > 0) && kbps >= C.cfg.iptv.min_kbps) {
 		/* another channel has its own bitrate: from an HD channel (8 Mbit/s)
 		 * to an SD one (3) was a "dip", and as the average is held during a
 		 * dip, the card stayed yellow for as long as the SD channel played */
@@ -1765,7 +1978,8 @@ function sample_iptv(devres) {
 			if (!iptv.dip && ratio < C.cfg.iptv.dip_pct && !iptv.svc_q && !svc_stream()) {
 				iptv.dip = true;
 				iptv.dip_m = mono();
-				C.emit('warn', 'iptv', 'stream', 'stream_dip', { kbps, avg: round(iptv.avg, 0), ch: chn_now() });
+				let f = ch_fields(null);
+				C.emit('warn', 'iptv', 'stream', 'stream_dip', { kbps, avg: round(iptv.avg, 0), ch: f.ch, grp: f.grp });
 			}
 			else if (iptv.dip && ratio >= C.cfg.iptv.dip_pct + 10) {
 				iptv.dip = false;
@@ -1783,13 +1997,14 @@ function sample_iptv(devres) {
 	/* the highest average of this stream, and the usual TV bitrate: from
 	 * streams that played 2 min and more, slowly forgotten (halved in ~4 h) */
 	if (ok && iptv.state == 'playing' && iptv.avg != null) {
-		if (kbps >= C.cfg.iptv.min_kbps) iptv.sess_avg = max(iptv.sess_avg ?? kbps, iptv.avg);
+		/* also the tick's own average when the whole tick played: the
+		 * running average starts at the first second (a channel ramping up,
+		 * 2 Mbit/s) and takes minutes to reach 10 Mbit/s - TVN HD watched
+		 * for 15 s while zapping stayed "below 3 Mbit/s", a data fetch */
+		if (kbps >= C.cfg.iptv.min_kbps)
+			iptv.sess_avg = max(iptv.sess_avg ?? kbps, iptv.avg, (iptv.tick && !(iptv.tick.stall_s > 0) && !iptv.low_m) ? kbps : 0);
 		/* a quiet piece that turned out to be a channel after all: now logged */
-		if (iptv.svc_q && !(iptv.sess_avg < C.cfg.iptv.svc_kbps)) {
-			iptv.svc_q = false;
-			iptv.svc_t0 = now();
-			C.emit('info', 'iptv', 'stream', 'stream_start', { kbps, ch: chn_now() });
-		}
+		if (iptv.svc_q && !(iptv.sess_avg < C.cfg.iptv.svc_kbps)) svc_q_end();
 		if (!iptv.svc && !iptv.svc_q && now() - iptv.since >= 120 && !iptv.dip && iptv.avg >= C.cfg.iptv.svc_kbps)
 			iptv.typ = (iptv.typ == null) ? iptv.avg : max(iptv.typ * 0.9995, iptv.avg);
 	}
@@ -1989,7 +2204,14 @@ function tsm_read() {
 
 		push(list, g);
 		let bad = d.cc + d.tei + (C.cfg.iptv.q_gap > 0 ? d.gaps : 0);
-		if (bad > 0 && length(filter(keys(zj), (x) => x != g.grp))) {
+		/* the first read of a group that just began to flow: the start of a
+		 * channel just switched to comes in bursts and pauses for a few
+		 * seconds while the old one is still being sent (FightBox HD: "~18
+		 * lost in 10 s, 6 gaps" at 15-16 Mbit/s, the old channel and the new
+		 * one together) - the switch, not the operator's fault. The same
+		 * group's next reads count as usual */
+		let young = tsq.seen[key] == null && (g.age ?? 0) < C.cfg.interval + 5;
+		if (bad > 0 && (young || length(filter(keys(zj), (x) => x != g.grp)))) {
 			tsq.zap_skip = (tsq.zap_skip ?? 0) + bad;
 			continue;
 		}
@@ -2089,7 +2311,7 @@ function tsm_poll() {
  * times noted since the start move with it, so durations stay right */
 function iptv_shift(by) {
 	let mv = (o, ks) => { for (let k in ks) if (type(o[k]) == 'int' || type(o[k]) == 'double') o[k] += by; };
-	mv(iptv, [ 'since', 'stall_since', 'low_w', 'prev_w', 'wd_w', 'svc_t0', 'svc_end', 'svc_until' ]);
+	mv(iptv, [ 'since', 'stall_since', 'low_w', 'prev_w', 'wd_w', 'svc_t0', 'svc_t1', 'svc_end', 'svc_until' ]);
 	mv(igmp, [ 'proxy_since', 'last_change' ]);
 	mv(tsq, [ 'started', 'drop_ts' ]);
 	for (let g, t in igmp.joined) if (t > 0) igmp.joined[g] = t + by;
@@ -2117,4 +2339,4 @@ function iptv_shift(by) {
 	if (tsq.flow) mv(tsq.flow, [ 'ts' ]);
 }
 
-export { iptv_init, iptv_shift, iptv, vl, igmp, igq, tsq, chn, dhl, dec, mem, mem_ingest, mem_host, mem_active, mem_left, mem_want, dec_watches, IGQ_RING, TSQ_STATE, TSQ_WIN, TSQ_DROP_SHOW, CHN_MAX, igmp_groups, igmp_poll, igmp_classify, proxy_process, sample_proxy, dhcp_src, dhcp_seen, dhcp_ingest, dhcp_log_line, dhcp_tick, vlan_sample, dec_fdb, dec_stream_hit, dec_poll, tsq_out, iptv_on, iptv_fast, tsq_target, chn_load, chn_save, chn_name, chn_now, chn_current, chn_learn, chn_missing, chn_out, handle_chn_forget, igmpq_ingest, igmpq_expected, igmpq_limit, igmpq_check, igmpq_out, iptv_out, nobody_subscribed, iptv_flag_stall, iptv_update, iptv_counters, iptv_fast_sample, sample_iptv, tsm_stream, igq_want, tsm_want, tsm_args, tsm_stop, tsm_start, tsq_level, tsm_read, tsm_poll };
+export { iptv_init, iptv_shift, iptv, vl, igmp, igq, tsq, chn, dhl, dec, mem, mem_ingest, mem_host, mem_active, mem_left, mem_want, dec_watches, IGQ_RING, TSQ_STATE, TSQ_WIN, TSQ_DROP_SHOW, CHN_MAX, igmp_groups, igmp_poll, igmp_classify, proxy_process, sample_proxy, dhcp_src, dhcp_seen, dhcp_ingest, dhcp_log_line, dhcp_tick, vlan_sample, dec_fdb, dec_stream_hit, dec_poll, tsq_out, iptv_on, iptv_fast, tsq_target, chn_load, chn_save, chn_name, chn_label, chn_playing, ch_fields, chn_now, chn_current, zap_seen, tsm_peek, min_note, svc_stream, PEEK_S, ZAP_MAX, chn_learn, chn_missing, chn_out, handle_chn_forget, igmpq_ingest, igmpq_expected, igmpq_limit, igmpq_check, igmpq_out, iptv_out, nobody_subscribed, iptv_flag_stall, iptv_update, iptv_counters, iptv_fast_sample, sample_iptv, tsm_stream, igq_want, tsm_want, tsm_args, tsm_stop, tsm_start, tsq_level, tsm_read, tsm_poll };

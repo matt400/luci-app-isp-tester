@@ -1360,7 +1360,7 @@ let load_hist = (name, max) => {
 	}
 	return h;
 };
-iptv_init({ cfg, emit, recent_level, events: () => events, querier_none, querier_query, querier_router });
+iptv_init({ cfg, emit, recent_level, events: () => events, save_events, querier_none, querier_query, querier_router });
 querier_init({ cfg, emit });
 wan_init({ cfg, emit, ubus: () => (ubus_conn ??= require('ubus').connect()), ubus_drop: () => { ubus_conn = null; }, ubus_objects });
 clock_init({ events: () => events, history: () => history, history_min: () => history_min,
