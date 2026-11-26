@@ -3,7 +3,7 @@
 /* IPTV module: decoder DHCP (lib/iptv.uc) */
 
 import { eq, ok, done } from './t.uc';
-import { iptv_init, iptv_update, iptv, dhcp_seen, dhl } from '../../root/usr/share/isp-tester/lib/iptv.uc';
+import { iptv_init, iptv_update, iptv, dhcp_seen, dhl, igmp, chn_now } from '../../root/usr/share/isp-tester/lib/iptv.uc';
 
 let log = [];
 const CFG = { interval: 10, iptv: { dhcp: true, dec_labels: {}, channels: {}, min_kbps: 500, stall_after: 2, idle_after: 60,
@@ -60,5 +60,12 @@ for (let i = 0; i < 10; i++) push(tv, 11400);
 log = [];
 feed(tv);
 eq('TV channel: freeze logged', log, [ 'stream_start', 'stream_stall', 'stream_resume' ]);
+
+/* ---- the channel in events and the CSV (chn_now calls chn_current) */
+igmp.groups = [ '239.1.1.1' ];
+CFG.iptv.channels = { '239.1.1.1': 'Test TV' };
+eq('the only joined group is the channel', chn_now(), 'Test TV (239.1.1.1)');
+igmp.groups = [];
+eq('nobody watches: no channel', chn_now(), null);
 
 done('test_iptv');

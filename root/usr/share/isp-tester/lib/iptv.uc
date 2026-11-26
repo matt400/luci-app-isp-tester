@@ -1038,27 +1038,6 @@ function chn_name(grp) {
 	return C.cfg.iptv.channels[grp] ?? chn.db[grp]?.name ?? null;
 }
 
-/* names (or groups, when not known) of the channels joined now, for C.events()
- * and the CSV; null when nobody watches or IGMP is not followed */
-function chn_now() {
-	if (!length(igmp.groups ?? [])) return null;
-	/* the channel being watched, when it can be told: the list of all joined
-	 * groups starts with the service groups the decoders keep joined also in
-	 * standby (guide, updates), so it was the same "224.2.2.2, 225.0.71.1,
-	 * 239.239.0.32, …" in every row and event - never the channel */
-	let cur = chn_current();
-	if (cur != null) {
-		let n = chn_name(cur);
-		return n ? `${n} (${cur})` : cur;
-	}
-	let out = [];
-	for (let g in igmp.groups) {
-		if (length(out) == 3) { push(out, '…'); break; }
-		push(out, chn_name(g) ?? g);
-	}
-	return join(', ', out);
-}
-
 /*
  * The one channel being watched now (a group), null when it cannot be told.
  * Without an IGMP querier left groups stay joined for minutes, so the list
@@ -1087,6 +1066,27 @@ function chn_current() {
 	}
 	if (best) return best;
 	return length(gs) == 1 ? gs[0] : null;
+}
+
+/* names (or groups, when not known) of the channels joined now, for C.events()
+ * and the CSV; null when nobody watches or IGMP is not followed */
+function chn_now() {
+	if (!length(igmp.groups ?? [])) return null;
+	/* the channel being watched, when it can be told: the list of all joined
+	 * groups starts with the service groups the decoders keep joined also in
+	 * standby (guide, updates), so it was the same "224.2.2.2, 225.0.71.1,
+	 * 239.239.0.32, …" in every row and event - never the channel */
+	let cur = chn_current();
+	if (cur != null) {
+		let n = chn_name(cur);
+		return n ? `${n} (${cur})` : cur;
+	}
+	let out = [];
+	for (let g in igmp.groups) {
+		if (length(out) == 3) { push(out, '…'); break; }
+		push(out, chn_name(g) ?? g);
+	}
+	return join(', ', out);
 }
 
 /* names found in the streams (helper groups with .svc) */
