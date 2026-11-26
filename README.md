@@ -105,6 +105,7 @@ The panel looks at what happened **at the same time** (within 30 s) in the selec
 | IPTV freeze that started with the IGMP membership being dropped | IGMP timeout on the router / switch |
 | Freeze period matches the bridge's IGMP membership or query interval | IGMP timer, i.e. router configuration (stronger) |
 | IPTV interruption that starts with a change of group | channel change: ignored (a change seconds later is you zapping because of the freeze: the freeze counts) |
+| The new channel does not start within 15 s of a channel change | warning (yellow) *the new channel did not start*: no fault of the channel you left; shorter zaps are not logged at all |
 | Stream gone and no channel subscribed for 15 s (`off_after`) | decoder switched off: not a fault, not counted |
 | Stream gone right when the only decoder watching was switched off (its leave, or the operator's membership running out after a power cut) | decoder switched off: not counted (*while a decoder was switched off*) |
 | Multicast proxy stopped or restarted | router |
@@ -345,8 +346,9 @@ How it works, and what it costs:
 - It counts **every packet, all the time**, as it arrives: continuity errors, transport error flags, RTP gaps and pauses. Nothing is stored and no file is written except a small status file in RAM once a second. A HD stream is about 1000 packets/s and the work per packet is a few counter checks, so it is light even on small routers (`top` shows it after enabling).
 - The collector reads the counters every interval. The thresholds count the errors **of the last minute**, so short glitches that happen once an hour or less are caught too, which short sampled captures would usually miss.
 - If the router itself is too busy to take every packet (its socket buffer overflows), those packets are reported as *not counted*, and errors at that time are not logged as the ISP's fault.
-- Zapping away and back within a few seconds stops the channel at the operator and starts it again, which looks like lost packets. Errors read while another channel was just joined are not counted (shown as *Channel changes* on the IPTV card).
+- Zapping away and back within a few seconds stops the channel at the operator and starts it again, which looks like lost packets. Errors read while another channel was just joined are not counted (shown as *Channel changes* on the IPTV card). Neither are the errors of the first read of a channel that just began to flow (its first seconds come in bursts while the old one is still being sent).
 - The channel being watched is the multicast group that carries TS, so channel changes need no setting and the log names the group. EPG/service groups are ignored. A second decoder on another channel is reported separately.
+- For 15 s after a channel change, or a start or stop of the stream, the collector reads the helper's status file every second (otherwise once per interval): the new channel and its name are known 1–3 s after the switch (the name is in the channel's SDT, which the operator sends at least every 2 s). An event logged before the name came gets it once it is read.
 - Events are limited by the same cooldown as port errors; errors held back by it are added to the next event.
 - It measures the stream **as it arrives at the router**, so lost packets found here come from the ISP side. Measured on the decoder port (direction *outgoing*), the result is only informational in the analysis.
 - The helper is started by the collector, ends with it, and is restarted (with a growing pause) if it stops.

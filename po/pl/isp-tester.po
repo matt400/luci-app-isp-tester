@@ -149,6 +149,9 @@ msgstr "Internet wrócił po %s"
 msgid "IPTV stream started (%s)"
 msgstr "Strumień IPTV ruszył (%s)"
 
+msgid "IPTV: the new channel did not start after a channel change (was %s)"
+msgstr "IPTV: nowy kanał nie ruszył po zmianie kanału (było %s)"
+
 msgid "IPTV STREAM STOPPED (was %s)"
 msgstr "IPTV STANĘŁO – przestały płynąć dane (było %s)"
 

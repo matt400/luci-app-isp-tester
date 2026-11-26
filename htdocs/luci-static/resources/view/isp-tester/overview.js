@@ -408,7 +408,9 @@ function eventText(e) {
 	case 'wan_down':        return _('INTERNET DOWN – no target responds');
 	case 'wan_up':          return _('Internet back after %s').format(fmtDur(d.dur));
 	case 'stream_start':    return _('IPTV stream started (%s)').format(fmtRate(d.kbps)) + chNote(d.ch);
-	case 'stream_stall':    return _('IPTV STREAM STOPPED (was %s)').format(fmtRate(d.avg)) + chNote(d.ch);
+	case 'stream_stall':    return (d.zap
+		? _('IPTV: the new channel did not start after a channel change (was %s)').format(fmtRate(d.avg))
+		: _('IPTV STREAM STOPPED (was %s)').format(fmtRate(d.avg))) + chNote(d.ch);
 	case 'stream_resume':   return _('IPTV stream resumed after %s').format(fmtDur(d.dur)) + igmpNote(d.igmp) + chNote(d.ch);
 	case 'stream_off':      return d.svc
 		? _('Decoders fetched data in standby (programme guide or update): %s, %s').format(fmtRate(d.avg), fmtDur(d.dur))
