@@ -291,8 +291,8 @@ function gap_check() {
 	alive_save(t);
 }
 
-/* procd's instance watchdog: report every tick; when the reports stop
- * (hung in a command), procd kills the collector and starts it again */
+/* procd's instance watchdog: report after every completed tick; when the
+ * reports stop (hung in a command, or every tick fails), procd kills the collector and starts it again */
 let wd = { err: null, last: 0, mode: null };
 
 function watchdog_ping() {
@@ -1036,7 +1036,6 @@ function handle_clear_request() {
 }
 
 function tick() {
-	watchdog_ping();
 	clk_check();
 	ntp_poll();
 	/* with due(): after the clock was set back it would not be written
@@ -1313,6 +1312,9 @@ function tick() {
 		notify: notify_status()
 	};
 	write_atomic(`${VARDIR}/state.json`, sprintf('%J', state));
+	/* only after a whole tick: one that fails every time (state.json never
+	 * written) must not keep procd's watchdog satisfied */
+	watchdog_ping();
 
 	notify_flush(false);
 }
